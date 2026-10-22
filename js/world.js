@@ -21,7 +21,7 @@ const LAYOUT = {
   yard: { c: [2, -1], r: 21, hub: [2, 1.2, -2], label: [6, 13, -1] },
   townA: { c: [68, -21], r: 23, hub: [46, 1.2, -19], label: [68, 7, -21] },
   townB: { c: [68, 20], r: 23, hub: [46, 1.2, 19], label: [68, 14, 15] },
-  biogas: { c: [0, -46], r: 23, hub: [6, 1.2, -38], label: [-2, 12, -46] },
+  biogas: { c: [0, -46], r: 30, hub: [22.5, 1.2, -36.6], label: [-9, 13, -46] },
 };
 
 const _mats = new Map();
@@ -37,6 +37,8 @@ function mat(color, extra) {
 const BOX = new THREE.BoxGeometry(1, 1, 1);
 const CYL = new THREE.CylinderGeometry(1, 1, 1, 12);
 const PACKET = new THREE.SphereGeometry(0.42, 10, 8);
+const JOINT = new THREE.SphereGeometry(1, 10, 8);
+const DOME = new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
 
 function rng(seed) {
   return () => {
@@ -158,6 +160,7 @@ export class World {
     this.buildLines();
     this.buildTrees();
     this.buildRings();
+    this.buildPersona();
 
     new ResizeObserver(() => this.resize()).observe(el);
     this.bindPicking();
@@ -201,7 +204,7 @@ export class World {
     const c = this.centers[id];
     if (!c) return;
     const s = this.spherical();
-    const radius = id.startsWith('town') ? 120 : id === 'yard' || id === 'biogas' ? 95 : 75;
+    const radius = id.startsWith('town') ? 120 : id === 'yard' || id === 'biogas' ? 90 : 75;
     this.animateTo(c, { radius, phi: Math.min(s.phi, 0.95), theta: s.theta }, 0.8);
   }
 
@@ -240,7 +243,112 @@ export class World {
           if (o.userData.asset) { this.onPick?.(o.userData.asset); return; }
         }
       }
+      const ground = new THREE.Vector3();
+      if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), ground)) {
+        this.walkTo(ground.x, ground.z);
+        this.onGround?.();
+      }
     });
+  }
+
+  // ---------- persona: the player, in hi-vis coverall and white helmet ----------
+  buildPersona() {
+    const p = (this.persona = new THREE.Group());
+    const body = new THREE.Group();
+    p.add(body);
+    const HIVIS = 0xf07c1e, STRIPE = 0xe6edf0, SKIN = 0xd6a47a, BOOT = 0x2b2b2b, HELMET = 0xf7f7f2;
+    const limb = (w, h, d) => { const geo = new THREE.BoxGeometry(w, h, d); geo.translate(0, -h / 2, 0); return geo; };
+    const part = (parent, geo, color, x, y, z) => add(parent, geo, mat(color), x, y, z);
+
+    this.legs = [-0.17, 0.17].map(x => {
+      const leg = new THREE.Group();
+      leg.position.set(x, 0.95, 0);
+      part(leg, limb(0.3, 0.8, 0.32), HIVIS, 0, 0, 0);
+      part(leg, BOX, STRIPE, 0, -0.55, 0).scale.set(0.32, 0.07, 0.34);
+      part(leg, BOX, BOOT, 0, -0.86, 0.04).scale.set(0.32, 0.18, 0.42);
+      body.add(leg);
+      return leg;
+    });
+    part(body, BOX, HIVIS, 0, 1.36, 0).scale.set(0.72, 0.84, 0.4);
+    for (const y of [1.18, 1.42]) part(body, BOX, STRIPE, 0, y, 0).scale.set(0.74, 0.07, 0.42);
+    for (const x of [-0.2, 0.2]) part(body, BOX, STRIPE, x, 1.56, 0).scale.set(0.07, 0.36, 0.42);
+    this.arms = [-0.47, 0.47].map(x => {
+      const arm = new THREE.Group();
+      arm.position.set(x, 1.74, 0);
+      part(arm, limb(0.2, 0.68, 0.22), HIVIS, 0, 0, 0);
+      part(arm, BOX, STRIPE, 0, -0.42, 0).scale.set(0.22, 0.06, 0.24);
+      part(arm, BOX, SKIN, 0, -0.76, 0).scale.set(0.16, 0.16, 0.16);
+      body.add(arm);
+      return arm;
+    });
+    part(body, BOX, SKIN, 0, 1.83, 0).scale.set(0.16, 0.1, 0.16);
+    part(body, new THREE.SphereGeometry(0.21, 14, 10), SKIN, 0, 2.02, 0);
+    part(body, BOX, 0x1f2a33, 0, 2.05, 0.18).scale.set(0.3, 0.07, 0.06); // safety glasses
+    part(body, DOME, HELMET, 0, 2.1, 0).scale.set(0.25, 0.22, 0.27);
+    part(body, new THREE.CylinderGeometry(0.29, 0.29, 0.03, 18), HELMET, 0, 2.1, 0.03);
+    part(body, BOX, HELMET, 0, 2.1, 0.26).scale.set(0.24, 0.03, 0.14); // peak
+    body.scale.setScalar(1.8);
+    this.body = body;
+
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.9, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false }));
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.14;
+    p.add(shadow);
+    p.position.set(-24, 0, 3);
+    p.rotation.y = Math.PI / 2;
+    this.scene.add(p);
+
+    this.marker = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.3, 32), new THREE.MeshBasicMaterial({ color: 0x7ad9a6, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+    this.marker.rotation.x = -Math.PI / 2;
+    this.marker.visible = false;
+    this.scene.add(this.marker);
+    this.walk = null;
+    this.walkPhase = 0;
+  }
+
+  walkTo(x, z) {
+    x = THREE.MathUtils.clamp(x, -115, 115);
+    z = THREE.MathUtils.clamp(z, -54, 100);
+    this.walk = { to: new THREE.Vector3(x, 0, z) };
+    this.marker.position.set(x, 0.16, z);
+    this.marker.visible = true;
+  }
+  walkToAsset(id) {
+    const h = this.hubs[id];
+    if (h) this.walkTo(h.x, h.z + 1.5);
+  }
+  personaAnchor() { return this.persona.position.clone().setY(5.4); }
+
+  updatePersona(dt) {
+    const p = this.persona;
+    let moving = false;
+    if (this.walk) {
+      const d = this.walk.to.clone().sub(p.position);
+      d.y = 0;
+      const dist = d.length();
+      if (dist < 0.05) {
+        this.walk = null;
+        this.marker.visible = false;
+      } else {
+        moving = true;
+        const step = Math.min(dist, 13 * dt);
+        d.normalize();
+        p.position.addScaledVector(d, step);
+        const want = Math.atan2(d.x, d.z);
+        let diff = want - p.rotation.y;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        p.rotation.y += diff * Math.min(1, dt * 12);
+      }
+    }
+    this.walkPhase += dt * (moving ? 11 : 0);
+    const swing = moving ? Math.sin(this.walkPhase) * 0.7 : 0;
+    const k = Math.min(1, dt * 10);
+    this.legs[0].rotation.x += (swing - this.legs[0].rotation.x) * k;
+    this.legs[1].rotation.x += (-swing - this.legs[1].rotation.x) * k;
+    this.arms[0].rotation.x += (-swing * 0.8 - this.arms[0].rotation.x) * k;
+    this.arms[1].rotation.x += (swing * 0.8 - this.arms[1].rotation.x) * k;
+    this.body.position.y = moving ? Math.abs(Math.sin(this.walkPhase)) * 0.18 : 0;
+    if (this.marker.visible) this.marker.scale.setScalar(1 + 0.15 * Math.sin(this._t * 6));
   }
 
   group(id) {
@@ -285,7 +393,7 @@ export class World {
     // roads
     flat(70, 5, COL.road, -55, 0, 0.07);
     flat(78, 5, COL.road, 57, 0, 0.07);
-    flat(4, 90, COL.road, -30, -2, 0.08);
+    flat(4, 78, COL.road, -30, 4, 0.08);
     flat(4, 82, COL.road, 60, 0, 0.08);
     flat(4, 82, COL.road, 78, 0, 0.08);
     for (let x = -88; x < 95; x += 6) if (x < -22 || x > 22) flat(2.2, 0.25, 0xf1ead8, x, 0, 0.09);
@@ -489,49 +597,167 @@ export class World {
     s.add(gA, gB);
   }
 
+  // POME biogas plant, laid out along the process: raw POME pond → mixing pit → AD tank + covered lagoon
+  // → scrubber → genset, with a flare branch. Instruments and motorized valves sit on the pipelines;
+  // their tag anchors go into this.instruments for the HUD.
   buildBiogas() {
     const g = this.group('biogas');
-    box(g, 44, 0.12, 17, 0xc9c3b6, 0, 0, -46);
-    const dome = new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+    this.instruments = [];
+    const Z = -46, LY = 0.8, GY = 3.2, HZ = -39.5; // process line, liquid/gas pipe heights, gas header z
+    const LIQ = 0x7d6a55, GAS = 0xd9b44a, RL = 0.28, RG = 0.3;
+    box(g, 81, 0.12, 18, 0xc9c3b6, 0.5, 0, Z);
 
-    // anaerobic digesters with membrane gas roofs
-    for (const x of [-13, -2]) {
-      add(g, new THREE.CylinderGeometry(5, 5, 6, 24), mat(0x7f9a8a), x, 3.12, -46);
-      cyl(g, 5.15, 0.4, 0x5f7468, x, 5.9, -46);
-      add(g, dome, mat(0xe9e4d6), x, 6.3, -46, 4.9, 2.6, 4.9);
-      box(g, 0.8, 1.6, 0.8, 0x8f9aa0, x + 3.6, 6, -48); // mixer drive
-      box(g, 0.25, 6, 0.25, COL.steelDark, x - 5.2, 0, -45); // access ladder
-    }
-    // double-membrane gas holder
-    cyl(g, 3.4, 0.8, 0x9aa5ab, 8, 0.12, -49.5);
-    add(g, dome, mat(0x5f8a64), 8, 0.92, -49.5, 3.3, 3.3, 3.3);
-    // gas piping between digesters, holder and engines
-    for (const [x, len] of [[-7.5, 6], [3, 6], [10, 6]]) {
-      const pipe = add(g, CYL, mat(0xd9b44a), x, 3.2, -40.6, 0.22, len, 0.22);
-      pipe.rotation.z = Math.PI / 2;
-    }
-    // CHP engine house with exhaust stacks and roof coolers
-    box(g, 8, 3.8, 5, 0xd8cfbf, 13, 0.12, -41.5);
-    box(g, 8.4, 0.35, 5.4, 0x6b7378, 13, 3.92, -41.5);
-    for (const x of [11, 15]) {
-      cyl(g, 0.38, 6.5, 0x8a9399, x, 4.2, -42.5);
-      cyl(g, 0.45, 0.3, 0x50585e, x, 10.6, -42.5);
-    }
-    box(g, 3, 0.8, 1.6, 0xa8b0b4, 13, 4.27, -40.3);
-    for (const x of [10.6, 12.4]) box(g, 1.3, 1.9, 0.08, 0x55606a, x, 0.12, -38.95);
-    // step-up transformer
-    box(g, 2.4, 2.2, 1.8, COL.xfmr, 19, 0.12, -42);
-    for (const x of [-0.6, 0, 0.6]) cyl(g, 0.12, 1, COL.porcelain, 19 + x, 2.32, -42);
-    // feedstock bunker
-    box(g, 6, 1.6, 0.4, 0xb8b0a0, -20, 0.12, -49);
-    box(g, 6, 1.6, 0.4, 0xb8b0a0, -20, 0.12, -43);
-    box(g, 0.4, 1.6, 6, 0xb8b0a0, -23, 0.12, -46);
-    add(g, new THREE.ConeGeometry(2.6, 1.8, 8), mat(0x8b6b45), -20, 1, -46, 1, 1, 1.1);
-    // safety flare
-    cyl(g, 0.22, 8, COL.steelDark, 18, 0.12, -50.5);
-    this.flame = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.6, 8), new THREE.MeshBasicMaterial({ color: 0xffa23d }));
-    this.flame.position.set(18, 9, -50.5);
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const UP = V(0, 1, 0);
+    const tag = (t, x, y, z) => this.instruments.push({ tag: t, pos: V(x, y, z) });
+    const pipe = (a, b, r, color) => {
+      const d = b.clone().sub(a), len = d.length();
+      const m = add(g, CYL, mat(color), 0, 0, 0, r, len, r);
+      m.position.copy(a).addScaledVector(d, 0.5);
+      m.quaternion.setFromUnitVectors(UP, d.normalize());
+    };
+    const run = (pts, r, color) => {
+      for (let i = 0; i < pts.length - 1; i++) pipe(pts[i], pts[i + 1], r, color);
+      for (const p of pts.slice(1, -1)) add(g, JOINT, mat(color), p.x, p.y, p.z, r * 1.15, r * 1.15, r * 1.15);
+    };
+    const horiz = (r, len, color, x, y, z, axis) => {
+      const m = add(g, CYL, mat(color), x, y, z, r, len, r);
+      if (axis === 'x') m.rotation.z = Math.PI / 2; else m.rotation.x = Math.PI / 2;
+      return m;
+    };
+    const stem = (x, y, z, h) => add(g, CYL, mat(0x9aa5ab), x, y + h / 2, z, 0.06, h, 0.06);
+
+    // instruments (sizes exaggerated so they read at map scale)
+    const mov = (t, x, y, z, axis, r) => {
+      horiz(Math.max(r * 1.7, 0.3), 0.7, 0x4b555c, x, y, z, axis);
+      stem(x, y, z, 0.9);
+      box(g, 0.75, 0.6, 0.6, 0xe6b422, x, y + 0.75, z);
+      if (axis === 'x') horiz(0.28, 0.06, 0xc0392b, x, y + 1.05, z + 0.34, 'z');
+      else horiz(0.28, 0.06, 0xc0392b, x + 0.42, y + 1.05, z, 'x');
+      tag(t, x, y + 1.7, z);
+    };
+    const emf = (t, x, y, z, axis, r) => {
+      horiz(r * 1.9, 1.1, 0x2f5f9e, x, y, z, axis);
+      stem(x, y, z, 0.6 + r);
+      box(g, 0.5, 0.45, 0.5, 0x2f5f9e, x, y + r + 0.6, z);
+      tag(t, x, y + 1.7, z);
+    };
+    const usfm = (t, x, y, z, axis, r) => {
+      for (const s of [-1, 1]) {
+        const dx = axis === 'x' ? s * 0.45 : 0, dz = axis === 'z' ? s * 0.45 : 0;
+        add(g, CYL, mat(0x2f9e72), x + dx, y + r + 0.12, z + dz, 0.12, 0.3, 0.12);
+      }
+      stem(x, y, z, 1.0);
+      box(g, 0.55, 0.6, 0.3, 0x2f9e72, x, y + 1.0, z);
+      tag(t, x, y + 1.9, z);
+    };
+    const pt = (t, x, y, z) => { stem(x, y, z, 0.8); horiz(0.28, 0.22, 0x3d7cc9, x, y + 1.05, z, 'z'); tag(t, x, y + 1.7, z); };
+    const tt = (t, x, y, z) => { stem(x, y, z, 0.8); box(g, 0.34, 0.4, 0.34, 0xc9523d, x, y + 0.8, z); tag(t, x, y + 1.7, z); };
+
+    // 1 · raw POME pond + feed pump
+    box(g, 11, 0.7, 11, 0xb59a6e, -33, 0, Z);
+    const pond = new THREE.Mesh(new THREE.PlaneGeometry(9.6, 9.6), mat(0x5e4329, { roughness: 0.4 }));
+    pond.rotation.x = -Math.PI / 2;
+    pond.position.set(-33, 0.73, Z);
+    g.add(pond);
+    box(g, 1.4, 0.2, 2.6, 0x8a9096, -26.4, 0, Z + 0.6);
+    horiz(0.45, 0.45, 0x2f7fbf, -26.4, LY, Z, 'z');
+    horiz(0.33, 1.2, 0x24639a, -26.4, LY, Z + 1.1, 'z');
+    tag('P-101', -26.4, 2.1, Z + 0.6);
+    run([V(-28.2, LY, Z), V(-21.5, LY, Z)], RL, LIQ);
+    mov('MOV-101', -24.9, LY, Z, 'x', RL);
+    emf('FIT-101', -23.1, LY, Z, 'x', RL);
+
+    // 2 · mixing pit: mixer on a bridge + radar level transmitter
+    box(g, 5, 1.5, 5, 0xa9a49a, -19, 0, Z);
+    const slurry = new THREE.Mesh(new THREE.PlaneGeometry(4.3, 4.3), mat(0x5e4329, { roughness: 0.4 }));
+    slurry.rotation.x = -Math.PI / 2;
+    slurry.position.set(-19, 1.52, Z);
+    g.add(slurry);
+    box(g, 5.4, 0.25, 0.7, COL.steel, -19, 1.5, Z);
+    box(g, 0.7, 0.4, 0.7, 0x24639a, -19, 1.75, Z);
+    cyl(g, 0.38, 0.9, 0x2f7fbf, -19, 2.15, Z);
+    tag('M-201', -19, 3.6, Z);
+    box(g, 0.15, 1.3, 0.15, COL.steelDark, -16.8, 1.5, Z + 2.2);
+    box(g, 0.9, 0.12, 0.12, COL.steelDark, -17.2, 2.7, Z + 2.2);
+    const horn = add(g, new THREE.ConeGeometry(0.22, 0.45, 10), mat(0x9aa5ab), -17.6, 2.35, Z + 2.2);
+    horn.rotation.x = Math.PI;
+    box(g, 0.36, 0.36, 0.36, 0xe0902f, -17.6, 2.6, Z + 2.2);
+    tag('LIT-201', -17.6, 3.6, Z + 2.2);
+    run([V(-16.5, LY, Z), V(-13.5, LY, Z)], RL, LIQ);
+    mov('MOV-201', -15, LY, Z, 'x', RL);
+
+    // 3 · anaerobic digester tank + covered lagoon
+    add(g, new THREE.CylinderGeometry(4.5, 4.5, 7, 24), mat(0x7f9a8a), -9, 3.62, Z);
+    cyl(g, 4.65, 0.35, 0x5f7468, -9, 6.95, Z);
+    add(g, DOME, mat(0xe9e4d6), -9, 7.2, Z, 4.4, 1.8, 4.4);
+    box(g, 0.25, 7, 0.25, COL.steelDark, -13.6, 0.12, Z - 1.5);
+    box(g, 13.5, 0.5, 10.5, 0xb59a6e, 5, 0, Z);
+    add(g, DOME, mat(0x26292b, { roughness: 0.5 }), 5, 0.5, Z, 6.4, 2.0, 4.8);
+    run([V(-4.5, LY, Z), V(-1.6, LY, Z)], RL, LIQ);
+    mov('MOV-301', -3, LY, Z, 'x', RL);
+
+    // biogas header from tank + lagoon
+    run([V(-9, GY, -41.4), V(-9, GY, HZ)], RG, GAS);
+    run([V(3, 0.9, -41.4), V(3, GY, -41.4), V(3, GY, HZ)], RG, GAS);
+    run([V(-9, GY, HZ), V(13.2, GY, HZ), V(17, GY, HZ), V(17, GY, -41.6)], RG, GAS);
+    for (const x of [-5, 1, 7]) box(g, 0.18, GY - 0.3, 0.18, COL.steelDark, x, 0.12, HZ);
+    usfm('FIT-301', 5.6, GY, HZ, 'x', RG);
+    pt('PIT-301', 7.8, GY, HZ);
+    tt('TIT-301', 9.6, GY, HZ);
+    mov('MOV-302', 15.2, GY, HZ, 'x', RG);
+
+    // flare branch with ultrasonic flowmeter and pilot system
+    run([V(13.2, GY, HZ), V(13.2, GY, -53.5), V(13.2, 0.9, -53.5)], RG, GAS);
+    mov('MOV-601', 13.2, GY, -42.6, 'z', RG);
+    usfm('FIT-601', 13.2, GY, -45.6, 'z', RG);
+    cyl(g, 0.32, 10, COL.steelDark, 13.2, 0.12, -53.5);
+    cyl(g, 0.5, 0.3, 0x50585e, 13.2, 10.1, -53.5);
+    this.flame = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.8, 8), new THREE.MeshBasicMaterial({ color: 0xffa23d }));
+    this.flame.position.set(13.2, 11.3, -53.5);
     g.add(this.flame);
+    run([V(13.2, GY, -48.2), V(14.6, GY, -48.2), V(14.6, GY, -53.5), V(14.6, 10.2, -53.5), V(13.6, 10.2, -53.5)], 0.1, GAS);
+    mov('MOV-602', 14.6, GY, -50.6, 'z', 0.1);
+    this.pilot = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.55, 8), new THREE.MeshBasicMaterial({ color: 0x7fc8ff }));
+    this.pilot.position.set(13.65, 10.55, -53.5);
+    g.add(this.pilot);
+    box(g, 1.0, 1.4, 0.5, 0xd7d2c4, 16.2, 0.12, -53.6);
+    box(g, 0.4, 0.3, 0.06, 0x2f3438, 16.2, 0.9, -53.33);
+    tag('BMS-601', 16.2, 2.5, -53.6);
+
+    // 4 · H2S scrubber
+    add(g, new THREE.CylinderGeometry(1.4, 1.4, 9, 18), mat(0xa9b3b8), 17, 4.62, -43);
+    add(g, DOME, mat(0xa9b3b8), 17, 9.12, -43, 1.4, 0.7, 1.4);
+    cyl(g, 0.8, 2, 0x6f8f9a, 19.4, 0.12, -45.8);
+    run([V(18.4, GY, -43), V(32, GY, -43)], RG, GAS);
+    for (const x of [22.2, 28.8]) box(g, 0.18, GY - 0.3, 0.18, COL.steelDark, x, 0.12, -43);
+    mov('MOV-401', 19.8, GY, -43, 'x', RG);
+    usfm('FIT-401', 21.3, GY, -43, 'x', RG);
+    pt('PIT-401', 23, GY, -43);
+    tt('TIT-401', 24.4, GY, -43);
+
+    // 5 · genset inlet train, gas analyzer, genset, step-up transformer
+    mov('MOV-501', 26, GY, -43, 'x', RG);
+    usfm('FIT-501', 27.5, GY, -43, 'x', RG);
+    pt('PIT-501', 29.4, GY, -43);
+    tt('TIT-501', 30.8, GY, -43);
+    run([V(28.4, GY, -42.7), V(28.4, GY, -41.2), V(28.4, 1.5, -41.2)], 0.07, 0x9aa5ab);
+    box(g, 1.2, 1.8, 0.7, 0xd7d2c4, 28.4, 0.12, -40.6);
+    box(g, 1.5, 0.1, 1.0, 0x6b7378, 28.4, 1.95, -40.6);
+    tag('AIT-501', 28.4, 2.9, -40.6);
+    box(g, 7, 3.4, 2.6, 0x3f6e58, 35.5, 0.12, -43);
+    box(g, 2.2, 0.6, 2.2, 0x9aa3a8, 37.6, 3.52, -43);
+    cyl(g, 0.3, 3, 0x8a9399, 33.6, 3.52, -43.6);
+    for (const x of [33.2, 35.5]) box(g, 1.2, 2.2, 0.06, 0x2f4a3d, x, 0.12, -41.68);
+    tag('G-501', 35.5, 5.6, -43);
+    box(g, 2.4, 2.2, 1.8, COL.xfmr, 35.5, 0.12, -39.4);
+    for (const x of [-0.6, 0, 0.6]) cyl(g, 0.12, 1, COL.porcelain, 35.5 + x, 2.32, -39.4);
+
+    // PLC / MCC room — every transmitter and valve above is wired back here
+    box(g, 4, 3, 2.6, 0xd8cfbf, 22.5, 0.12, -38.4);
+    box(g, 4.3, 0.3, 2.9, 0x6b7378, 22.5, 3.12, -38.4);
+    cyl(g, 0.05, 2, COL.steelDark, 23.9, 3.42, -38.9);
+    tag('PLC-01', 22.5, 4.4, -38.4);
   }
 
   lattice(parent, x, z, h, base, top) {
@@ -603,7 +829,7 @@ export class World {
     const rand = rng(99);
     const blocked = [
       [-24, -18, 24, 18], [-58, -42, -36, -14], [-31, -34, -16, -21], [-42, 13, -25, 30], [-71, 34, -58, 46],
-      [42, -42, 96, 42], [-95, -4, 96, 4], [-33, -48, -27, 43], [-5, -56, 5, -12], [-27, -58, 25, -34], [20, -24, 48, 24], [-66, -16, -30, -8],
+      [42, -42, 96, 42], [-95, -4, 96, 4], [-33, -48, -27, 43], [-5, -56, 5, -12], [-42, -58, 42, -35], [20, -24, 48, 24], [-66, -16, -30, -8],
     ];
     const spots = [];
     for (let i = 0; i < 900 && spots.length < 170; i++) {
@@ -723,8 +949,10 @@ export class World {
         c.curve.getPointAt(p.t, p.mesh.position);
       }
     }
+    this.updatePersona(dt);
     const flick = 1 + 0.22 * Math.sin(this._t * 13) + 0.12 * Math.sin(this._t * 29);
     this.flame.scale.set(1, flick, 1);
+    this.pilot.scale.set(1, 1 + 0.3 * Math.sin(this._t * 21), 1);
     const pulse = 1 + 0.06 * Math.sin(this._t * 4);
     for (const r of Object.values(this.rings)) {
       if (!r.g.visible) continue;

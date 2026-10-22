@@ -1,6 +1,6 @@
 // Game loop, economy, incidents and all HUD/panel UI.
 import { World } from './world.js';
-import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, FEEDERS, PURDUE, SITE } from './data.js';
+import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, FEEDERS, PURDUE, SITE, PROCESS, INSTRUMENTS, instrumentRisk } from './data.js';
 import { icon, hydrateIcons } from './icons.js';
 
 // ---------- helpers ----------
@@ -27,6 +27,7 @@ const CTRL = Object.fromEntries(CONTROLS.map(c => [c.id, c]));
 const GAME_MIN_PER_SEC = 2;   // at 1×
 const REV_PER_MIN = 230;      // $ per game minute at full load
 const BASE_DECIDE = 150;      // seconds to decide on an incident
+const INST = Object.fromEntries(INSTRUMENTS.map(i => [i.tag, i]));
 const FEEDER_OF = Object.fromEntries(Object.entries(FEEDERS).map(([f, F]) => [F.asset, f]));
 
 // ---------- state ----------
@@ -128,6 +129,20 @@ for (const [id, a] of Object.entries(ASSETS)) {
 }
 let pinEls = {};
 
+const meEl = document.createElement('div');
+meEl.className = 'me';
+meEl.innerHTML = '<b>You</b><small>OT security lead</small>';
+labelsEl.appendChild(meEl);
+
+const instEls = world.instruments.map(({ tag, pos }) => {
+  const el = document.createElement('button');
+  el.className = 'itag';
+  el.dataset.act = `inst:${tag}`;
+  el.textContent = tag;
+  labelsEl.appendChild(el);
+  return { el, pos };
+});
+
 function refreshLabels() {
   for (const id of Object.keys(ASSETS)) {
     const st = assetStatus(id);
@@ -161,6 +176,16 @@ function refreshPins() {
 }
 
 function positionOverlays() {
+  const me = world.project(world.personaAnchor());
+  meEl.style.display = me.vis ? '' : 'none';
+  meEl.style.transform = `translate(${me.x}px, ${me.y}px) translate(-50%, -100%)`;
+  const near = world.camera.position.distanceTo(world.centers.biogas) < 125;
+  for (const { el, pos } of instEls) {
+    const p = near && world.project(pos);
+    if (!p || !p.vis) { el.style.display = 'none'; continue; }
+    el.style.display = '';
+    el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`;
+  }
   for (const [id, el] of Object.entries(labelEls)) {
     const p = world.project(world.anchors[id]);
     if (!p.vis) { el.style.display = 'none'; continue; }
@@ -531,8 +556,22 @@ const PANELS = {
         <div class="box"><div class="row between"><small>Status</small><span class="pill ${st.cls === 'ok' ? 'ok' : st.cls ? 'bad' : ''}">${esc(st.text)}</span></div>
         ${f ? `<div class="row between" style="margin-top:8px"><small>Load share</small><b>${Math.round(FEEDERS[f].share * 100)}% of revenue</b></div>` : ''}</div>
         ${a.protocols.length ? `<div class="sec"><small>Protocols</small></div><div class="row" style="flex-wrap:wrap;gap:5px">${a.protocols.map(p => `<span class="pill">${esc(p)}</span>`).join('')}</div>` : ''}
+        ${id === 'biogas' ? processHTML() : ''}
         ${links.length ? `<div class="sec"><small>Conduits</small></div>${links.map(conduitRow).join('')}` : ''}
         <div class="row" style="margin-top:12px"><button class="btn" data-act="focus:${id}">${icon('target')} Focus camera</button></div>`,
+    };
+  },
+
+  inst(tag) {
+    const i = INST[tag];
+    return {
+      eyebrow: `Biogas plant · ${i.stage}`, title: `${i.tag} · ${i.name}`,
+      html: `<div class="box"><div class="kv" style="margin:0">
+          <span>Measures / does</span><span>${esc(i.kind)}</span>
+          <span>Signal to PLC</span><span>${esc(i.signal)}</span>
+          <span>Process stage</span><span>${esc(i.stage)}</span></div></div>
+        <div class="box"><small>Why an attacker cares</small><p style="margin:5px 0 0">${esc(instrumentRisk(i))}</p></div>
+        <div class="row" style="margin-top:10px;gap:8px"><button class="btn" data-act="asset:biogas">${icon('arrow')} All plant instruments</button></div>`,
     };
   },
 
@@ -688,6 +727,16 @@ function conduitRow(c) {
   return `<div class="box row"><div class="grow"><b style="font-size:13px">${esc(c.name)}</b><div class="tiny muted">${esc(ASSETS[c.a].short)} ↔ ${esc(ASSETS[c.b].short)} · ${esc(c.proto)}</div></div>${pill}</div>`;
 }
 
+function processHTML() {
+  const flow = PROCESS.slice(0, 5).map(p => `<span class="pill">${esc(p)}</span>`).join(` <span class="muted">→</span> `);
+  return `<div class="sec"><small>Process flow</small></div>
+    <div class="row" style="flex-wrap:wrap;gap:5px">${flow}</div>
+    <p class="tiny muted" style="margin-top:6px">Surplus biogas goes to the flaring system. Zoom in on the plant to see every tag on the pipelines.</p>
+    ${PROCESS.map(stage => `<div class="sec"><small>${esc(stage)}</small></div>${INSTRUMENTS.filter(i => i.stage === stage).map(i =>
+      `<button class="box row" style="width:100%;text-align:left;margin-bottom:5px;padding:8px 10px" data-act="inst:${i.tag}">
+        <span class="pill" style="font-family:var(--mono)">${esc(i.tag)}</span><span class="grow"><b style="font-size:12.5px">${esc(i.name)}</b><div class="tiny muted">${esc(i.kind)}</div></span>${icon('arrow')}</button>`).join('')}`).join('')}`;
+}
+
 function historyHTML() {
   if (!S.history.length) return '';
   return `<div class="sec"><small>Debriefs</small></div>${S.history.map((h, i) => ({ h, i })).reverse().map(({ h, i }) =>
@@ -740,6 +789,7 @@ function closePanel() {
   renderHUD();
 }
 function openAsset(id) {
+  world.walkToAsset(id);
   world.focus(id);
   openPanel('asset', id);
 }
@@ -829,6 +879,11 @@ function renderRail() {
 const ACTS = {
   panel: name => (S.panel?.name === name ? closePanel() : openPanel(name)),
   asset: id => openAsset(id),
+  inst: tag => {
+    const at = world.instruments.find(x => x.tag === tag);
+    if (at) { world.walkTo(at.pos.x, at.pos.z + 1.6); world.animateTo(at.pos.clone().setY(0), { radius: 45, phi: 0.9, theta: world.spherical().theta }, 0.7); }
+    openPanel('inst', tag);
+  },
   focus: id => world.focus(id),
   buy: id => buy(id),
   clues: arg => { if (!S.incident) return; openPanel('clues', arg || 'all'); if (arg && arg !== 'all' && ASSETS[arg]) world.focus(arg); },
