@@ -231,7 +231,8 @@ small { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color
 .kpi b { display: block; font-size: 20px; font-weight: 900; margin-top: 2px; }
 
 /* ---------- action card (bottom-right) ---------- */
-#action { position: fixed; right: 14px; bottom: 14px; z-index: 5; width: 330px; }
+/* sits left of the map-control rail so the rail (zoom +/−) is never covered */
+#action { position: fixed; right: 66px; bottom: 14px; z-index: 5; width: 330px; }
 .quest { padding: 12px; }
 .q-top { display: flex; justify-content: space-between; }
 .q-bar { display: flex; gap: 4px; margin: 7px 0 10px; }
@@ -302,6 +303,9 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--panel-3); bor
 .hint { color: var(--muted); font-size: 12px; font-weight: 700; }
 
 /* ---------- small screens ---------- */
+@media (max-width: 1280px) {
+  #action { bottom: 86px; } /* lift above the dock where the two would meet */
+}
 @media (max-width: 1100px) {
   .brand { display: none; }
 }
@@ -313,6 +317,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--panel-3); bor
   .rail { top: 96px; gap: 6px; }
   .rail button { width: 36px; height: 36px; }
   .rail .sep { display: none; }
+  #action { right: 60px; }
 }
 @media (max-width: 640px) {
   .hud-tl { top: 8px; left: 8px; }
@@ -334,7 +339,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--panel-3); bor
   #toasts { top: 160px; }
   #sheet { left: 8px; right: 8px; width: auto; top: auto; bottom: 78px; max-height: 52vh; }
   #sheet h2 { font-size: 19px; }
-  #action { left: 8px; right: 8px; width: auto; bottom: 78px; }
+  #action { left: 8px; right: 58px; width: auto; bottom: 78px; }
   #sheet:not([hidden]) ~ #action { display: none; }
   .dock { left: 8px; right: 8px; transform: none; justify-content: space-between; bottom: 8px; padding: 4px; }
   .dock button { width: auto; flex: 1; font-size: 10px; }
