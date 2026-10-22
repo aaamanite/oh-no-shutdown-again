@@ -1,0 +1,925 @@
+// Game loop, economy, incidents and all HUD/panel UI.
+import { World } from './world.js';
+import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, FEEDERS, PURDUE, SITE } from './data.js';
+import { icon, hydrateIcons } from './icons.js';
+
+// ---------- helpers ----------
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const pad = n => String(n).padStart(2, '0');
+const money = v => {
+  const sign = v < 0 ? '-' : '';
+  v = Math.abs(v);
+  if (v >= 1e6) return `${sign}$${(v / 1e6).toFixed(2)}M`;
+  if (v >= 1e3) return `${sign}$${Math.round(v / 1e3)}K`;
+  return `${sign}$${Math.round(v)}`;
+};
+const clockOf = T => { const m = ((Math.floor(T) % 1440) + 1440) % 1440; return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; };
+const clockSec = sec => { const s = ((Math.floor(sec) % 86400) + 86400) % 86400; return `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`; };
+const dayOf = T => Math.floor(T / 1440) + 1;
+const hourOf = T => (T % 1440) / 60;
+const dur = mins => { mins = Math.max(0, Math.round(mins)); const h = Math.floor(mins / 60), m = mins % 60; return h ? `${h}h ${pad(m)}m` : `${m}m`; };
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const CTRL = Object.fromEntries(CONTROLS.map(c => [c.id, c]));
+
+const GAME_MIN_PER_SEC = 2;   // at 1×
+const REV_PER_MIN = 230;      // $ per game minute at full load
+const BASE_DECIDE = 150;      // seconds to decide on an incident
+const FEEDER_OF = Object.fromEntries(Object.entries(FEEDERS).map(([f, F]) => [F.asset, f]));
+
+// ---------- state ----------
+const S = {
+  started: false, over: false,
+  T: 7 * 60, speed: 1,
+  funds: 350000, reliability: 80, xp: 0,
+  owned: new Set(),
+  feeders: { A: { on: true, until: 0 }, B: { on: true, until: 0 } },
+  incident: null,
+  nextIncidentAt: 9 * 60 + 30,
+  recent: [],
+  history: [],
+  alerts: [], unread: 0,
+  stats: { revenue: 0, fines: 0, spent: 0, response: 0, outageMin: 0, prevented: 0, customerMin: 0 },
+  questIdx: 0, seen: new Set(),
+  panel: null, light: 'auto', sound: true, netVisible: true,
+};
+
+// ---------- sound ----------
+const Snd = {
+  ctx: null,
+  init() { try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { this.ctx = null; } },
+  tone(f, d = 0.12, type = 'sine', v = 0.05, when = 0) {
+    if (!S.sound || !this.ctx) return;
+    const t = this.ctx.currentTime + when;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g).connect(this.ctx.destination);
+    o.start(t); o.stop(t + d + 0.05);
+  },
+  alarm() { for (let i = 0; i < 3; i++) { this.tone(880, 0.17, 'square', 0.035, i * 0.42); this.tone(660, 0.17, 'square', 0.035, i * 0.42 + 0.21); } },
+  click() { this.tone(560, 0.06, 'triangle', 0.05); },
+  good() { [523, 659, 784].forEach((f, i) => this.tone(f, 0.28, 'sine', 0.05, i * 0.09)); },
+  bad() { [330, 247].forEach((f, i) => this.tone(f, 0.4, 'sawtooth', 0.025, i * 0.18)); },
+};
+
+// ---------- world ----------
+const world = new World($('#scene'));
+world.buildNetwork(CONDUITS);
+world.onPick = id => openAsset(id);
+world.controls.addEventListener('start', () => { if (S.started) questEvent('camera'); });
+
+// ---------- derived values ----------
+const securityLevel = () => Math.min(4, 1 + Math.floor(S.owned.size / 3));
+const demand = h => 0.58 + 0.22 * Math.exp(-((h - 9) ** 2) / 6) + 0.38 * Math.exp(-((h - 19) ** 2) / 5) - (h < 5 ? 0.16 : 0);
+const daylight = () => {
+  if (S.light === 'day') return 1;
+  if (S.light === 'night') return 0;
+  const h = hourOf(S.T);
+  return smooth(5, 7.5, h) * (1 - smooth(18, 20.5, h));
+};
+const isBlocked = scn => !!scn.blockedBy && S.owned.has(scn.blockedBy);
+const decideTime = () => BASE_DECIDE + (S.owned.has('ids') ? 60 : 0);
+
+function conduitState(c) {
+  if (c.exposedUntil) return S.owned.has(c.exposedUntil) ? 'hidden' : 'exposed';
+  if (c.guard && !S.owned.has(c.guard)) return 'weak';
+  return 'ok';
+}
+function refreshConduits() {
+  const attack = S.incident ? S.incident.scn.conduits : [];
+  for (const c of CONDUITS) {
+    const st = conduitState(c);
+    world.setConduit(c.id, st === 'hidden' ? 'hidden' : attack.includes(c.id) ? 'attack' : st);
+  }
+  world.setModem(!S.owned.has('surface'));
+}
+
+function assetStatus(id) {
+  const inc = S.incident;
+  if (inc && inc.scn.targets.includes(id)) return { text: 'Alert under investigation', cls: 'alert' };
+  const f = FEEDER_OF[id];
+  if (f) {
+    const st = S.feeders[f];
+    return st.on ? { text: `Energized · ${FEEDERS[f].label}`, cls: 'ok' } : { text: `De-energized · ${dur(st.until - S.T)} left`, cls: 'off' };
+  }
+  if (id === 'yard') {
+    const off = Object.keys(FEEDERS).filter(k => !S.feeders[k].on);
+    return off.length ? { text: `Feeder ${off.join(' + ')} breaker open`, cls: 'warn' } : { text: 'All breakers closed', cls: '' };
+  }
+  if (id === 'ctrl' && !S.owned.has('surface')) return { text: 'L2 · Station control', cls: '' };
+  return { text: ASSETS[id].level, cls: '' };
+}
+
+// ---------- labels & pins ----------
+const labelsEl = $('#labels');
+const labelEls = {};
+for (const [id, a] of Object.entries(ASSETS)) {
+  const el = document.createElement('button');
+  el.className = 'label';
+  el.dataset.act = `asset:${id}`;
+  el.innerHTML = `<span class="l-ic">${icon(a.icon)}</span><span><b>${esc(a.name)}</b><small></small></span>`;
+  labelsEl.appendChild(el);
+  labelEls[id] = el;
+}
+let pinEls = {};
+
+function refreshLabels() {
+  for (const id of Object.keys(ASSETS)) {
+    const st = assetStatus(id);
+    const el = labelEls[id];
+    el.className = `label ${st.cls}`;
+    el.querySelector('small').textContent = st.text;
+  }
+}
+
+function buildPins() {
+  for (const el of Object.values(pinEls)) el.remove();
+  pinEls = {};
+  if (!S.incident) return;
+  for (const id of new Set(S.incident.scn.clues.map(c => c.asset))) {
+    const el = document.createElement('button');
+    el.className = 'pin';
+    el.dataset.act = `clues:${id}`;
+    labelsEl.appendChild(el);
+    pinEls[id] = el;
+  }
+  refreshPins();
+}
+function refreshPins() {
+  if (!S.incident) return;
+  const { scn, tags } = S.incident;
+  for (const [id, el] of Object.entries(pinEls)) {
+    const idx = scn.clues.map((c, i) => (c.asset === id ? i : -1)).filter(i => i >= 0);
+    const t = idx.filter(i => tags.has(i)).length;
+    el.innerHTML = `${icon('search')} ${t}/${idx.length}`;
+  }
+}
+
+function positionOverlays() {
+  for (const [id, el] of Object.entries(labelEls)) {
+    const p = world.project(world.anchors[id]);
+    if (!p.vis) { el.style.display = 'none'; continue; }
+    el.style.display = '';
+    el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`;
+  }
+  for (const [id, el] of Object.entries(pinEls)) {
+    const p = world.project(world.anchors[id]);
+    if (!p.vis) { el.style.display = 'none'; continue; }
+    el.style.display = '';
+    el.style.transform = `translate(${p.x}px, ${p.y - 44}px) translate(-50%, -100%)`;
+  }
+}
+
+// ---------- HUD ----------
+function renderHUD() {
+  $('#funds').textContent = money(S.funds);
+  $('#funds').style.color = S.funds < 0 ? 'var(--red)' : '';
+  $('#day').textContent = `Day ${dayOf(S.T)}`;
+  $('#clock').textContent = clockOf(S.T);
+  const rel = Math.round(S.reliability);
+  $('#rel span').textContent = rel;
+  const fg = $('#rel .fg');
+  fg.style.strokeDasharray = `${rel} 100`;
+  fg.style.stroke = rel >= 75 ? 'var(--mint)' : rel >= 50 ? 'var(--amber)' : 'var(--red)';
+  $('#sl').textContent = securityLevel();
+  $('#sl').title = `Security level ${securityLevel()} · ${S.owned.size}/${CONTROLS.length} controls`;
+  const chip = $('#chip-threat');
+  const soon = S.nextIncidentAt - S.T;
+  if (S.incident) { chip.textContent = 'Threat: Active incident'; chip.className = 'chip danger'; }
+  else if (soon < 60) { chip.textContent = 'Threat: High'; chip.className = 'chip danger'; }
+  else if (soon < 120) { chip.textContent = 'Threat: Elevated'; chip.className = 'chip warn'; }
+  else { chip.textContent = 'Threat: Guarded'; chip.className = 'chip'; }
+  $('#chip-hold').hidden = !S.incident;
+  $('#soc-dot').hidden = !S.incident;
+  const ac = $('#alert-count');
+  ac.hidden = !S.unread;
+  ac.textContent = S.unread > 9 ? '9+' : S.unread;
+  document.querySelectorAll('#speeds button').forEach(b => b.classList.toggle('on', +b.dataset.speed === S.speed));
+  document.querySelectorAll('.dock button').forEach(b => b.classList.toggle('on', S.panel && b.dataset.act === `panel:${S.panel.name}`));
+  refreshLabels();
+}
+
+function renderBanner() {
+  const b = $('#banner');
+  const inc = S.incident;
+  if (!inc) { b.hidden = true; return; }
+  b.hidden = false;
+  const left = Math.max(0, Math.ceil(inc.left));
+  b.classList.toggle('urgent', left <= 30);
+  b.innerHTML = `
+    <div class="b-ic">${icon('alert')}</div>
+    <div class="b-tx"><small>${inc.drill ? 'Drill · ' : ''}Security alert · triage now</small><b>${esc(inc.scn.title)}</b>
+      <span class="b-sub">${inc.tags.size}/${inc.scn.clues.length} clues tagged · game clock held${S.speed === 0 ? ' · paused' : ''}</span></div>
+    <div class="decide"><small>Decide in</small><b>${pad(Math.floor(left / 60))}:${pad(left % 60)}</b></div>`;
+}
+
+function renderAction() {
+  const el = $('#action');
+  if (S.incident) {
+    const inc = S.incident;
+    el.innerHTML = `<div class="card inc-card">
+      <p>Tap the magnifier pins to read what each system logged. Tag what looks like the attack, then play a response card.</p>
+      <div class="row"><button class="btn" data-act="clues">${icon('search')} Clues ${inc.tags.size}/${inc.scn.clues.length}</button>
+      <button class="btn primary" data-act="respond">${icon('cards')} Respond</button></div></div>`;
+    return;
+  }
+  const q = QUESTS[S.questIdx];
+  if (!q) {
+    el.innerHTML = `<div class="card quest"><div class="q-top"><small>Sandbox · all chapters complete</small></div>
+      <div class="q-row" style="margin-top:8px"><span class="q-ic" style="background:var(--mint);color:var(--mint-ink)">${icon('check')}</span>
+      <div class="grow"><b>Station hardened</b><p>Keep running shifts, or run drills from the SOC panel to train your team.</p></div>
+      <button class="q-go" data-act="panel:soc">${icon('arrow')}</button></div></div>`;
+    return;
+  }
+  const inCh = QUESTS.map((x, i) => ({ x, i })).filter(o => o.x.ch === q.ch);
+  const pos = inCh.findIndex(o => o.i === S.questIdx);
+  el.innerHTML = `<div class="card quest">
+    <div class="q-top"><small>Chapter ${pad(q.ch + 1)} · ${esc(CHAPTERS[q.ch])}</small><small>${pos}/${inCh.length}</small></div>
+    <div class="q-bar">${inCh.map((o, k) => `<i class="${k < pos ? 'done' : ''}"></i>`).join('')}</div>
+    <div class="q-row"><span class="q-ic">${icon(q.icon)}</span>
+      <div class="grow"><small>Next step</small><b>${esc(q.title)}</b><p>${esc(q.desc)}</p></div>
+      <button class="q-go" data-act="quest" title="Do it">${icon('arrow')}</button></div></div>`;
+}
+
+// ---------- alerts & toasts ----------
+function toast(msg, kind = 'good', ic) {
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.innerHTML = `${icon(ic || (kind === 'good' ? 'check' : kind === 'bad' ? 'alert' : 'bell'))}<span>${msg}</span>`;
+  $('#toasts').appendChild(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 320); }, 4200);
+}
+function alertLog(text, kind = 'info') {
+  S.alerts.unshift({ text, kind, day: dayOf(S.T), clock: clockOf(S.T) });
+  if (S.alerts.length > 80) S.alerts.pop();
+  if (S.panel?.name === 'alerts') renderPanel(); else S.unread++;
+}
+
+// ---------- quests ----------
+function questEvent(ev) {
+  S.seen.add(ev);
+  checkQuests();
+}
+function checkQuests() {
+  if (securityLevel() >= 3) S.seen.add('sl3');
+  if (S.owned.size) S.seen.add('buy');
+  let changed = false;
+  while (QUESTS[S.questIdx] && S.seen.has(QUESTS[S.questIdx].event)) {
+    const q = QUESTS[S.questIdx];
+    S.questIdx++;
+    changed = true;
+    if (q.reward) S.funds += q.reward;
+    toast(`Quest complete: ${esc(q.title)}${q.reward ? ` · +${money(q.reward)}` : ''}`, 'good', 'flag');
+    const next = QUESTS[S.questIdx];
+    if (next && next.ch !== q.ch) toast(`Chapter ${pad(next.ch + 1)} unlocked: ${esc(CHAPTERS[next.ch])}`, 'good', 'flag');
+  }
+  if (changed) { Snd.good(); renderAction(); renderHUD(); if (S.panel?.name === 'quests') renderPanel(); }
+}
+function questAction() {
+  const q = QUESTS[S.questIdx];
+  if (!q) return;
+  const [a, arg] = q.action.split(':');
+  if (a === 'rotate') { world.rotate(45); questEvent('camera'); }
+  else if (a === 'asset') { openAsset(arg); }
+  else if (a === 'panel') openPanel(arg);
+  else if (a === 'incident') { if (!S.incident) triggerScheduled(true); }
+  else if (a === 'speed') setSpeed(4);
+}
+
+// ---------- time & economy ----------
+function setSpeed(v) {
+  S.speed = v;
+  renderHUD();
+  renderBanner();
+}
+
+function advance(gm) {
+  const prevDay = dayOf(S.T);
+  S.T += gm;
+  const h = hourOf(S.T);
+  const served = (S.feeders.A.on ? FEEDERS.A.share : 0) + (S.feeders.B.on ? FEEDERS.B.share : 0);
+  const rev = REV_PER_MIN * demand(h) * served * gm;
+  S.funds += rev;
+  S.stats.revenue += rev;
+
+  let allOn = true;
+  for (const [f, st] of Object.entries(S.feeders)) {
+    if (st.on) continue;
+    allOn = false;
+    S.stats.outageMin += gm;
+    S.stats.customerMin += gm * FEEDERS[f].customers;
+    S.reliability = clamp(S.reliability - 0.01 * gm, 0, 100);
+    if (S.T >= st.until) {
+      st.on = true;
+      world.setFeeder(f, true);
+      toast(`Feeder ${f} re-energized`, 'good', 'zap');
+      alertLog(`Feeder ${f} re-energized after restoration.`, 'good');
+    }
+  }
+  if (allOn) S.reliability = clamp(S.reliability + 0.004 * gm, 0, 100);
+
+  if (dayOf(S.T) > prevDay) {
+    const opex = CONTROLS.filter(c => S.owned.has(c.id)).reduce((s, c) => s + c.opex, 0);
+    S.funds -= opex;
+    S.stats.spent += opex;
+    alertLog(`Day ${dayOf(S.T)} begins.${opex ? ` Security opex ${money(opex)}.` : ''}`);
+    toast(`Day ${dayOf(S.T)} begins${opex ? ` · opex −${money(opex)}` : ''}`, 'warn', 'sun');
+    questEvent('day2');
+  }
+  if (S.T >= S.nextIncidentAt) triggerScheduled(false);
+  if (S.funds < -250000 && !S.over) gameOver();
+}
+
+// ---------- incidents ----------
+function pickScenario(first) {
+  if (first) {
+    const open = SCENARIOS.filter(s => !s.benign && !isBlocked(s));
+    return open.find(s => s.id === 'vendor-rdp') || open[0] || SCENARIOS.find(s => s.benign);
+  }
+  const pool = SCENARIOS.filter(s => !S.recent.includes(s.id));
+  const weights = pool.map(s => (s.benign ? 0.55 : 1));
+  let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < pool.length; i++) { r -= weights[i]; if (r <= 0) return pool[i]; }
+  return pool[pool.length - 1];
+}
+
+function triggerScheduled(now) {
+  if (S.incident) return;
+  const first = !S.history.some(h => !h.drill);
+  const scn = pickScenario(first);
+  S.recent = [scn.id, ...S.recent].slice(0, 2);
+  if (isBlocked(scn)) {
+    S.stats.prevented++;
+    S.reliability = clamp(S.reliability + 2, 0, 100);
+    S.xp += 25;
+    toast(`Prevented by ${esc(CTRL[scn.blockedBy].short)}: ${esc(scn.prevented)}`, 'good', 'shield');
+    alertLog(`PREVENTED (${CTRL[scn.blockedBy].short}): ${scn.prevented}`, 'good');
+    S.nextIncidentAt = S.T + rand(45, 90);
+    questEvent('prevent');
+    renderHUD();
+    return;
+  }
+  startIncident(scn, false);
+}
+
+function startIncident(scn, drill) {
+  if (S.incident) return;
+  const total = decideTime();
+  S.incident = { scn, drill, tags: new Set(), left: total, total, startT: S.T, filter: 'all' };
+  world.setAttacked(scn.targets);
+  refreshConduits();
+  buildPins();
+  Snd.alarm();
+  alertLog(`${drill ? 'DRILL — ' : ''}Security alert: ${scn.title}`, 'bad');
+  renderBanner();
+  renderAction();
+  renderHUD();
+  openPanel('clues', 'all');
+}
+
+function clueTime(c) {
+  return clockSec(S.incident.startT * 60 + c.at);
+}
+function clueText(c) {
+  const h = Math.floor(hourOf(S.incident.startT));
+  return c.text.replace('{win}', `${pad((h + 23) % 24)}:00–${pad((h + 2) % 24)}:00`);
+}
+
+function toggleTag(i) {
+  const inc = S.incident;
+  if (!inc) return;
+  if (inc.tags.has(i)) inc.tags.delete(i); else inc.tags.add(i);
+  Snd.click();
+  const el = document.querySelector(`.clue[data-i="${i}"]`);
+  if (el) el.outerHTML = clueHTML(inc.scn.clues[i], i);
+  $('#sheet-eyebrow').textContent = cluesEyebrow();
+  refreshPins();
+  renderBanner();
+  renderAction();
+}
+
+const LETTERS = ['A', 'B', 'C', 'D', 'F'];
+const letterOf = s => (s >= 85 ? 'A' : s >= 70 ? 'B' : s >= 55 ? 'C' : s >= 40 ? 'D' : 'F');
+
+function resolve(resp) {
+  const inc = S.incident;
+  if (!inc) return;
+  const scn = inc.scn;
+  const q = resp ? resp.q : 'timeout';
+  const attackIdx = scn.clues.map((c, i) => (c.attack ? i : -1)).filter(i => i >= 0);
+  const hit = attackIdx.filter(i => inc.tags.has(i)).length;
+  const fp = [...inc.tags].filter(i => !scn.clues[i].attack).length;
+  const n = attackIdx.length;
+
+  const respPts = scn.benign
+    ? { best: 60, weak: 24, overreact: 8, timeout: 20 }[q] ?? 20
+    : { best: 60, good: 42, weak: 20, overreact: 12, ignore: 0, timeout: 0 }[q];
+  const cluePts = n ? (30 * Math.max(0, hit - 0.5 * fp)) / n : Math.max(0, 30 - 10 * fp);
+  const timePts = resp ? (10 * inc.left) / inc.total : 0;
+  const score = Math.round(respPts + cluePts + timePts);
+  let grade = letterOf(score);
+  let cap = null, note = null;
+  if (!scn.benign && (q === 'ignore' || q === 'timeout')) {
+    cap = 'D';
+    note = q === 'timeout'
+      ? 'No decision was made while the attack ran. Indecision is a decision — and caps the shift at D.'
+      : 'A security incident was handled as a routine fault. That is how attacks become outages — it caps the shift at D.';
+  } else if (q === 'overreact') {
+    cap = 'C';
+    note = scn.benign
+      ? 'You shut down supply for an approved maintenance job. A self-inflicted outage is still an outage — capped at C.'
+      : 'You took the grid down yourself: the attacker’s goal, delivered for free. Capped at C.';
+  } else if (scn.benign && q === 'weak') {
+    cap = 'B';
+    note = 'The evidence showed authorised work. Escalating or rolling back a documented change burns time and goodwill — capped at B.';
+  }
+  if (cap && LETTERS.indexOf(grade) < LETTERS.indexOf(cap)) grade = cap;
+
+  // consequences
+  const factor = { best: 0, good: 0.25, weak: 0.6, ignore: 1, timeout: 1, overreact: 0 }[q] ?? 0;
+  let feeders = [], hours = 0, fine = 0, rel = 0;
+  if (scn.impact && factor > 0) {
+    feeders = scn.impact.feeders;
+    hours = scn.impact.hours * factor;
+    fine = Math.round((scn.impact.fine * factor) / 1000) * 1000;
+    rel = scn.impact.rel * factor;
+  }
+  if (resp?.outage) {
+    feeders = [...new Set([...feeders, ...resp.outage.feeders])];
+    hours = Math.max(hours, resp.outage.hours);
+    rel += resp.rel ?? -10;
+  }
+  if (q === 'best') rel += 4;
+  if (S.owned.has('backups')) hours *= 0.5;
+  hours = Math.round(hours * 2) / 2;
+  const cost = resp?.cost || 0;
+
+  if (!inc.drill) {
+    S.funds -= cost + fine;
+    S.stats.response += cost;
+    S.stats.fines += fine;
+    S.reliability = clamp(S.reliability + rel, 0, 100);
+    if (hours > 0) {
+      for (const f of feeders) {
+        const st = S.feeders[f];
+        st.on = false;
+        st.until = Math.max(st.until, S.T + hours * 60);
+        world.setFeeder(f, false);
+      }
+      alertLog(`Feeder ${feeders.join(' + ')} de-energized for ${dur(hours * 60)}.`, 'bad');
+    }
+    if (fine) alertLog(`Regulatory penalty: ${money(fine)}.`, 'bad');
+  }
+  S.xp += score;
+
+  const record = {
+    scnId: scn.id, title: scn.title, drill: inc.drill, grade, score, q,
+    respId: resp?.id || null, hit, n, fp, used: Math.round(inc.total - inc.left),
+    feeders, hours, fine, cost, rel: Math.round(rel), note,
+    tags: [...inc.tags], day: dayOf(S.T), clock: clockOf(S.T), startT: inc.startT,
+  };
+  S.history.push(record);
+
+  S.incident = null;
+  world.setAttacked([]);
+  refreshConduits();
+  buildPins();
+  closeModal();
+  renderBanner();
+  S.nextIncidentAt = S.T + rand(150, 260);
+  (grade === 'A' || grade === 'B') ? Snd.good() : Snd.bad();
+  toast(`${inc.drill ? 'Drill' : 'Incident'} closed · grade ${grade}`, grade <= 'B' ? 'good' : 'bad', 'shield');
+  alertLog(`${inc.drill ? 'Drill' : 'Incident'} closed: ${scn.title} · grade ${grade}`, grade <= 'B' ? 'good' : 'bad');
+  openPanel('debrief', S.history.length - 1);
+  questEvent('incident');
+  if (grade === 'A' || grade === 'B') questEvent('gradeB');
+  if (scn.benign && q === 'best') questEvent('benign');
+  renderAction();
+  renderHUD();
+}
+
+// ---------- panels ----------
+const PANELS = {
+  site() {
+    return {
+      eyebrow: SITE.utility, title: SITE.station,
+      html: `<p>Everything on the map. Tap an asset to inspect it, or tap its label in the 3D view.</p>
+        <div class="alist">${Object.entries(ASSETS).map(([id, a]) => {
+          const st = assetStatus(id);
+          return `<button data-act="asset:${id}"><span class="a-ic">${icon(a.icon)}</span><span class="grow"><b>${esc(a.name)}</b><span class="st ${st.cls}">${esc(st.text)}</span></span>${icon('arrow')}</button>`;
+        }).join('')}</div>`,
+    };
+  },
+
+  asset(id) {
+    const a = ASSETS[id];
+    const st = assetStatus(id);
+    const links = CONDUITS.filter(c => (c.a === id || c.b === id) && conduitState(c) !== 'hidden');
+    const f = FEEDER_OF[id];
+    const inc = S.incident;
+    const clueCount = inc ? inc.scn.clues.filter(c => c.asset === id).length : 0;
+    return {
+      eyebrow: a.level, title: a.name,
+      html: `
+        ${clueCount ? `<button class="btn danger block" data-act="clues:${id}" style="margin-bottom:10px">${icon('search')} ${clueCount} clues logged here</button>` : ''}
+        <p>${esc(a.desc)}</p>
+        <div class="box"><div class="row between"><small>Status</small><span class="pill ${st.cls === 'ok' ? 'ok' : st.cls ? 'bad' : ''}">${esc(st.text)}</span></div>
+        ${f ? `<div class="row between" style="margin-top:8px"><small>Load share</small><b>${Math.round(FEEDERS[f].share * 100)}% of revenue</b></div>` : ''}</div>
+        ${a.protocols.length ? `<div class="sec"><small>Protocols</small></div><div class="row" style="flex-wrap:wrap;gap:5px">${a.protocols.map(p => `<span class="pill">${esc(p)}</span>`).join('')}</div>` : ''}
+        ${links.length ? `<div class="sec"><small>Conduits</small></div>${links.map(conduitRow).join('')}` : ''}
+        <div class="row" style="margin-top:12px"><button class="btn" data-act="focus:${id}">${icon('target')} Focus camera</button></div>`,
+    };
+  },
+
+  network() {
+    return {
+      eyebrow: 'Zones & conduits · IEC 62443', title: 'Network',
+      html: `<p>The Purdue model splits the site into zones. Conduits are the paths between them — every unprotected conduit is a route an attacker can take.</p>
+        <div class="purdue">${PURDUE.map(l => `<div class="lvl"><small>${esc(l.level)}</small><div class="zone">${l.ids.map(id => `<button data-act="asset:${id}">${icon(ASSETS[id].icon)} ${esc(ASSETS[id].short)}</button>`).join('')}</div></div>`).join('')}</div>
+        <div class="sec"><small>Conduits</small></div>
+        ${CONDUITS.map(conduitRow).join('')}
+        <div class="row tiny muted" style="gap:12px;margin-top:8px"><span><span class="pill ok">protected</span></span><span><span class="pill warn">unprotected</span></span><span><span class="pill bad">exposed</span></span></div>`,
+    };
+  },
+
+  shop() {
+    const cats = [...new Set(CONTROLS.map(c => c.cat))];
+    return {
+      eyebrow: `Security level ${securityLevel()} · ${S.owned.size}/${CONTROLS.length} installed`, title: 'Shop',
+      html: `<p>Controls cost capex now and opex every day. Each one prevents an attack technique, gives you better evidence, or speeds recovery.</p>
+        ${cats.map(cat => `<div class="sec"><small>${esc(cat)}</small></div>${CONTROLS.filter(c => c.cat === cat).map(c => {
+          const owned = S.owned.has(c.id);
+          return `<div class="ctl ${owned ? 'owned' : ''}">
+            <div class="row between"><h4>${esc(c.name)}</h4><span class="price">${owned ? `<span class="pill ok">${icon('check')} Installed</span>` : money(c.cost)}</span></div>
+            <p>${esc(c.desc)}</p><div class="eff">${esc(c.effect)}</div>
+            <div class="row between" style="margin-top:8px"><span class="ref">${esc(c.ref)}${c.opex ? ` · opex ${money(c.opex)}/day` : ''}</span>
+            ${owned ? '' : `<button class="btn sm primary" data-act="buy:${c.id}" ${S.funds < c.cost ? 'disabled' : ''}>Buy</button>`}</div></div>`;
+        }).join('')}`).join('')}`,
+    };
+  },
+
+  soc() {
+    const inc = S.incident;
+    return {
+      eyebrow: 'Security operations', title: 'SOC',
+      html: `${inc ? `<div class="box" style="border:1.5px solid var(--red)"><small style="color:#ffa79e">Open incident</small><b style="display:block;margin:4px 0 8px">${esc(inc.scn.title)}</b>
+          <div class="row"><button class="btn sm" data-act="clues">${icon('search')} Clues</button><button class="btn sm primary" data-act="respond">${icon('cards')} Respond</button></div></div>`
+        : `<div class="box"><small>Status</small><p style="margin:4px 0 8px">No open incidents. Monitoring ${OT_SOURCES()} log sources.</p>
+          <button class="btn sm" data-act="skip">${icon('clock')} Skip to next alert</button></div>`}
+        <div class="sec"><small>Drills</small></div>
+        <p>Run any scenario as a tabletop drill. It is graded and debriefed, but costs, fines and outages are not applied. Drills bypass your preventive controls.</p>
+        ${SCENARIOS.map(s => `<div class="box row"><div class="grow"><b style="font-size:13.5px">${esc(s.short)}</b><div class="tiny muted">${esc(s.title)}</div></div>
+          <button class="btn sm" data-act="drill:${s.id}" ${inc ? 'disabled' : ''}>Run</button></div>`).join('')}
+        ${historyHTML()}`,
+    };
+  },
+
+  report() {
+    const real = S.history.filter(h => !h.drill);
+    const avg = real.length ? real.reduce((s, h) => s + h.score, 0) / real.length : null;
+    return {
+      eyebrow: `Day ${dayOf(S.T)} · ${clockOf(S.T)}`, title: 'Report',
+      html: `<div class="kpis">
+          <div class="kpi"><small>Revenue</small><b>${money(S.stats.revenue)}</b></div>
+          <div class="kpi"><small>Fines</small><b style="color:${S.stats.fines ? 'var(--red)' : ''}">${money(S.stats.fines)}</b></div>
+          <div class="kpi"><small>Security spend</small><b>${money(S.stats.spent)}</b></div>
+          <div class="kpi"><small>Response cost</small><b>${money(S.stats.response)}</b></div>
+          <div class="kpi"><small>Feeder outage</small><b>${dur(S.stats.outageMin)}</b></div>
+          <div class="kpi"><small>Customer-hours lost</small><b>${Math.round(S.stats.customerMin / 60).toLocaleString()}</b></div>
+          <div class="kpi"><small>Incidents handled</small><b>${real.length}</b></div>
+          <div class="kpi"><small>Attacks prevented</small><b>${S.stats.prevented}</b></div>
+          <div class="kpi"><small>Average grade</small><b>${avg === null ? '—' : letterOf(avg)}</b></div>
+          <div class="kpi"><small>XP</small><b>${S.xp}</b></div>
+        </div>
+        <div class="box"><small>Grid reliability</small><p style="margin:4px 0 0">${Math.round(S.reliability)}/100 — drops during outages and bad calls, recovers while every feeder is energized.</p></div>
+        ${historyHTML()}`,
+    };
+  },
+
+  alerts() {
+    S.unread = 0;
+    return {
+      eyebrow: `${S.alerts.length} events`, title: 'Alerts',
+      html: S.alerts.length
+        ? S.alerts.map(a => `<div class="box row" style="align-items:flex-start"><span class="pill ${a.kind === 'bad' ? 'bad' : a.kind === 'good' ? 'ok' : ''}">D${a.day} ${a.clock}</span><span class="grow tiny" style="line-height:1.45">${esc(a.text)}</span></div>`).join('')
+        : '<p>No events yet.</p>',
+    };
+  },
+
+  quests() {
+    return {
+      eyebrow: `${Math.min(S.questIdx, QUESTS.length)}/${QUESTS.length} complete`, title: 'Quests',
+      html: CHAPTERS.map((name, ch) => `<div class="sec"><small>Chapter ${pad(ch + 1)} · ${esc(name)}</small></div>
+        ${QUESTS.map((q, i) => ({ q, i })).filter(o => o.q.ch === ch).map(({ q, i }) => `<div class="box row">
+          <span class="a-ic" style="${i < S.questIdx ? 'background:var(--mint);color:var(--mint-ink)' : i === S.questIdx ? 'background:var(--red);color:#fff' : ''}">${icon(i < S.questIdx ? 'check' : q.icon)}</span>
+          <div class="grow"><b style="font-size:13.5px">${esc(q.title)}</b><div class="tiny muted">${esc(q.desc)}</div></div>
+          ${q.reward ? `<span class="pill">${money(q.reward)}</span>` : ''}</div>`).join('')}`).join(''),
+    };
+  },
+
+  clues(filter = 'all') {
+    const inc = S.incident;
+    if (!inc) return { eyebrow: '', title: 'Clues', html: '<p>No open incident.</p>' };
+    inc.filter = filter;
+    const assets = [...new Set(inc.scn.clues.map(c => c.asset))];
+    const missing = ['inventory', 'ids', 'backups'].filter(id => !S.owned.has(id) && inc.scn.clues.some(c => c.chips.some(ch => ch.need === id)));
+    return {
+      danger: true,
+      eyebrow: cluesEyebrow(), title: 'Clues',
+      html: `<p>Tag the lines that look like part of the attack. Some are routine noise — tagging those costs points. Your tags and your response card decide the grade.</p>
+        <div class="filters"><button class="${filter === 'all' ? 'on' : ''}" data-act="clues:all">All</button>${assets.map(id => `<button class="${filter === id ? 'on' : ''}" data-act="clues:${id}">${esc(ASSETS[id].short)}</button>`).join('')}</div>
+        ${inc.scn.clues.map((c, i) => (filter === 'all' || c.asset === filter ? clueHTML(c, i) : '')).join('')}
+        ${missing.length ? `<div class="box tiny muted">${icon('lock')} Some context is hidden. ${missing.map(id => esc(CTRL[id].short)).join(', ')} would add more detail to these logs.</div>` : ''}
+        <div class="sticky-foot"><button class="btn primary block" data-act="respond">${icon('cards')} Play a response card</button></div>`,
+    };
+  },
+
+  debrief(idx) {
+    const r = S.history[idx];
+    const scn = SCENARIOS.find(s => s.id === r.scnId);
+    const resp = scn.responses.find(x => x.id === r.respId);
+    const best = scn.responses.find(x => x.q === 'best');
+    const outage = r.hours > 0 ? `Feeder ${r.feeders.join(' + ')} · ${dur(r.hours * 60)}` : 'None';
+    return {
+      eyebrow: `${r.drill ? 'Drill' : 'Incident'} debrief · Day ${r.day} · ${r.clock}`, title: `Shift grade ${r.grade}`,
+      html: `<div class="row"><div class="grade ${r.grade}">${r.grade}</div><div class="grow"><b>${esc(scn.title)}</b><div class="tiny muted">Score ${r.score}/100${r.drill ? ' · drill, no costs applied' : ''}</div></div></div>
+        <div class="kv">
+          <span>Attack clues tagged</span><span class="${r.n && r.hit < r.n ? 'bad' : 'good'}">${scn.benign ? '— (no attack)' : `${r.hit}/${r.n}`}</span>
+          <span>Noise tagged as attack</span><span class="${r.fp ? 'bad' : 'good'}">${r.fp}</span>
+          <span>Response</span><span>${resp ? esc(resp.tag) : '<span class="bad">Timed out</span>'}</span>
+          <span>Decision time</span><span>${r.used}s</span>
+          <span>Outage</span><span class="${r.hours ? 'bad' : 'good'}">${outage}</span>
+          <span>Response cost + fines</span><span class="${r.fine ? 'bad' : ''}">${money(r.cost + r.fine)}</span>
+          <span>Reliability</span><span class="${r.rel < 0 ? 'bad' : 'good'}">${r.rel > 0 ? '+' : ''}${r.rel}</span>
+          <span>XP</span><span class="good">+${r.score}</span>
+        </div>
+        ${r.note ? `<div class="capnote">${esc(r.note)}</div>` : ''}
+        <div class="box"><small>What happened</small><p style="margin:5px 0 0">${resp ? `<b>${esc(resp.title)}.</b> ${esc(resp.result)}` : esc(scn.timeout)}</p></div>
+        ${resp?.q !== 'best' ? `<div class="box"><small>Best response</small><p style="margin:5px 0 0"><b>${esc(best.title)}.</b> ${esc(best.result)}</p></div>` : ''}
+        <div class="sec"><small>Every clue, explained</small></div>
+        <div class="box">${scn.clues.map((c, i) => {
+          const tagged = r.tags.includes(i);
+          const right = tagged === c.attack;
+          return `<div class="explain"><h5>${esc(c.src)} <span class="pill ${c.attack ? 'bad' : ''}">${c.attack ? 'Attack' : 'Noise'}</span>
+            <span class="${right ? 'verdict-ok' : 'verdict-bad'}">${right ? '✓' : '✗'} ${tagged ? 'you tagged it' : 'not tagged'}</span></h5>
+            <p>${esc(c.why)}</p>${c.ttp ? `<div class="ttp">${esc(c.ttp)}</div>` : ''}</div>`;
+        }).join('')}</div>
+        <div class="box"><small>Lesson</small><p style="margin:5px 0 6px">${esc(scn.lesson)}</p><div class="tiny muted">Inspired by: ${esc(scn.inspired)}</div></div>
+        ${scn.blockedBy ? `<div class="box row"><span class="grow tiny">${S.owned.has(scn.blockedBy) ? `${icon('check')} You own <b>${esc(CTRL[scn.blockedBy].short)}</b> — next time this is prevented.` : `<b>${esc(CTRL[scn.blockedBy].name)}</b> would have prevented this attack.`}</span>
+          ${S.owned.has(scn.blockedBy) ? '' : `<button class="btn sm" data-act="panel:shop">Shop</button>`}</div>` : ''}
+        <button class="btn primary block" data-act="close" style="margin-top:6px">Continue shift</button>`,
+    };
+  },
+};
+
+const OT_SOURCES = () => 14 + (S.owned.has('ids') ? 22 : 0) + (S.owned.has('inventory') ? 9 : 0);
+
+function conduitRow(c) {
+  const st = conduitState(c);
+  if (st === 'hidden') return `<div class="box row"><div class="grow"><b style="font-size:13px;text-decoration:line-through">${esc(c.name)}</b><div class="tiny muted">Removed by ${esc(CTRL[c.exposedUntil].short)}</div></div><span class="pill ok">${icon('check')} closed</span></div>`;
+  const pill = st === 'ok' ? `<span class="pill ok">${c.guard ? esc(CTRL[c.guard].short) : 'baseline'}</span>`
+    : st === 'weak' ? `<span class="pill warn">needs ${esc(CTRL[c.guard].short)}</span>`
+    : `<span class="pill bad">internet-exposed</span>`;
+  return `<div class="box row"><div class="grow"><b style="font-size:13px">${esc(c.name)}</b><div class="tiny muted">${esc(ASSETS[c.a].short)} ↔ ${esc(ASSETS[c.b].short)} · ${esc(c.proto)}</div></div>${pill}</div>`;
+}
+
+function historyHTML() {
+  if (!S.history.length) return '';
+  return `<div class="sec"><small>Debriefs</small></div>${S.history.map((h, i) => ({ h, i })).reverse().map(({ h, i }) =>
+    `<button class="box row" style="width:100%;text-align:left" data-act="debrief:${i}"><div class="grade ${h.grade}" style="width:32px;height:32px;font-size:17px;border-radius:9px">${h.grade}</div>
+      <div class="grow"><b style="font-size:13px">${esc(h.title)}</b><div class="tiny muted">Day ${h.day} · ${h.clock}${h.drill ? ' · drill' : ''}</div></div>${icon('arrow')}</button>`).join('')}`;
+}
+
+function cluesEyebrow() {
+  const inc = S.incident;
+  return inc ? `${inc.tags.size} of ${inc.scn.clues.length} tagged · ${inc.scn.short}` : '';
+}
+
+function clueHTML(c, i) {
+  const tagged = S.incident.tags.has(i);
+  const chips = c.chips.filter(ch => !ch.need || S.owned.has(ch.need))
+    .map(ch => `<span class="cchip ${ch.tone || ''}">${esc(ch.t)}</span>`).join('');
+  return `<div class="clue ${tagged ? 'tagged' : ''}" data-i="${i}">
+    <div class="clue-h"><span>${clueTime(c)} · ${esc(c.src)}</span><span>${esc(ASSETS[c.asset].short)}</span></div>
+    <pre>${esc(clueText(c))}</pre>${chips ? `<div class="cchips">${chips}</div>` : ''}
+    <button class="btn-tag" data-act="tag:${i}">${tagged ? `${icon('check')} Tagged as attack` : `${icon('search')} Tag as attack`}</button></div>`;
+}
+
+function openPanel(name, arg) {
+  S.panel = { name, arg };
+  if (name === 'network') { questEvent('network'); setNetVisible(true); }
+  if (name === 'asset') questEvent(`inspect:${arg}`);
+  renderPanel(true);
+  renderHUD();
+}
+let lastPanelHTML = '';
+function renderPanel(fresh = false) {
+  const sheet = $('#sheet');
+  if (!S.panel) { sheet.hidden = true; return; }
+  const p = PANELS[S.panel.name](S.panel.arg);
+  const body = $('#sheet-body');
+  // periodic refreshes skip unchanged content so clicks are never swallowed by a re-render
+  if (!fresh && p.html === lastPanelHTML) return;
+  lastPanelHTML = p.html;
+  const scroll = fresh ? 0 : body.scrollTop;
+  sheet.hidden = false;
+  sheet.classList.toggle('danger', !!p.danger);
+  $('#sheet-eyebrow').textContent = p.eyebrow;
+  $('#sheet-title').textContent = p.title;
+  body.innerHTML = p.html;
+  body.scrollTop = scroll;
+}
+function closePanel() {
+  S.panel = null;
+  $('#sheet').hidden = true;
+  renderHUD();
+}
+function openAsset(id) {
+  world.focus(id);
+  openPanel('asset', id);
+}
+
+// ---------- modals ----------
+function openModal(html) {
+  $('#modal-inner').innerHTML = html;
+  $('#modal').hidden = false;
+}
+function closeModal() { $('#modal').hidden = true; }
+
+function openRespond() {
+  const inc = S.incident;
+  if (!inc) return;
+  if (!inc.order) inc.order = [...inc.scn.responses].sort(() => Math.random() - 0.5);
+  const pb = S.owned.has('playbook');
+  const hint = r => {
+    if (!pb) return '';
+    if (r.q === 'best') return '<div class="pb ok">Playbook: recommended</div>';
+    if (r.q === 'overreact') return '<div class="pb bad">Playbook: disproportionate</div>';
+    if (r.q === 'ignore') return '<div class="pb bad">Playbook: ignores the evidence</div>';
+    return '';
+  };
+  openModal(`<small>${esc(inc.scn.short)} · ${inc.tags.size} clues tagged</small>
+    <h3>Play a response card</h3>
+    <p>Pick the response that fits the evidence. Under-reacting lets the attack land; over-reacting causes the outage yourself.${S.owned.has('backups') ? ' Config backups will halve any outage.' : ''}</p>
+    <div class="rcards">${inc.order.map(r => `<button class="rcard" data-act="play:${r.id}">
+      <div class="r-top"><span class="r-tag ${r.tag}">${esc(r.tag)}</span><span class="r-cost">${r.cost ? money(r.cost) : 'Free'}</span></div>
+      <h4>${esc(r.title)}</h4><p>${esc(r.desc)}</p>${hint(r)}</button>`).join('')}</div>
+    <div class="modal-foot"><button class="btn ghost" data-act="close-modal">Back to clues</button></div>`);
+}
+
+function openHelp() {
+  openModal(`<small>How to play</small><h3>Substation Sentinel</h3>
+    <p>Run ${esc(SITE.station)} for ${esc(SITE.utility)}. Earn revenue while feeders are energized, invest in controls, and triage incidents correctly.</p>
+    <div class="help-grid">
+      <div class="box"><b>Camera</b><p>Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom. Rail buttons rotate 45°, toggle top-down and reset. Keys: <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>Space</kbd> pause, <kbd>1</kbd>–<kbd>3</kbd> speed, <kbd>Esc</kbd> close.</p></div>
+      <div class="box"><b>Incidents</b><p>When an alert fires the game clock stops and a decision timer starts. Open the magnifier pins, read each log line, tag the ones that belong to the attack, then play one response card.</p></div>
+      <div class="box"><b>Grading</b><p>60% response quality, 30% clue accuracy (noise tagged as attack costs points), 10% speed. Treating an attack as a routine fault caps you at D; shutting the grid down yourself caps you at C.</p></div>
+      <div class="box"><b>Controls</b><p>Some controls prevent a scenario outright. Visibility controls (inventory, monitoring, backups) add context chips to logs. The playbook annotates response cards. Opex is charged daily.</p></div>
+      <div class="box"><b>Network overlay</b><p>Blue conduits are protected or baseline, amber need a control, orange is internet-exposed. Red pulses are an attack path in progress.</p></div>
+      <div class="box"><b>For trainers</b><p>The SOC panel runs any scenario as a drill (graded, no costs). Every debrief explains each clue with its MITRE ATT&amp;CK for ICS technique.</p></div>
+    </div>
+    <div class="modal-foot"><button class="btn primary" data-act="close-modal">Got it</button></div>`);
+}
+
+function gameOver() {
+  S.over = true;
+  S.speed = 0;
+  openModal(`<small>Board meeting</small><h3>You have been replaced</h3>
+    <p>Funds fell below −$250K. Fines and outages outran the budget. Revenue ${money(S.stats.revenue)}, fines ${money(S.stats.fines)}, ${S.history.filter(h => !h.drill).length} incidents handled, ${S.stats.prevented} prevented.</p>
+    <div class="modal-foot"><button class="btn primary" data-act="restart">Start a new shift</button></div>`);
+}
+
+// ---------- actions ----------
+function buy(id) {
+  const c = CTRL[id];
+  if (!c || S.owned.has(id)) return;
+  if (S.funds < c.cost) { toast(`Not enough funds for ${esc(c.short)}`, 'bad'); return; }
+  S.funds -= c.cost;
+  S.stats.spent += c.cost;
+  S.owned.add(id);
+  Snd.good();
+  toast(`Installed ${esc(c.name)}`, 'good', 'shield');
+  alertLog(`Installed control: ${c.name} (${money(c.cost)}).`, 'good');
+  if (id === 'ids' && S.incident) { S.incident.left += 60; S.incident.total += 60; }
+  refreshConduits();
+  checkQuests();
+  renderPanel();
+  renderHUD();
+}
+
+function setNetVisible(v) {
+  S.netVisible = v;
+  world.setNetworkVisible(v);
+  $('#rb-layers').classList.toggle('on', v);
+}
+
+const LIGHT_MODES = ['auto', 'day', 'night'];
+function renderRail() {
+  $('#rb-light').innerHTML = icon(S.light === 'auto' ? 'auto' : S.light === 'day' ? 'sun' : 'moon');
+  $('#rb-light').title = `Lighting: ${S.light}`;
+  $('#rb-sound').innerHTML = icon(S.sound ? 'volume' : 'mute');
+  $('#rb-sound').classList.toggle('on', S.sound);
+}
+
+const ACTS = {
+  panel: name => (S.panel?.name === name ? closePanel() : openPanel(name)),
+  asset: id => openAsset(id),
+  focus: id => world.focus(id),
+  buy: id => buy(id),
+  clues: arg => { if (!S.incident) return; openPanel('clues', arg || 'all'); if (arg && arg !== 'all' && ASSETS[arg]) world.focus(arg); },
+  tag: i => toggleTag(+i),
+  respond: () => openRespond(),
+  play: id => { const r = S.incident?.scn.responses.find(x => x.id === id); if (r) resolve(r); },
+  drill: id => { const s = SCENARIOS.find(x => x.id === id); if (s) startIncident(s, true); },
+  skip: () => { if (!S.incident) { S.nextIncidentAt = S.T; triggerScheduled(false); } },
+  debrief: i => openPanel('debrief', +i),
+  close: () => closePanel(),
+  'close-modal': () => closeModal(),
+  quest: () => questAction(),
+  restart: () => location.reload(),
+};
+
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el || el.disabled) return;
+  const raw = el.dataset.act;
+  const i = raw.indexOf(':');
+  const act = i < 0 ? raw : raw.slice(0, i), arg = i < 0 ? undefined : raw.slice(i + 1);
+  ACTS[act]?.(arg, el);
+});
+
+$('#sheet-close').addEventListener('click', closePanel);
+$('#modal').addEventListener('click', e => { if (e.target.id === 'modal' && !S.over) closeModal(); });
+document.querySelectorAll('#speeds button').forEach(b => b.addEventListener('click', () => setSpeed(+b.dataset.speed)));
+$('#rb-light').addEventListener('click', () => { S.light = LIGHT_MODES[(LIGHT_MODES.indexOf(S.light) + 1) % 3]; renderRail(); toast(`Lighting: ${S.light}`, 'warn', S.light === 'night' ? 'moon' : 'sun'); });
+$('#rb-sound').addEventListener('click', () => { S.sound = !S.sound; renderRail(); });
+$('#rb-layers').addEventListener('click', () => setNetVisible(!S.netVisible));
+$('#rb-rotl').addEventListener('click', () => { world.rotate(-45); questEvent('camera'); });
+$('#rb-rotr').addEventListener('click', () => { world.rotate(45); questEvent('camera'); });
+$('#rb-top').addEventListener('click', () => { world.toggleTop(); questEvent('camera'); });
+$('#rb-zin').addEventListener('click', () => world.zoom(0.75));
+$('#rb-zout').addEventListener('click', () => world.zoom(1.33));
+$('#rb-reset').addEventListener('click', () => world.resetView());
+$('#rb-help').addEventListener('click', openHelp);
+
+window.addEventListener('keydown', e => {
+  if (e.target.closest('input, textarea')) return;
+  if (e.key === 'Escape') { if (!$('#modal').hidden && !S.over) closeModal(); else closePanel(); }
+  else if (!S.started) return;
+  else if (e.key === ' ') { e.preventDefault(); setSpeed(S.speed ? 0 : 1); }
+  else if (e.key === '1') setSpeed(1);
+  else if (e.key === '2') setSpeed(2);
+  else if (e.key === '3') setSpeed(4);
+  else if (e.key === 'q' || e.key === 'Q') { world.rotate(-45); questEvent('camera'); }
+  else if (e.key === 'e' || e.key === 'E') { world.rotate(45); questEvent('camera'); }
+});
+
+$('#start').addEventListener('click', () => {
+  Snd.init();
+  $('#intro').remove();
+  S.started = true;
+  alertLog(`Shift started at ${SITE.station}.`);
+  toast('Welcome to Kestrel Point. Follow the quest card to get started.', 'good', 'zap');
+  renderAction();
+  renderHUD();
+});
+
+// ---------- main loop ----------
+let last = performance.now(), hudTimer = 0, bannerSec = -1;
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (S.started && !S.over && S.speed > 0) {
+    if (S.incident) {
+      S.incident.left -= dt;
+      if (S.incident.left <= 0) resolve(null);
+      else if (Math.ceil(S.incident.left) !== bannerSec) { bannerSec = Math.ceil(S.incident.left); renderBanner(); }
+    } else {
+      advance(dt * S.speed * GAME_MIN_PER_SEC);
+    }
+  }
+  hudTimer += dt;
+  if (hudTimer > 0.25) {
+    hudTimer = 0;
+    renderHUD();
+    if (S.panel && ['site', 'report', 'asset'].includes(S.panel.name)) renderPanel();
+  }
+  world.update(dt, daylight(), hourOf(S.T));
+  positionOverlays();
+  requestAnimationFrame(frame);
+}
+
+hydrateIcons();
+renderRail();
+refreshConduits();
+renderHUD();
+renderAction();
+requestAnimationFrame(frame);
+
+// exposed for debugging / trainer tooling in the console
+window.sentinel = { S, world, startIncident: id => startIncident(SCENARIOS.find(s => s.id === id), true) };
