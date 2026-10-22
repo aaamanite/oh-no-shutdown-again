@@ -75,7 +75,7 @@ export const ASSETS = {
     protocols: [],
   },
   biogas: {
-    name: 'POME biogas plant', short: 'Biogas plant', level: 'Generation · 11/132 kV', icon: 'flame',
+    name: 'Biogas plant', short: 'Biogas plant', level: 'Generation · 11/132 kV', icon: 'flame',
     desc: 'Operated by ONSA Power & Co. Palm oil mill effluent (POME) is pumped from the raw pond to the mixing pit, digested in the AD tank and covered lagoon, cleaned of H₂S in the scrubber and burned in the genset. Surplus gas goes to the flare. A PLC in the MCC room reads every transmitter on the pipelines and drives the motorized valves.',
     protocols: ['4–20 mA', 'Modbus RTU', 'Modbus TCP', 'IEC 60870-5-104'],
   },

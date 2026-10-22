@@ -424,7 +424,7 @@ export class World {
     ];
     this.sign(-24.2, 1.6, -5.8, 7, 2.2, 0, title('ONSA Power & Co.', 'PMU BUKIT MUTIARA · 132/33 kV'));
     this.sign(-48, 27.2, -26.6, 10, 2.8, 0, title('ONSA', 'POWER & CO. · HEADQUARTERS'), false, this.areas.corp);
-    this.sign(-35.5, 1.6, -37.2, 7, 2.2, 0, title('ONSA Power & Co.', 'POME Biogas Plant'), true, this.areas.biogas);
+    this.sign(-35.5, 1.6, -37.2, 7, 2.2, 0, title('ONSA Power & Co.', 'Biogas Plant'), true, this.areas.biogas);
     this.sign(70.6, 9.95, 20.25, 8.4, 1.4, 0, [
       { text: 'HOSPITAL BUKIT MUTIARA', size: 90, y: 82, color: BRAND.white },
     ], false, this.areas.townB);
@@ -1283,7 +1283,7 @@ export class World {
     s.add(gA, gB);
   }
 
-  // POME biogas plant, laid out along the process: raw POME pond → mixing pit → AD tank + covered lagoon
+  // Biogas plant, laid out along the process: raw POME pond → mixing pit → AD tank + covered lagoon
   // → scrubber → genset, with a flare branch. Instruments and motorized valves sit on the pipelines;
   // their tag anchors go into this.instruments for the HUD.
   buildBiogas() {
@@ -1960,7 +1960,7 @@ export class World {
     // internet node: loop, with a path east to the spine road
     P([[-90.1, 36.7], [-79.5, 36.7], [-79.5, 43.3], [-90.1, 43.3]], true);
     P([[-78.5, 42.2], [-52, 42.2]]);
-    // POME biogas plant: along the inland side and both ends, open to the shore; landing-station path
+    // Biogas plant: along the inland side and both ends, open to the shore; landing-station path
     P([[-48, -55.2], [50.8, -55.2], [50.8, -73.6]]);
     P([[-41.8, -56.2], [-41.8, -73.6]]);
     P([[51.8, -68.6], [61.5, -68.6]]);
