@@ -72,7 +72,7 @@ const Snd = {
 // ---------- world ----------
 const world = new World($('#scene'));
 world.buildNetwork(CONDUITS);
-world.onPick = id => openAsset(id);
+world.onPick = id => (id === 'researcher' ? openResearcher() : openAsset(id));
 world.controls.addEventListener('start', () => { if (S.spin) setSpin(false); if (S.started) questEvent('camera'); });
 
 // ---------- derived values ----------
@@ -145,6 +145,12 @@ try { S.player = localStorage.getItem(NAME_KEY) || ''; } catch { S.player = ''; 
 renderMe();
 labelsEl.appendChild(meEl);
 
+const npcEl = document.createElement('button');
+npcEl.className = 'me npc';
+npcEl.dataset.act = 'researcher';
+npcEl.innerHTML = `<b>Researcher</b><small>SBSP research · ONSA R&amp;D</small>`;
+labelsEl.appendChild(npcEl);
+
 const lineEls = world.lineTags.map(({ text, pos }) => {
   const el = document.createElement('div');
   el.className = 'itag line';
@@ -199,6 +205,9 @@ function positionOverlays() {
   meEl.style.display = me.vis ? '' : 'none';
   meEl.style.transform = `translate(${me.x}px, ${me.y}px) translate(-50%, -100%)`;
   const near = world.controls.target.distanceTo(world.centers.biogas) < 45 && world.camera.position.distanceTo(world.centers.biogas) < 140;
+  const rp = world.project(world.researcherAnchor());
+  npcEl.style.display = rp.vis ? '' : 'none';
+  npcEl.style.transform = `translate(${rp.x}px, ${rp.y}px) translate(-50%, -100%)`;
   const lineNear = world.camera.position.distanceTo(world.controls.target) < 200;
   for (const { el, pos } of lineEls) {
     const p = lineNear && world.project(pos);
@@ -583,6 +592,7 @@ const PANELS = {
         ${f ? `<div class="row between" style="margin-top:8px"><small>Load share</small><b>${Math.round(FEEDERS[f].share * 100)}% of revenue</b></div>` : ''}</div>
         ${a.protocols.length ? `<div class="sec"><small>Protocols</small></div><div class="row" style="flex-wrap:wrap;gap:5px">${a.protocols.map(p => `<span class="pill">${esc(p)}</span>`).join('')}</div>` : ''}
         ${id === 'biogas' ? processHTML() : ''}
+        ${id === 'rnd' ? sbspHTML() : ''}
         ${links.length ? `<div class="sec"><small>Conduits</small></div>${links.map(conduitRow).join('')}` : ''}
         <div class="row" style="margin-top:12px"><button class="btn" data-act="focus:${id}">${icon('target')} Focus camera</button></div>`,
     };
@@ -598,6 +608,16 @@ const PANELS = {
           <span>Process stage</span><span>${esc(i.stage)}</span></div></div>
         <div class="box"><small>Why an attacker cares</small><p style="margin:5px 0 0">${esc(instrumentRisk(i))}</p></div>
         <div class="row" style="margin-top:10px;gap:8px"><button class="btn" data-act="asset:biogas">${icon('arrow')} All plant instruments</button></div>`,
+    };
+  },
+
+  researcher() {
+    return {
+      eyebrow: 'ONSA R&D Centre · Researcher', title: 'Researcher',
+      html: `<p>“I work on <b>Space-Based Solar Power</b>: satellites that capture solar power in space and wirelessly deliver 24/7, baseload energy to wherever on Earth. Up there the sun never sets, so the power doesn’t either.”</p>
+        <p>“Our test satellite is overhead right now. Watch the beam — it lands on the rectenna field beside me, and the dish tracks the satellite across the sky.”</p>
+        ${sbspHTML().replace(/<button[^]*$/, '')}
+        <button class="btn block" data-act="asset:rnd">${icon('arrow')} R&amp;D Centre details</button>`,
     };
   },
 
@@ -753,6 +773,21 @@ function conduitRow(c) {
   return `<div class="box row"><div class="grow"><b style="font-size:13px">${esc(c.name)}</b><div class="tiny muted">${esc(ASSETS[c.a].short)} ↔ ${esc(ASSETS[c.b].short)} · ${esc(c.proto)}</div></div>${pill}</div>`;
 }
 
+function sbspHTML() {
+  const steps = [
+    ['Capture', 'Solar arrays in orbit see the sun almost all the time — no night, no clouds, no seasons.'],
+    ['Convert', 'Onboard electronics turn the DC power into a 2.45 GHz microwave beam.'],
+    ['Beam', 'A steerable transmitter points the beam at a rectenna anywhere on Earth.'],
+    ['Receive', 'The rectenna rectifies the microwaves back to DC; inverters feed the grid — 24/7 baseload.'],
+  ];
+  return `<div class="sec"><small>Space-Based Solar Power (SBSP)</small></div>
+    <div class="box"><div class="row between"><small>Test beam</small><span class="pill ok">Locked on rectenna</span></div>
+      <div class="row between" style="margin-top:6px"><small>Rectenna output</small><b>${world.rndOutput} kW · test scale</b></div></div>
+    ${steps.map(([t, d], i) => `<div class="box row" style="align-items:flex-start;margin-bottom:5px"><span class="pill">${i + 1}</span><div class="grow"><b style="font-size:13px">${t}</b><div class="tiny muted" style="line-height:1.45">${d}</div></div></div>`).join('')}
+    <div class="box"><small>Why OT security cares</small><p style="margin:5px 0 0">The beam is pointed by commands sent over the satellite control (TT&amp;C) link. Authenticating and encrypting that link matters as much as any substation conduit.</p></div>
+    <button class="btn block" data-act="researcher">${icon('satellite')} Talk to the researcher</button>`;
+}
+
 function processHTML() {
   const flow = PROCESS.slice(0, 5).map(p => `<span class="pill">${esc(p)}</span>`).join(` <span class="muted">→</span> `);
   return `<div class="sec"><small>Process flow</small></div>
@@ -813,6 +848,12 @@ function closePanel() {
   S.panel = null;
   $('#sheet').hidden = true;
   renderHUD();
+}
+function openResearcher() {
+  const r = world.researcher.position;
+  world.walkTo(r.x + 2.2, r.z + 2.2);
+  world.animateTo(r.clone(), { radius: 45, phi: 0.95, theta: world.spherical().theta }, 0.7);
+  openPanel('researcher');
 }
 function openAsset(id) {
   world.walkToAsset(id);
@@ -940,6 +981,7 @@ const ACTS = {
   quest: () => questAction(),
   restart: () => location.reload(),
   rename: () => openRename(),
+  researcher: () => openResearcher(),
   'save-name': () => {
     const v = $('#rename-input')?.value.trim();
     if (!v) { $('#rename-input')?.focus(); return; }
@@ -1020,7 +1062,7 @@ function frame(now) {
   if (hudTimer > 0.25) {
     hudTimer = 0;
     renderHUD();
-    if (S.panel && ['site', 'report', 'asset'].includes(S.panel.name)) renderPanel();
+    if (S.panel && ['site', 'report', 'asset', 'researcher'].includes(S.panel.name)) renderPanel();
   }
   world.update(dt, daylight(), hourOf(S.T));
   positionOverlays();

@@ -24,6 +24,9 @@ const LAYOUT = {
   biogas: { c: [2, -46], r: 32, hub: [22.5, 1.2, -36.6], label: [-9, 13, -46] },
   wind: { c: [76, -78], r: 32, hub: [56, 1.2, -50.5], label: [76, 26, -78] },
   townC: { c: [74, 62], r: 24, hub: [52, 1.2, 50], label: [71, 13, 56] },
+  townD: { c: [14, 75], r: 25, hub: [8, 1.2, 52], label: [8, 14, 70] },
+  solar: { c: [-84, 70], r: 26, hub: [-62, 1.2, 56], label: [-84, 7, 70] },
+  rnd: { c: [-45, 74], r: 16, hub: [-45, 1.2, 62], label: [-46, 20, 84] },
 };
 
 const _mats = new Map();
@@ -167,13 +170,14 @@ export class World {
     this.pickables = [];
     this.spinners = [];
     this.nightMats = [];
-    this.feederOn = { A: true, B: true, C: true };
+    this.feederOn = { A: true, B: true, C: true, D: true };
     this.feederMats = {
       A: new THREE.MeshStandardMaterial({ color: 0x4d5a63, emissive: 0xffd27a, emissiveIntensity: 0 }),
       B: new THREE.MeshStandardMaterial({ color: 0x4d5a63, emissive: 0xffd27a, emissiveIntensity: 0 }),
       C: new THREE.MeshStandardMaterial({ color: 0x4d5a63, emissive: 0xffd27a, emissiveIntensity: 0 }),
+      D: new THREE.MeshStandardMaterial({ color: 0xf2f2f2, emissive: 0xffc861, emissiveIntensity: 0 }),
     };
-    this.feederFacades = { A: [], B: [], C: [] };
+    this.feederFacades = { A: [], B: [], C: [], D: [] };
     this.conduits = {};
     this.rings = {};
     this._n = -1;
@@ -190,6 +194,9 @@ export class World {
     this.buildBiogas();
     this.buildWind();
     this.buildCollege();
+    this.buildSolar();
+    this.buildMall();
+    this.buildRnD();
     this.buildLines();
     this.buildTrees();
     this.buildRings();
@@ -316,8 +323,9 @@ export class World {
   }
 
   // ---------- persona: the player, in hi-vis coverall and white helmet ----------
-  buildPersona() {
-    const p = (this.persona = new THREE.Group());
+  // ONSA field worker figure (shared by the player persona and the researcher)
+  worker({ woman = false } = {}) {
+    const p = new THREE.Group();
     const body = new THREE.Group();
     p.add(body);
     const NAVY = 0x26417a, POCKET = 0x203766, SILVER = 0xd8dee2, VEST = 0xf2d22e, TRIM = 0xf08a24;
@@ -328,7 +336,7 @@ export class World {
     const slab = (parent, color, x, y, z, w, h, d) => { const m = part(parent, BOX, color, x, y, z); m.scale.set(w, h, d); return m; };
 
     // navy work trousers: reflective bands below the knee, cargo pockets, black safety boots
-    this.legs = [-0.17, 0.17].map(x => {
+    const legs = [-0.17, 0.17].map(x => {
       const leg = new THREE.Group();
       leg.position.set(x, 0.95, 0);
       part(leg, limb(0.3, 0.82, 0.32), NAVY, 0, 0, 0);
@@ -352,7 +360,7 @@ export class World {
     slab(body, TRIM, 0, 0.97, 0, 0.74, 0.07, 0.44);
 
     // two-segment arms: navy sleeves with reflective bands, skin hands
-    this.arms = [-0.45, 0.45].map(x => {
+    const arms = [-0.45, 0.45].map(x => {
       const sh = new THREE.Group();
       sh.position.set(x, 1.72, 0);
       part(sh, limb(0.2, 0.36, 0.22), NAVY, 0, 0, 0);
@@ -380,6 +388,17 @@ export class World {
     slab(body, HELMET, 0, 2.17, 0.3, 0.28, 0.03, 0.14);
     slab(body, HELMET, 0, 2.38, 0, 0.06, 0.06, 0.5); // crown ridge
 
+    if (woman) {
+      // long hair tied back in a ponytail below the helmet
+      const HAIR = 0x3a2418;
+      slab(body, HAIR, 0, 2.04, -0.17, 0.46, 0.3, 0.16);
+      for (const s of [-1, 1]) slab(body, HAIR, s * 0.22, 2.06, -0.04, 0.06, 0.24, 0.26);
+      slab(body, HAIR, 0, 1.97, 0.2, 0.36, 0.05, 0.05);
+      const tail = slab(body, HAIR, 0, 1.8, -0.31, 0.13, 0.36, 0.12);
+      tail.rotation.x = 0.35;
+      part(body, new THREE.SphereGeometry(0.07, 8, 6), 0x2f6fb5, 0, 1.98, -0.27); // hair tie
+    }
+
     // ONSA Power & Co. prints: vest chest, vest back, helmet sticker
     const print = (lines, w, h, pw, ph, x, y, z, ry = 0, rx = 0, bg = null) => {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), new THREE.MeshStandardMaterial({ map: textTexture(lines, w, h, bg), transparent: !bg, alphaTest: bg ? 0 : 0.2, roughness: 0.8 }));
@@ -394,7 +413,7 @@ export class World {
     // coverall tags: sleeve patch on each arm, label on the front of the left trouser leg
     const tagTex = textTexture([{ text: 'ONSA', size: 104, y: 70, color: BRAND.white }, { text: 'POWER & CO.', size: 40, y: 150, color: BRAND.white, weight: 800 }], 384, 200, BRAND.navy);
     const tagMat = new THREE.MeshStandardMaterial({ map: tagTex, roughness: 0.8 });
-    this.arms.forEach(({ sh }, i) => {
+    arms.forEach(({ sh }, i) => {
       const patch = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.08), tagMat);
       const s = i ? 1 : -1;
       patch.position.set(s * 0.102, -0.28, 0);
@@ -403,8 +422,17 @@ export class World {
     });
     const legTag = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.09), tagMat);
     legTag.position.set(0, -0.22, 0.162);
-    this.legs[1].add(legTag);
+    legs[1].add(legTag);
     body.scale.setScalar(1.8);
+    return { p, body, legs, arms };
+  }
+
+  buildPersona() {
+    const { p, body, legs, arms } = this.worker();
+    this.persona = p;
+    this.legs = legs;
+    this.arms = arms;
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
     this.body = body;
 
     // poses as joint quaternions: idle "thinking" (hand to chin, other arm across) vs walking
@@ -522,7 +550,7 @@ export class World {
     // roads
     flat(70, 5, COL.road, -55, 0, 0.07);
     flat(78, 5, COL.road, 57, 0, 0.07);
-    flat(4, 78, COL.road, -30, 4, 0.08);
+    flat(4, 127, COL.road, -30, 28.5, 0.08);
     flat(4, 82, COL.road, 60, 0, 0.08);
     flat(4, 26, COL.road, 60, 53, 0.08);
     flat(4, 82, COL.road, 78, 0, 0.08);
@@ -594,7 +622,7 @@ export class World {
 
     // breaker status lamps per feeder
     this.lamps = {};
-    for (const [f, z] of [['A', -4.5], ['C', 0], ['B', 4.5]]) {
+    for (const [f, z] of [['A', -5.4], ['C', -1.8], ['B', 1.8], ['D', 5.4]]) {
       const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 10), new THREE.MeshBasicMaterial({ color: 0x5ee08f }));
       lamp.position.set(18.5, 11.1, z);
       g.add(lamp);
@@ -976,6 +1004,247 @@ export class World {
     ]);
   }
 
+  // ONSA Power & Co. solar farm: tilted PV rows, string inverters and a step-up station on grid Line 3
+  buildSolar() {
+    const g = this.group('solar');
+    box(g, 46, 0.1, 38, 0xc9bf9f, -84, 0, 70);
+    const rows = 11, per = 12;
+    const panels = new THREE.InstancedMesh(BOX, new THREE.MeshStandardMaterial({ color: 0x1e3c6e, roughness: 0.35, metalness: 0.3 }), rows * per);
+    const posts = new THREE.InstancedMesh(BOX, mat(COL.steelDark), rows * per);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.45, 0, 0)), q0 = new THREE.Quaternion();
+    let i = 0;
+    for (let r = 0; r < rows; r++) {
+      for (let k = 0; k < per; k++) {
+        const x = -104 + k * 3.4 + 1.7, z = 54 + r * 3.1;
+        m.compose(new THREE.Vector3(x, 1.25, z), q, new THREE.Vector3(3.2, 0.08, 2));
+        panels.setMatrixAt(i, m);
+        m.compose(new THREE.Vector3(x, 0.6, z), q0, new THREE.Vector3(0.12, 1.2, 0.12));
+        posts.setMatrixAt(i, m);
+        i++;
+      }
+    }
+    panels.castShadow = posts.castShadow = true;
+    panels.receiveShadow = true;
+    g.add(panels, posts);
+    for (const z of [57, 66, 75, 84]) box(g, 1.4, 1.6, 1, 0xd7d2c4, -62.5, 0, z); // string inverters
+    box(g, 3, 2.4, 2.2, COL.xfmr, -62.5, 0, 59.5);
+    for (const x of [-0.7, 0, 0.7]) cyl(g, 0.12, 1, COL.porcelain, -62.5 + x, 2.4, 59.5);
+    this.sign(-84, 1.4, 90.5, 8, 2.2, 0, [
+      { text: 'ONSA Power & Co.', size: 130, y: 110, color: BRAND.amber },
+      { text: 'SOLAR FARM · GRID LINE 3', size: 58, y: 220, color: BRAND.white, weight: 800 },
+    ]);
+  }
+
+  // Feeder D: Harbour Point shopping complex — mall, cinema, big wheel, parking
+  buildMall() {
+    const g = this.group('townD');
+    const facade = (w, h, d, x, z, base, glass, seed) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), facadeMaterials(w, h, d, base, glass, 0x6b7378, seed));
+      mesh.position.set(x, h / 2, z);
+      mesh.castShadow = mesh.receiveShadow = true;
+      g.add(mesh);
+      this.feederFacades.D.push(...new Set(mesh.material.filter(q => q.emissiveMap)));
+    };
+    facade(30, 7, 16, 8, 70, '#e8e1d4', '#5a8db0', 71);
+    const shopCols = [0xd9534f, 0x2fa39a, 0xf2b33d, 0x6a5acd, 0x3d8fd1, 0xe07b39];
+    for (let k = 0; k < 6; k++) box(g, 4.2, 0.9, 0.2, shopCols[k], -9.5 + k * 7, 5.4, 78.12); // shop signs on the frontage
+    box(g, 6, 1.2, 0.25, 0x1d2928, 8, 7.2, 78.2);
+    facade(12, 9, 10, 31, 66, '#4a3b5e', '#2c2540', 73); // cinema
+    box(g, 9, 1.6, 0.4, 0xf2b33d, 31, 6.4, 71.2);
+    // big wheel (lights follow Feeder D)
+    const wheel = new THREE.Group();
+    wheel.position.set(31, 10, 84);
+    const ringMat = this.feederMats.D;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(7, 0.22, 8, 40), ringMat);
+    wheel.add(ring);
+    for (let k = 0; k < 10; k++) {
+      const a = (k / 10) * Math.PI * 2;
+      const spoke = new THREE.Mesh(BOX, mat(0xe6e6e6));
+      spoke.scale.set(0.12, 7, 0.12);
+      spoke.position.set(Math.cos(a) * 3.5, Math.sin(a) * 3.5, 0);
+      spoke.rotation.z = a - Math.PI / 2;
+      wheel.add(spoke);
+      const cab = new THREE.Mesh(BOX, mat(shopCols[k % shopCols.length]));
+      cab.scale.set(1, 1, 1);
+      cab.position.set(Math.cos(a) * 7, Math.sin(a) * 7 - 0.6, 0);
+      wheel.add(cab);
+    }
+    g.add(wheel);
+    this.spinners.push({ obj: wheel, axis: 'z', speed: 0.25 });
+    for (const s of [-1, 1]) {
+      const leg = add(g, BOX, mat(0xbfc5c9), 31 + s * 2.4, 5, 84 - 0.8 * s, 0.3, 10.6, 0.3);
+      leg.rotation.z = s * 0.24;
+    }
+    // parking
+    const lot = new THREE.Mesh(new THREE.PlaneGeometry(28, 9), mat(0x6f767c));
+    lot.rotation.x = -Math.PI / 2;
+    lot.position.set(6, 0.05, 84);
+    g.add(lot);
+    const rand = rng(17);
+    const carCols = [0xd9534f, 0x3d6fb6, 0xf0f0f0, 0x2f3438, 0xf2b33d, 0x6aa86a];
+    for (let k = 0; k < 11; k++) {
+      if (rand() < 0.25) continue;
+      box(g, 1.6, 0.8, 3, carCols[k % carCols.length], -6 + k * 2.4, 0.1, 84);
+    }
+    this.sign(-9, 1.4, 88.5, 7, 2, 0, [
+      { text: 'HARBOUR POINT', size: 120, y: 110, color: BRAND.amber },
+      { text: 'SHOPS · CINEMA · BIG WHEEL', size: 56, y: 220, color: BRAND.white, weight: 800 },
+    ]);
+  }
+
+  // ONSA R&D Centre: Space-Based Solar Power (SBSP). A satellite captures solar power in space and
+  // beams it down wirelessly as microwaves to a rectenna field, which turns it back into electricity.
+  buildRnD() {
+    const g = this.group('rnd');
+    box(g, 26, 0.1, 26, 0xc9c3b6, -45, 0, 74);
+    const lab = new THREE.Mesh(new THREE.BoxGeometry(14, 7, 9), facadeMaterials(14, 7, 9, '#eef0ee', '#4f7fa8', 0x9aa3a8, 81));
+    lab.position.set(-46, 3.5, 82.5);
+    lab.castShadow = lab.receiveShadow = true;
+    g.add(lab);
+    this.nightMats.push(...new Set(lab.material.filter(q => q.emissiveMap)));
+    add(g, DOME, mat(0xe9ecee), -50, 7, 82.5, 2.4, 2.2, 2.4); // observatory dome
+
+    // rectenna field: rows of receiving antenna panels
+    const rect = new THREE.InstancedMesh(BOX, new THREE.MeshStandardMaterial({ color: 0x9aa7b0, roughness: 0.4, metalness: 0.5 }), 42);
+    const m = new THREE.Matrix4(), tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.25, 0, 0));
+    let i = 0;
+    for (let r = 0; r < 6; r++) for (let k = 0; k < 7; k++) {
+      m.compose(new THREE.Vector3(-55 + k * 2.2, 0.9, 63 + r * 1.9), tilt, new THREE.Vector3(1.9, 0.06, 1.5));
+      rect.setMatrixAt(i++, m);
+    }
+    rect.castShadow = rect.receiveShadow = true;
+    g.add(rect);
+    this.rectenna = new THREE.Vector3(-48.4, 1, 67.8);
+    this.rectGlow = new THREE.Mesh(new THREE.PlaneGeometry(16, 12), new THREE.MeshBasicMaterial({ color: 0x7fe3ff, transparent: true, opacity: 0.12, depthWrite: false }));
+    this.rectGlow.rotation.x = -Math.PI / 2;
+    this.rectGlow.position.set(-48.4, 1.2, 67.8);
+    g.add(this.rectGlow);
+
+    // ground station dish that tracks the satellite
+    cyl(g, 0.6, 3, 0x9aa3a8, -37.5, 0, 70);
+    this.dish = new THREE.Group();
+    this.dish.position.set(-37.5, 3.6, 70);
+    const bowl = new THREE.Mesh(new THREE.SphereGeometry(2.4, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2.6), mat(0xf2f2ee, { side: THREE.DoubleSide }));
+    bowl.rotation.x = Math.PI / 2;
+    this.dish.add(bowl);
+    const feed = new THREE.Mesh(CYL, mat(0x6d777d));
+    feed.scale.set(0.06, 2.2, 0.06);
+    feed.rotation.x = Math.PI / 2;
+    feed.position.z = 1.1;
+    this.dish.add(feed);
+    g.add(this.dish);
+
+    // the satellite: gold-foil bus, two long solar wings, a downward transmitter
+    const sat = (this.satellite = new THREE.Group());
+    box(sat, 2.4, 2.4, 3.2, 0xd4a73a, 0, -1.2, 0);
+    for (const s of [-1, 1]) {
+      box(sat, 0.15, 0.15, 3, 0xbfc5c9, s * 2.2, -0.07, 0);
+      const wing = box(sat, 13, 0.12, 4.2, 0x1e3c6e, s * 9.2, -0.06, 0);
+      wing.material = new THREE.MeshStandardMaterial({ color: 0x24508f, roughness: 0.3, metalness: 0.4, emissive: 0x0a1630 });
+    }
+    const tx = add(sat, new THREE.ConeGeometry(1.4, 1.2, 16, 1, true), mat(0xe6e6e6, { side: THREE.DoubleSide }), 0, -2, 0);
+    tx.rotation.x = Math.PI;
+    sat.scale.setScalar(1.4);
+    sat.userData.asset = 'rnd';
+    this.scene.add(sat);
+    this.pickables.push(sat);
+    this.beam = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 20, 1, true), new THREE.MeshBasicMaterial({ color: 0x7fe3ff, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    this.scene.add(this.beam);
+    this.satAngle = 0.6;
+    this.rndOutput = 0;
+
+    this.sign(-58, 1.4, 88.5, 7.5, 2.2, 0, [
+      { text: 'ONSA Power & Co.', size: 124, y: 105, color: BRAND.amber },
+      { text: 'R&D CENTRE · SBSP RESEARCH', size: 54, y: 215, color: BRAND.white, weight: 800 },
+    ]);
+    this.buildResearcher();
+  }
+
+  // The researcher: white lab coat, safety glasses, ONSA R&D badge, tablet in hand.
+  // The researcher: same ONSA field figure as the player, as a woman, carrying a tablet.
+  buildResearcher() {
+    const { p: r, legs, arms } = this.worker({ woman: true });
+    this.researcher = r;
+    r.userData.asset = 'researcher';
+    this.rLegs = legs;
+    this.rArms = arms;
+    const tablet = add(arms[1].el, BOX, mat(0x1f2a33), 0, -0.4, 0.12);
+    tablet.scale.set(0.3, 0.4, 0.03);
+    tablet.rotation.x = 0.3;
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.34), new THREE.MeshBasicMaterial({ color: 0x7fe3ff }));
+    screen.position.set(0, -0.4, 0.14);
+    screen.rotation.x = 0.3;
+    arms[1].el.add(screen);
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const qDir = d => new THREE.Quaternion().setFromUnitVectors(V(0, -1, 0), d.normalize());
+    const pose = (upper, fore) => { const sh = qDir(upper); return { sh, el: sh.clone().invert().multiply(qDir(fore)) }; };
+    this.tabletPose = [pose(V(-0.08, -1, 0.05), V(0.02, -1, 0.12)), pose(V(-0.05, -1, 0.3), V(-0.25, 0.15, 1))];
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.8, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false }));
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.14;
+    r.add(shadow);
+    r.position.set(-47, 0, 73);
+    this.scene.add(r);
+    this.pickables.push(r);
+    // wanders between the rectenna, the ground-station dish and the lab door
+    this.rStops = [new THREE.Vector3(-47, 0, 73), new THREE.Vector3(-40.5, 0, 66.5), new THREE.Vector3(-44, 0, 77), new THREE.Vector3(-52, 0, 73)];
+    this.rStop = 0;
+    this.rWait = 3;
+    this.rPhase = 0;
+  }
+  researcherAnchor() { return this.researcher.position.clone().setY(5.8); }
+
+  updateSouth(dt) {
+    // satellite on a slow orbit above the R&D centre; beam and dish follow it
+    this.satAngle += dt * 0.06;
+    const sp = new THREE.Vector3(-46 + Math.cos(this.satAngle) * 34, 56 + Math.sin(this.satAngle * 0.7) * 5, 70 + Math.sin(this.satAngle) * 22);
+    this.satellite.position.copy(sp);
+    this.satellite.rotation.y = -this.satAngle;
+    const tx = sp.clone().add(new THREE.Vector3(0, -3.2, 0));
+    const d = this.rectenna.clone().sub(tx);
+    const len = d.length();
+    this.beam.position.copy(tx).addScaledVector(d, 0.5);
+    this.beam.scale.set(1.6, len, 1.6);
+    this.beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+    const flicker = 0.13 + 0.05 * Math.sin(this._t * 5);
+    this.beam.material.opacity = flicker;
+    this.rectGlow.material.opacity = 0.08 + flicker * 0.5;
+    this.dish.lookAt(sp);
+    const elev = Math.asin(THREE.MathUtils.clamp((sp.y - 3.6) / sp.distanceTo(this.dish.position), 0, 1));
+    this.rndOutput = Math.round((110 * Math.sin(elev)) / 5) * 5;
+
+    // researcher: walk to the next stop, pause and check the tablet
+    const r = this.researcher;
+    let moving = false;
+    if (this.rWait > 0) this.rWait -= dt;
+    else {
+      const to = this.rStops[this.rStop];
+      const v = to.clone().sub(r.position);
+      const dist = v.length();
+      if (dist < 0.05) { this.rStop = (this.rStop + 1) % this.rStops.length; this.rWait = 3 + Math.random() * 3; }
+      else {
+        moving = true;
+        v.normalize();
+        r.position.addScaledVector(v, Math.min(dist, 4.5 * dt));
+        let diff = Math.atan2(v.x, v.z) - r.rotation.y;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        r.rotation.y += diff * Math.min(1, dt * 8);
+      }
+    }
+    this.rPhase += dt * (moving ? 9 : 0);
+    const swing = moving ? Math.sin(this.rPhase) * 0.55 : 0;
+    const k = Math.min(1, dt * 8);
+    this.rLegs[0].rotation.x += (swing - this.rLegs[0].rotation.x) * k;
+    this.rLegs[1].rotation.x += (-swing - this.rLegs[1].rotation.x) * k;
+    this.rArms.forEach((arm, i) => {
+      const target = moving
+        ? { sh: new THREE.Quaternion().setFromEuler(this._e.set((i ? swing : -swing) * 0.8, 0, i ? -0.06 : 0.06)), el: new THREE.Quaternion().setFromEuler(this._e.set(-0.35, 0, 0)) }
+        : this.tabletPose[i];
+      arm.sh.quaternion.slerp(target.sh, k);
+      arm.el.quaternion.slerp(target.el, k);
+    });
+  }
+
   lattice(parent, x, z, h, base, top) {
     const pts = [];
     const seg = 5;
@@ -1039,12 +1308,16 @@ export class World {
     this.chain([[24, -5], [32, -10], [40, -15], [46, -19]], 13);  // Feeder A
     this.chain([[24, 5], [32, 10], [40, 15], [46, 19]], 13);      // Feeder B
     this.chain([[16, 17], [28, 30], [40, 40], [50, 47]], 13);     // Feeder C
+    this.chain([[6, 17], [8, 31], [8, 46]], 13);                   // Feeder D
+    this.chain([[-62, 56], [-46, 50], [-26, 38], [-12, 27], [-6, 17]], 15); // grid Line 3 · solar
     this.chain([[0, -16], [0, -26], [16, -33], [31, -36]], 15);   // grid Line 1 · G-501
     this.chain([[22, -17], [31, -22], [40, -29], [45, -41], [53, -50]], 15); // grid Line 2 · G-502 + wind
     this.lineTags = [
       { text: '132 kV Line 1 · Genset G-501', pos: new THREE.Vector3(8, 17, -30) },
       { text: '132 kV Line 2 · Genset G-502 + wind', pos: new THREE.Vector3(36, 17, -25.5) },
       { text: '33 kV Feeder C · College', pos: new THREE.Vector3(34, 15, 35) },
+      { text: '33 kV Feeder D · Shopping complex', pos: new THREE.Vector3(8, 15, 38) },
+      { text: '132 kV Line 3 · Solar farm', pos: new THREE.Vector3(-36, 17, 44) },
     ];
   }
 
@@ -1052,7 +1325,7 @@ export class World {
     const rand = rng(99);
     const blocked = [
       [-24, -18, 24, 18], [-58, -42, -36, -14], [-31, -34, -16, -21], [-42, 13, -25, 30], [-71, 34, -58, 46],
-      [42, -42, 96, 42], [44, 42, 100, 84], [40, -58, 60, -34], [12, -36, 50, -14], [12, 14, 52, 50], [-95, -4, 96, 4], [-33, -48, -27, 43], [-5, -56, 5, -12], [-42, -58, 42, -35], [20, -24, 48, 24], [-66, -16, -30, -8],
+      [42, -42, 96, 42], [44, 42, 100, 84], [-108, 48, -58, 93], [-60, 58, -32, 93], [-12, 48, 40, 95], [-64, 14, -4, 58], [0, 14, 14, 50], [40, -58, 60, -34], [12, -36, 50, -14], [12, 14, 52, 50], [-95, -4, 96, 4], [-33, -48, -27, 94], [-5, -56, 5, -12], [-42, -58, 42, -35], [20, -24, 48, 24], [-66, -16, -30, -8],
     ];
     const spots = [];
     for (let i = 0; i < 900 && spots.length < 170; i++) {
@@ -1153,7 +1426,7 @@ export class World {
     this.waterMat.color.setHex(COL.water).lerp(new THREE.Color(0x203a44), 1 - n);
     const night = 1 - n;
     for (const m of this.nightMats) m.emissiveIntensity = night * 0.95;
-    for (const f of ['A', 'B', 'C']) {
+    for (const f of Object.keys(this.feederOn)) {
       const k = this.feederOn[f] ? night * 1.3 : 0;
       this.feederMats[f].emissiveIntensity = k;
       for (const m of this.feederFacades[f]) m.emissiveIntensity = this.feederOn[f] ? night * 0.95 : 0;
@@ -1173,6 +1446,7 @@ export class World {
       }
     }
     this.updatePersona(dt);
+    this.updateSouth(dt);
     const flick = 1 + 0.22 * Math.sin(this._t * 13) + 0.12 * Math.sin(this._t * 29);
     this.flame.scale.set(1, flick, 1);
     this.pilot.scale.set(1, 1 + 0.3 * Math.sin(this._t * 21), 1);
