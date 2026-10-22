@@ -21,7 +21,7 @@ const LAYOUT = {
   yard: { c: [2, -1], r: 21, hub: [2, 1.2, -2], label: [6, 13, -1] },
   townA: { c: [68, -21], r: 23, hub: [46, 1.2, -19], label: [68, 7, -21] },
   townB: { c: [68, 20], r: 23, hub: [46, 1.2, 19], label: [68, 14, 15] },
-  wind: { c: [0, -79], r: 34, hub: [0, 1.2, -52], label: [0, 25, -79] },
+  biogas: { c: [0, -46], r: 23, hub: [6, 1.2, -38], label: [-2, 12, -46] },
 };
 
 const _mats = new Map();
@@ -154,7 +154,7 @@ export class World {
     this.buildControlCenter();
     this.buildInternet();
     this.buildTown();
-    this.buildWind();
+    this.buildBiogas();
     this.buildLines();
     this.buildTrees();
     this.buildRings();
@@ -201,7 +201,7 @@ export class World {
     const c = this.centers[id];
     if (!c) return;
     const s = this.spherical();
-    const radius = id === 'wind' || id.startsWith('town') ? 120 : id === 'yard' ? 95 : 75;
+    const radius = id.startsWith('town') ? 120 : id === 'yard' || id === 'biogas' ? 95 : 75;
     this.animateTo(c, { radius, phi: Math.min(s.phi, 0.95), theta: s.theta }, 0.8);
   }
 
@@ -489,29 +489,49 @@ export class World {
     s.add(gA, gB);
   }
 
-  buildWind() {
-    const g = this.group('wind');
-    const blade = new THREE.BoxGeometry(0.5, 7.5, 0.15);
-    blade.translate(0, 3.75, 0);
-    for (const [x, z] of [[-36, -82], [-12, -76], [12, -82], [36, -76]]) {
-      cyl(g, 1.3, 1.2, 0xf2c94c, x, 0, z);
-      add(g, new THREE.CylinderGeometry(0.35, 0.65, 18, 10), mat(0xf4f4f0), x, 1.2 + 9, z);
-      box(g, 1, 1, 2.4, 0xf4f4f0, x, 19.2, z - 0.4);
-      const rotor = new THREE.Group();
-      rotor.position.set(x, 19.7, z + 1);
-      for (let i = 0; i < 3; i++) {
-        const b = new THREE.Mesh(blade, mat(0xfafaf6));
-        b.rotation.z = (i * Math.PI * 2) / 3;
-        b.castShadow = true;
-        rotor.add(b);
-      }
-      add(rotor, new THREE.SphereGeometry(0.45, 10, 8), mat(0xe0e0dc), 0, 0, 0.1);
-      rotor.rotation.z = Math.random() * 6;
-      g.add(rotor);
-      this.spinners.push({ obj: rotor, axis: 'z', speed: 1.1 + Math.random() * 0.3 });
+  buildBiogas() {
+    const g = this.group('biogas');
+    box(g, 44, 0.12, 17, 0xc9c3b6, 0, 0, -46);
+    const dome = new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+
+    // anaerobic digesters with membrane gas roofs
+    for (const x of [-13, -2]) {
+      add(g, new THREE.CylinderGeometry(5, 5, 6, 24), mat(0x7f9a8a), x, 3.12, -46);
+      cyl(g, 5.15, 0.4, 0x5f7468, x, 5.9, -46);
+      add(g, dome, mat(0xe9e4d6), x, 6.3, -46, 4.9, 2.6, 4.9);
+      box(g, 0.8, 1.6, 0.8, 0x8f9aa0, x + 3.6, 6, -48); // mixer drive
+      box(g, 0.25, 6, 0.25, COL.steelDark, x - 5.2, 0, -45); // access ladder
     }
-    // cable landing station on the shore
-    box(this.scene, 4, 2.6, 3, 0xcfc8ba, 7, 0, -51);
+    // double-membrane gas holder
+    cyl(g, 3.4, 0.8, 0x9aa5ab, 8, 0.12, -49.5);
+    add(g, dome, mat(0x5f8a64), 8, 0.92, -49.5, 3.3, 3.3, 3.3);
+    // gas piping between digesters, holder and engines
+    for (const [x, len] of [[-7.5, 6], [3, 6], [10, 6]]) {
+      const pipe = add(g, CYL, mat(0xd9b44a), x, 3.2, -40.6, 0.22, len, 0.22);
+      pipe.rotation.z = Math.PI / 2;
+    }
+    // CHP engine house with exhaust stacks and roof coolers
+    box(g, 8, 3.8, 5, 0xd8cfbf, 13, 0.12, -41.5);
+    box(g, 8.4, 0.35, 5.4, 0x6b7378, 13, 3.92, -41.5);
+    for (const x of [11, 15]) {
+      cyl(g, 0.38, 6.5, 0x8a9399, x, 4.2, -42.5);
+      cyl(g, 0.45, 0.3, 0x50585e, x, 10.6, -42.5);
+    }
+    box(g, 3, 0.8, 1.6, 0xa8b0b4, 13, 4.27, -40.3);
+    for (const x of [10.6, 12.4]) box(g, 1.3, 1.9, 0.08, 0x55606a, x, 0.12, -38.95);
+    // step-up transformer
+    box(g, 2.4, 2.2, 1.8, COL.xfmr, 19, 0.12, -42);
+    for (const x of [-0.6, 0, 0.6]) cyl(g, 0.12, 1, COL.porcelain, 19 + x, 2.32, -42);
+    // feedstock bunker
+    box(g, 6, 1.6, 0.4, 0xb8b0a0, -20, 0.12, -49);
+    box(g, 6, 1.6, 0.4, 0xb8b0a0, -20, 0.12, -43);
+    box(g, 0.4, 1.6, 6, 0xb8b0a0, -23, 0.12, -46);
+    add(g, new THREE.ConeGeometry(2.6, 1.8, 8), mat(0x8b6b45), -20, 1, -46, 1, 1, 1.1);
+    // safety flare
+    cyl(g, 0.22, 8, COL.steelDark, 18, 0.12, -50.5);
+    this.flame = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.6, 8), new THREE.MeshBasicMaterial({ color: 0xffa23d }));
+    this.flame.position.set(18, 9, -50.5);
+    g.add(this.flame);
   }
 
   lattice(parent, x, z, h, base, top) {
@@ -576,14 +596,14 @@ export class World {
   buildLines() {
     this.chain([[24, -5], [32, -10], [40, -15], [46, -19]], 13);
     this.chain([[24, 5], [32, 10], [40, 15], [46, 19]], 13);
-    this.chain([[0, -16], [0, -28], [0, -40], [0, -51]], 15);
+    this.chain([[0, -16], [0, -26], [0, -35]], 15);
   }
 
   buildTrees() {
     const rand = rng(99);
     const blocked = [
       [-24, -18, 24, 18], [-58, -42, -36, -14], [-31, -34, -16, -21], [-42, 13, -25, 30], [-71, 34, -58, 46],
-      [42, -42, 96, 42], [-95, -4, 96, 4], [-33, -48, -27, 43], [-5, -56, 5, -12], [20, -24, 48, 24], [-66, -16, -30, -8],
+      [42, -42, 96, 42], [-95, -4, 96, 4], [-33, -48, -27, 43], [-5, -56, 5, -12], [-27, -58, 25, -34], [20, -24, 48, 24], [-66, -16, -30, -8],
     ];
     const spots = [];
     for (let i = 0; i < 900 && spots.length < 170; i++) {
@@ -703,6 +723,8 @@ export class World {
         c.curve.getPointAt(p.t, p.mesh.position);
       }
     }
+    const flick = 1 + 0.22 * Math.sin(this._t * 13) + 0.12 * Math.sin(this._t * 29);
+    this.flame.scale.set(1, flick, 1);
     const pulse = 1 + 0.06 * Math.sin(this._t * 4);
     for (const r of Object.values(this.rings)) {
       if (!r.g.visible) continue;

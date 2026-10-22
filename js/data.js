@@ -47,10 +47,10 @@ export const ASSETS = {
     desc: 'St. Brigid Hospital, the water pumping station and 3,100 commercial customers.',
     protocols: [],
   },
-  wind: {
-    name: 'Offshore wind link', short: 'Wind farm', level: 'Generation · 132 kV', icon: 'wind',
-    desc: 'Four turbines feeding the 132 kV bus through a submarine cable. Curtailment commands arrive from the control center.',
-    protocols: ['IEC 61400-25'],
+  biogas: {
+    name: 'Biogas CHP plant', short: 'Biogas plant', level: 'Generation · 11/132 kV', icon: 'flame',
+    desc: 'Two anaerobic digesters turn farm and food waste into biogas, burned in gas engines for 8 MW of power and heat. A PLC runs feeding, mixing, gas pressure and the safety flare; output setpoints arrive from the control center.',
+    protocols: ['Modbus/TCP', 'S7comm', 'IEC 60870-5-104'],
   },
 };
 
@@ -65,7 +65,7 @@ export const PURDUE = [
   { level: 'L3.5 OT DMZ', ids: ['dmz'] },
   { level: 'L3 Operations', ids: ['scc'] },
   { level: 'L2 Station control', ids: ['ctrl'] },
-  { level: 'L1–0 Protection & process', ids: ['yard', 'wind'] },
+  { level: 'L1–0 Protection & process', ids: ['yard', 'biogas'] },
 ];
 
 // guard: the control that protects this conduit. exposedUntil: conduit disappears once that control is owned.
@@ -74,6 +74,7 @@ export const CONDUITS = [
   { id: 'inet-dmz', a: 'internet', b: 'dmz', name: 'Vendor remote access', proto: 'SSL VPN → RDP', guard: 'mfa' },
   { id: 'corp-dmz', a: 'corp', b: 'dmz', name: 'IT ↔ OT DMZ', proto: 'SMB, HTTPS, OPC UA', guard: 'itotfw' },
   { id: 'dmz-scc', a: 'dmz', b: 'scc', name: 'DMZ ↔ Control Center', proto: 'Historian replication', guard: 'itotfw' },
+  { id: 'scc-bio', a: 'scc', b: 'biogas', name: 'Generator telecontrol', proto: 'IEC 104 output setpoints' },
   { id: 'scc-ctrl', a: 'scc', b: 'ctrl', name: 'SCADA WAN', proto: 'IEC 60870-5-104, DNP3' },
   { id: 'ctrl-yard', a: 'ctrl', b: 'yard', name: 'Station bus', proto: 'IEC 61850 MMS + GOOSE', guard: 'portsec' },
   { id: 'inet-ctrl', a: 'internet', b: 'ctrl', name: 'Forgotten cellular modem', proto: 'IEC 104 on TCP/2404', exposedUntil: 'surface' },
