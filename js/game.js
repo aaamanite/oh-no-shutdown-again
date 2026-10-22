@@ -1069,6 +1069,18 @@ $('#rb-zin').addEventListener('click', () => world.zoom(0.75));
 $('#rb-zout').addEventListener('click', () => world.zoom(1.33));
 $('#rb-reset').addEventListener('click', () => world.resetView());
 $('#rb-spin').addEventListener('click', () => { setSpin(!S.spin); questEvent('camera'); });
+const renderQuality = () => {
+  const hq = world.quality === 'high';
+  $('#rb-quality').textContent = hq ? 'HQ' : 'LQ';
+  $('#rb-quality').title = hq ? 'Graphics: high (ambient occlusion, reflections, 4K shadows) — click for faster' : 'Graphics: low (faster) — click for high quality';
+  $('#rb-quality').classList.toggle('on', hq);
+};
+$('#rb-quality').addEventListener('click', () => {
+  world.setQuality(world.quality === 'high' ? 'low' : 'high');
+  renderQuality();
+  toast(`Graphics: ${world.quality === 'high' ? 'high quality' : 'low (faster)'}`, 'good', 'layers');
+});
+renderQuality();
 $('#rb-help').addEventListener('click', openHelp);
 
 window.addEventListener('keydown', e => {

@@ -46,9 +46,13 @@ The **SOC** panel runs any scenario as a drill — graded and debriefed, with no
 
 ## Tech
 
-Plain ES modules + [Three.js](https://threejs.org) 0.160 from a CDN. All geometry is procedural (no assets).
+Plain ES modules + [Three.js](https://threejs.org) 0.160 from a CDN, no build step.
+
+Rendering: physically based materials lit by a physical sky (image-based lighting), ACES tone mapping, 4K sun shadows that follow the camera, ground-truth ambient occlusion and bloom, and a reflective animated sea. Geometry is procedural — galvanised lattice towers with glass insulator strings, transformers with radiator banks, porcelain insulators with sheds, broadleaf trees and oil palms, cars — and surfaces use generated world-scaled textures (asphalt, concrete, gravel, sand, plaster, roof tiles). The grass and water normal textures and the rigged, animated worker model (Xbot) load from the three.js examples on jsDelivr. A **HQ / LQ** rail button switches quality; integrated GPUs and phones start on LQ.
 
 - `js/world.js` — 3D scene, camera rig, network overlay, attack rings
+- `js/look.js` — sky, lighting, post-processing, generated textures, water
+- `js/props.js` — lattice towers, insulators, trees, palms, cars, rigged workers
 - `js/game.js` — loop, economy, incidents, grading, HUD and panels
 - `js/data.js` — assets, conduits, controls, scenarios, quests
 
