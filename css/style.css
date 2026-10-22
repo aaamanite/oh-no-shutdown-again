@@ -176,7 +176,7 @@ small { font-family: var(--head); font-size: 10.5px; letter-spacing: .12em; text
 .itag.line { pointer-events: none; font-family: var(--head); font-weight: 700; font-size: 10px; background: rgba(57, 230, 255, .9); color: #04262e; }
 
 /* ---------- side panel ---------- */
-#sheet { position: fixed; left: 14px; top: 150px; bottom: 100px; width: 384px; z-index: 7; background: rgba(11, 29, 33, .94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-radius: 20px; box-shadow: var(--shadow), inset 0 0 0 1px var(--line); display: flex; flex-direction: column; animation: slidein .2s ease-out; overflow: hidden; }
+#sheet { position: fixed; left: 14px; top: 150px; bottom: 100px; width: 372px; z-index: 7; background: rgba(11, 29, 33, .94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-radius: 20px; box-shadow: var(--shadow), inset 0 0 0 1px var(--line); display: flex; flex-direction: column; animation: slidein .2s ease-out; overflow: hidden; }
 #sheet::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: linear-gradient(90deg, var(--lime), var(--cyan)); }
 #sheet.danger { box-shadow: var(--shadow), inset 0 0 0 1px var(--red), 0 0 26px rgba(255, 77, 106, .35); }
 #sheet.danger::before { background: var(--red); }
@@ -388,12 +388,11 @@ kbd { font-family: var(--mono); font-size: 11px; background: rgba(255, 255, 255,
   .dock button { width: 58px; font-size: 10px; }
   .corner-logo { display: none; }
   #banner .b-sub { display: none; }
-  #sheet { width: calc(100vw - 28px); }
+  #sheet { width: min(372px, calc(100vw - 28px)); }
   .camera { top: auto; bottom: 100px; transform: none; }
   #sheet { top: 172px; }
   #banner { min-height: 0; }
   #banner b { font-size: 14px; }
-  body:has(#sheet:not([hidden])) .camera { display: none; }
   .features { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
@@ -430,7 +429,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: rgba(255, 255, 255,
   .dock { left: 8px; right: 8px; transform: none; justify-content: space-between; bottom: 8px; padding: 5px; gap: 2px; }
   .dock button { width: auto; flex: 1; font-size: 9.5px; padding: 7px 0 5px; }
   .dock button .ic { width: 19px; height: 19px; }
-  #sheet { left: 8px; right: 8px; width: auto; top: auto; bottom: 80px; height: 56vh; }
+  #sheet { left: 8px; right: 8px; width: auto; top: auto; bottom: 80px; height: 52vh; }
   body:has(#sheet:not([hidden])) .camera { display: none; }
   #toasts { top: 124px; }
   body:has(#banner:not([hidden])) #toasts { top: 188px; }
