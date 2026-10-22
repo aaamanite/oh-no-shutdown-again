@@ -301,6 +301,7 @@ export class World {
     this.buildPersona();
 
     this.buildStreetscape();
+    this.buildSiteLights();
     this.batchStatic();
     this.setQuality(this.quality);
     // sky lighting fills shadows; keep it below the sun so shading has contrast
@@ -586,6 +587,65 @@ export class World {
       this.researcherRig = makeWorker(gltf, this.researcher, { woman: true, tablet: true });
       this.researcherBody.visible = false;
     }).catch(() => { /* keep the simple figures if the model can't load */ });
+  }
+
+  // floodlight masts around the work sites: twin heads aimed at the site glow at night, light pools on the
+  // ground, and one warm site light per site so equipment can be seen (and worked on) after dark
+  buildSiteLights() {
+    const G = this.grid, free = (x, z) => {
+      const i = Math.floor((x - G.x0) / G.cs), j = Math.floor((z - G.z0) / G.cs);
+      return i >= 0 && j >= 0 && i < G.w && j < G.h && !G.block[j * G.w + i];
+    };
+    const clearOf = (x, z) => free(x, z) && !this.roadSegs.some(q => nearestOnSeg(x, z, q)[2] < 3.2)
+      && !this.lineSegs.some(q => nearestOnSeg(x, z, q)[2] < 3) && !this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 1.6);
+    const wp = this.areas.wind.position;
+    const sites = {
+      yard: new THREE.Box3().setFromObject(this.areas.yard),
+      ctrl: new THREE.Box3().setFromObject(this.areas.ctrl),
+      biogas: new THREE.Box3().setFromObject(this.areas.biogas),
+      solar: new THREE.Box3().setFromObject(this.areas.solar),
+      wind: new THREE.Box3(new THREE.Vector3(wp.x + 50, 0, wp.z - 56), new THREE.Vector3(wp.x + 73, 6, wp.z - 47)), // shore station only
+    };
+    const spots = [];
+    this.siteLights = [];
+    for (const bb of Object.values(sites)) {
+      bb.expandByScalar(1.5);
+      const cx = (bb.min.x + bb.max.x) / 2, cz = (bb.min.z + bb.max.z) / 2;
+      const w = bb.max.x - bb.min.x, d = bb.max.z - bb.min.z;
+      // corners, plus side midpoints on large sites
+      const pts = [[bb.min.x, bb.min.z], [bb.max.x, bb.min.z], [bb.max.x, bb.max.z], [bb.min.x, bb.max.z]];
+      if (w > 30) pts.push([cx, bb.min.z], [cx, bb.max.z]);
+      if (d > 30) pts.push([bb.min.x, cz], [bb.max.x, cz]);
+      for (const [px, pz] of pts) {
+        // nudge onto clear ground nearby (never on a road, line, path or inside equipment)
+        let found = null;
+        for (let r = 0; r <= 5 && !found; r += 1) for (let a = 0; a < 8 && !found; a++) {
+          const x = px + Math.cos(a * Math.PI / 4) * r, z = pz + Math.sin(a * Math.PI / 4) * r;
+          if (clearOf(x, z)) found = [x, z];
+        }
+        if (!found) continue;
+        const [x, z] = found, dx = cx - x, dz = cz - z, L = Math.hypot(dx, dz) || 1;
+        spots.push({ x, z, ry: Math.atan2(-dz / L, dx / L) });
+      }
+      const light = new THREE.PointLight(0xffe2b0, 0, Math.max(w, d) * 1.2 + 30, 1);
+      light.position.set(cx, 26, cz);
+      this.scene.add(light);
+      this.siteLights.push(light);
+    }
+    const n = spots.length;
+    const steel = mat(0x8a9096, { metalness: 0.7, roughness: 0.4 });
+    const pole = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.1, 0.16, 10, 10).translate(0, 5, 0), steel, n);
+    const bar = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.12, 1.6).translate(0.25, 9.8, 0), steel, n);
+    const headGeo = mergeGeometries([-0.55, 0.55].map(oz => roundedBox(0.5, 0.36, 0.5).clone().rotateZ(-0.6).translate(0.55, 9.75, oz)));
+    const head = new THREE.InstancedMesh(headGeo, this.lampHeadMat, n);
+    const pool = new THREE.InstancedMesh(new THREE.CircleGeometry(10, 32).rotateX(-Math.PI / 2).translate(7, 0.22, 0), this.lampPoolMat, n);
+    const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
+    spots.forEach(({ x, z, ry }, i) => {
+      M.compose(new THREE.Vector3(x, 0, z), Q.setFromAxisAngle(Y, ry), one);
+      for (const m of [pole, bar, head, pool]) m.setMatrixAt(i, M);
+    });
+    for (const m of [pole, bar, head]) { m.castShadow = true; this.scene.add(m); }
+    this.scene.add(pool);
   }
 
   // street lights every ~24 m along the roads (heads glow at night), and kerbs along the road edges
@@ -2327,6 +2387,7 @@ export class World {
     const night = 1 - n;
     for (const m of this.nightMats) m.emissiveIntensity = night * 1.4;
     if (this.lampPoolMat) this.lampPoolMat.opacity = night * 0.3;
+    for (const l of this.siteLights || []) l.intensity = night * 70;
     for (const f of Object.keys(this.feederOn)) {
       const k = this.feederOn[f] ? night * 2 : 0;
       this.feederMats[f].emissiveIntensity = k;
