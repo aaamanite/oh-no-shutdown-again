@@ -38,8 +38,9 @@ const S = {
   owned: new Set(),
   feeders: Object.fromEntries(Object.keys(FEEDERS).map(f => [f, { on: true, until: 0 }])),
   incident: null,
-  nextIncidentAt: 9 * 60 + 30,
+  nextIncidentAt: 8 * 60 + 45 + Math.floor(Math.random() * 90), // first alert lands somewhere 08:45–10:15
   recent: [],
+  deck: [],
   history: [],
   alerts: [], unread: 0,
   stats: { revenue: 0, fines: 0, spent: 0, response: 0, outageMin: 0, prevented: 0, customerMin: 0 },
@@ -404,16 +405,21 @@ function advance(gm) {
 }
 
 // ---------- incidents ----------
+// Every session deals the scenarios in a fresh random order; a full round plays before any repeats.
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
+  return arr;
+}
 function pickScenario(first) {
-  if (first) {
-    const open = SCENARIOS.filter(s => !s.benign && !isBlocked(s));
-    return open.find(s => s.id === 'vendor-rdp') || open[0] || SCENARIOS.find(s => s.benign);
+  if (!S.deck.length) {
+    S.deck = shuffle(SCENARIOS.map(sc => sc.id));
+    if (S.deck[0] === S.recent[0]) S.deck.push(S.deck.shift()); // no back-to-back repeat across rounds
   }
-  const pool = SCENARIOS.filter(s => !S.recent.includes(s.id));
-  const weights = pool.map(s => (s.benign ? 0.55 : 1));
-  let r = Math.random() * weights.reduce((a, b) => a + b, 0);
-  for (let i = 0; i < pool.length; i++) { r -= weights[i]; if (r <= 0) return pool[i]; }
-  return pool[pool.length - 1];
+  const byId = id => SCENARIOS.find(sc => sc.id === id);
+  let id = S.deck[0];
+  if (first) id = S.deck.find(d => !byId(d).benign && !isBlocked(byId(d))) || id; // open with a real, unprevented attack
+  S.deck.splice(S.deck.indexOf(id), 1);
+  return byId(id);
 }
 
 function triggerScheduled(now) {
@@ -464,7 +470,7 @@ function startIncident(base, drill) {
   const tripped = scn.clues.some(c => c.src.startsWith('Honeypot') && c.attack);
   if (tripped) { S.stats.hpTrips = (S.stats.hpTrips || 0) + 1; world.setHoneypotAlarm(true); toast('Honeypot RTU-99 tripped — something is exploring the OT network', 'bad', 'target'); }
   const total = decideTime();
-  S.incident = { scn, drill, tags: new Set(), left: total, total, startT: S.T, filter: 'all' };
+  S.incident = { scn, drill, tags: new Set(), left: total, total, startT: S.T, filter: 'all', clueOrder: shuffle(scn.clues.map((_, i) => i)) };
   world.setAttacked(scn.targets);
   refreshConduits();
   buildPins();
@@ -754,7 +760,7 @@ const PANELS = {
       eyebrow: cluesEyebrow(), title: 'Clues',
       html: `<p>Tag the lines that look like part of the attack. Some are routine noise — tagging those costs points. Your tags and your response card decide the grade.</p>
         <div class="filters"><button class="${filter === 'all' ? 'on' : ''}" data-act="clues:all">All</button>${assets.map(id => `<button class="${filter === id ? 'on' : ''}" data-act="clues:${id}">${esc(ASSETS[id].short)}</button>`).join('')}</div>
-        ${inc.scn.clues.map((c, i) => (filter === 'all' || c.asset === filter ? clueHTML(c, i) : '')).join('')}
+        ${inc.clueOrder.map(i => inc.scn.clues[i]).map((c, k) => (filter === 'all' || c.asset === filter ? clueHTML(c, inc.clueOrder[k]) : '')).join('')}
         ${missing.length ? `<div class="box tiny muted">${icon('lock')} Some context is hidden. ${missing.map(id => esc(CTRL[id].short)).join(', ')} would add more detail to these logs.</div>` : ''}
         <div class="sticky-foot"><button class="btn primary block" data-act="respond">${icon('cards')} Play a response card</button></div>`,
     };
