@@ -1407,14 +1407,13 @@ export class World {
     // a loop around every other area, linked to the nearest path or road
     this.scene.updateMatrixWorld(true);
     const b = new THREE.Box3();
-    for (const id of ['corp', 'dmz', 'scc', 'internet', 'townA', 'townB', 'townC', 'townD', 'biogas', 'rnd', 'solar']) {
+    for (const id of ['corp', 'dmz', 'scc', 'internet', 'biogas', 'solar']) {
       b.setFromObject(this.areas[id]);
       const pad = 2.2;
       if (id === 'biogas') keep(loop(b.min.x - pad, -73.9, b.max.x + 1.6, b.max.z + pad, 'esw')); // open to the shore
       else keep(loop(b.min.x - pad, b.min.z - pad, b.max.x + pad, b.max.z + pad));
     }
     keep([[50.6, -67.5, 61.5, -67.5]]); // wind landing station
-    keep([[0, 16, 0, 60]]);             // substation south gate towards the shopping complex
     this.walkSegs = walks;
     this.drawWalkpaths(walks);
   }
