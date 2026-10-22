@@ -352,7 +352,8 @@ kbd { font-family: var(--mono); font-size: 11px; background: rgba(255, 255, 255,
 .eyebrow::before, .eyebrow::after { content: ''; width: 34px; height: 1px; background: var(--cyan); opacity: .6; }
 .title-screen h1 { font-family: var(--head); font-weight: 700; font-size: clamp(38px, 7vw, 76px); line-height: .98; margin: 12px 0 14px; text-transform: uppercase; letter-spacing: .01em; text-shadow: 0 0 30px rgba(57, 230, 255, .25); }
 .title-screen h1 span { display: block; color: var(--lime); text-shadow: 0 0 24px rgba(200, 238, 58, .55); }
-.tagline { margin: 0 0 26px; color: #cfe0db; font-size: 16px; line-height: 1.5; max-width: 46ch; }
+.title-screen > .lede { margin: 0 0 24px; max-width: 64ch; padding: 14px 18px; border-radius: 16px; background: rgba(255, 255, 255, .05); box-shadow: inset 0 0 0 1px var(--line); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: #d6e5e0; font-size: 14.5px; line-height: 1.6; }
+.title-screen > .lede b { color: var(--lime); font-weight: 600; }
 .launch { display: flex; gap: 10px; align-items: flex-end; width: min(520px, 100%); margin-bottom: 26px; }
 .callsign { flex: 1; text-align: left; }
 .callsign small { display: block; margin-bottom: 6px; color: var(--lime); }
@@ -363,12 +364,6 @@ kbd { font-family: var(--mono); font-size: 11px; background: rgba(255, 255, 255,
 .feat > span { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: rgba(200, 238, 58, .14); color: var(--lime); margin-bottom: 10px; }
 .feat b { display: block; font-family: var(--head); font-size: 15px; font-weight: 700; margin-bottom: 4px; }
 .feat p { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
-.briefing { width: 100%; text-align: left; margin-bottom: 14px; }
-.briefing summary { cursor: pointer; font-family: var(--head); font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); text-align: center; list-style: none; }
-.briefing summary::-webkit-details-marker { display: none; }
-.briefing summary::after { content: ' ▾'; }
-.briefing[open] summary::after { content: ' ▴'; }
-.briefing .lede { margin: 10px 0 0; padding: 14px 16px; border-radius: 14px; background: rgba(255, 255, 255, .04); box-shadow: inset 0 0 0 1px var(--line); color: #d3e0dc; font-size: 13.5px; line-height: 1.6; }
 .hint { color: var(--muted); font-size: 12px; }
 
 /* ---------- smaller screens ---------- */
