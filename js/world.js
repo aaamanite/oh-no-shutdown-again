@@ -6,6 +6,7 @@ import { MapControls } from 'three/addons/controls/MapControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Look, surface, grassTextures, makeWater, chainLink, groundVariation } from './look.js';
+import { buildSatellite, buildGroundDish } from './satellite.js';
 import { latticeGeometry, insulatorString, SHEDS, broadleaf, treeMaterials, trunkGeometry, palmCrown, palmMaterials, car, loadWorkers, makeWorker } from './props.js';
 
 const COL = {
@@ -1724,30 +1725,15 @@ export class World {
     g.add(this.rectGlow);
 
     // ground station dish that tracks the satellite
-    cyl(g, 0.6, 3, 0x9aa3a8, -37.5, 0, 70);
-    this.dish = new THREE.Group();
+    const ground = buildGroundDish();
+    ground.base.position.set(-37.5, 0, 70);
+    g.add(ground.base);
+    this.dish = ground.head;
     this.dish.position.set(-37.5, 3.6, 70);
-    const bowl = new THREE.Mesh(new THREE.SphereGeometry(2.4, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2.6), mat(0xf2f2ee, { side: THREE.DoubleSide }));
-    bowl.rotation.x = Math.PI / 2;
-    this.dish.add(bowl);
-    const feed = new THREE.Mesh(CYL, mat(0x6d777d));
-    feed.scale.set(0.06, 2.2, 0.06);
-    feed.rotation.x = Math.PI / 2;
-    feed.position.z = 1.1;
-    this.dish.add(feed);
     g.add(this.dish);
 
-    // the satellite: gold-foil bus, two long solar wings, a downward transmitter
-    const sat = (this.satellite = new THREE.Group());
-    box(sat, 2.4, 2.4, 3.2, 0xd4a73a, 0, -1.2, 0);
-    for (const s of [-1, 1]) {
-      box(sat, 0.15, 0.15, 3, 0xbfc5c9, s * 2.2, -0.07, 0);
-      const wing = box(sat, 13, 0.12, 4.2, 0x1e3c6e, s * 9.2, -0.06, 0);
-      wing.material = new THREE.MeshStandardMaterial({ color: 0x24508f, roughness: 0.3, metalness: 0.4, emissive: 0x0a1630 });
-    }
-    const tx = add(sat, new THREE.ConeGeometry(1.4, 1.2, 16, 1, true), mat(0xe6e6e6, { side: THREE.DoubleSide }), 0, -2, 0);
-    tx.rotation.x = Math.PI;
-    sat.scale.setScalar(1.4);
+    // the satellite: ONSA SBSP-1 (bus, truss booms, PV wings, radiators, phased-array transmitter)
+    const sat = (this.satellite = buildSatellite());
     sat.userData.asset = 'rnd';
     this.scene.add(sat);
     this.pickables.push(sat);
@@ -1787,12 +1773,14 @@ export class World {
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.14;
     r.add(shadow);
-    r.position.set(-47, 0, 73).add(this.areas.rnd.position);
+    r.position.set(-47, 0, 75.5).add(this.areas.rnd.position);
     this.scene.add(r);
     this.pickables.push(r);
-    // wanders between the rectenna, the ground-station dish and the lab door
-    this.rStops = [new THREE.Vector3(-47, 0, 73), new THREE.Vector3(-40.5, 0, 66.5), new THREE.Vector3(-44, 0, 77), new THREE.Vector3(-52, 0, 73)].map(v => v.add(this.areas.rnd.position));
-    this.rStop = 0;
+    // makes rounds of the rectenna field, the ground-station dish and the lab door, on open ground,
+    // routed around everything solid the same way as the player
+    this.rStops = [[-47, 75.5], [-34, 70], [-48, 59.5], [-59, 70], [-56, 82.5]].map(([x, z]) => new THREE.Vector3(x, 0, z).add(this.areas.rnd.position));
+    this.rStop = 1;
+    this.rPath = null;
     this.rWait = 3;
     this.rPhase = 0;
   }
@@ -1822,11 +1810,17 @@ export class World {
     const r = this.researcher;
     let moving = false;
     if (this.rWait > 0) this.rWait -= dt;
-    else {
-      const to = this.rStops[this.rStop];
-      const v = to.clone().sub(r.position);
+    else if (this.grid) {
+      if (!this.rPath) {
+        const to = this.rStops[this.rStop];
+        this.rPath = this.findPath(r.position.x, r.position.z, to.x, to.z);
+        this.rPi = 0;
+      }
+      const to = this.rPath[this.rPi];
+      const v = to ? to.clone().sub(r.position).setY(0) : new THREE.Vector3();
       const dist = v.length();
-      if (dist < 0.05) { this.rStop = (this.rStop + 1) % this.rStops.length; this.rWait = 3 + Math.random() * 3; }
+      if (dist < 0.05 && to && ++this.rPi < this.rPath.length) moving = true;
+      else if (dist < 0.05) { this.rStop = (this.rStop + 1) % this.rStops.length; this.rPath = null; this.rWait = 3 + Math.random() * 3; }
       else {
         moving = true;
         v.normalize();
