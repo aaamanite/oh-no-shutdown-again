@@ -1441,15 +1441,6 @@ export class World {
     this.genset(g, 35.5, -43);
     tag('G-501', 35.5, 5.6, -43);
 
-    // second genset G-502 on its own gas train, exporting on grid Line 2
-    run([V(31.6, GY, -43), V(31.6, GY, -47), V(40, GY, -47)], RG, GAS);
-    mov('MOV-502', 33.2, GY, -47, 'x', RG);
-    usfm('FIT-502', 34.8, GY, -47, 'x', RG);
-    pt('PIT-502', 36.6, GY, -47);
-    tt('TIT-502', 38.1, GY, -47);
-    this.genset(g, 43.5, -47);
-    tag('G-502', 43.5, 5.6, -47);
-    this.padTransformer(g, 43.5, -51.6);
     this.padTransformer(g, 35.5, -39.4);
 
     // PLC / MCC room — every transmitter and valve above is wired back here
@@ -1510,6 +1501,9 @@ export class World {
     for (const bx of [-0.7, 0, 0.7]) cyl(g, 0.14, 1.2, COL.porcelain, 60.9 + bx, 3.16, -52.6);
     const duct = add(g, CYL, mat(0x2e3338), 60.9, 0.2, -54.2, 0.25, 3.2, 0.25);
     duct.rotation.x = Math.PI / 2;
+    // wind farm genset G-502 at the shore station, exporting on grid Line 2 with the turbines
+    this.genset(g, 67, -51.2);
+    this.sign(65.4, 2.75, -49.86, 2.6, 0.45, 0, [{ text: 'WIND FARM GENSET G-502', size: 64, y: 70, color: BRAND.white }], false, g);
   }
 
   buildCollege() {
@@ -1908,7 +1902,7 @@ export class World {
       { pts: [[6, 17], [7, 34], [7, 51], [8, 74]], h: 13, tag: '33 kV Feeder D · Mutiara Avenue Mall' },
       { pts: [[-6, 17], [-18, 34], [-36, 48], [-60, 58], [-84, 71], [-100, 74]], h: 15, tag: '132 kV Line 3 · Solar farm PV inverters' },
       { pts: [[0, -16], [0, -28], [8, -40], [20, -49], [32, -51.5]], h: 15, tag: '132 kV Line 1 · Biogas genset G-501' },
-      { pts: [[22, -17], [34, -28], [44, -40], [54, -51], [56, -65]], h: 15, tag: '132 kV Line 2 · Biogas genset G-502 + Wind turbines WTG-1–4' },
+      { pts: [[22, -17], [34, -28], [44, -40], [54, -51], [56, -65]], h: 15, tag: '132 kV Line 2 · Wind turbines WTG-1–4 + Wind farm genset G-502' },
     ];
     this.lineTags = [];
     this.lineSegs = [];
@@ -2146,6 +2140,9 @@ export class World {
     const rand = rng(99);
     this.scene.updateMatrixWorld(true);
     const boxes = Object.values(this.areas).filter(g => g.userData.asset !== 'wind').map(g => new THREE.Box3().setFromObject(g).expandByScalar(3));
+    // the wind area is skipped (its turbines stand in the sea), so keep its shore station and genset clear by hand
+    const wp = this.areas.wind.position;
+    boxes.push(new THREE.Box3(new THREE.Vector3(wp.x + 49, -1, wp.z - 57), new THREE.Vector3(wp.x + 74, 10, wp.z - 46)));
     const near = (x, z, list, r) => list.some(q => nearestOnSeg(x, z, q)[2] < r);
     const spots = [];
     for (let i = 0; i < 3000 && spots.length < 240; i++) {

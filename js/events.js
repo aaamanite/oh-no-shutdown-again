@@ -150,12 +150,12 @@ const FA = [
     lesson: 'Devices that share power reboot together. Check facilities and UPS logs before assuming coordination.',
   },
   {
-    id: 'fa-genset-start', title: 'Biogas genset G-502 started without an operator command', short: 'Auto-start', targets: ['biogas'], feeders: [],
-    alert: { asset: 'biogas', src: 'Genset controller', text: 'G-502 START · no HMI command logged', why: 'A start with no operator command needs an explanation.' },
+    id: 'fa-genset-start', title: 'Biogas genset G-501 restarted without an operator command', short: 'Auto-start', targets: ['biogas'], feeders: [],
+    alert: { asset: 'biogas', src: 'Genset controller', text: 'G-501 START · no HMI command logged', why: 'A start with no operator command needs an explanation.' },
     clues: [
-      { asset: 'biogas', src: 'PLC', text: 'gas holder level 92% · auto-start G-502 (high-level rule)', chips: ['Automatic rule'], why: 'The PLC starts the second genset automatically when gas storage is nearly full.' },
+      { asset: 'biogas', src: 'PLC', text: 'gas holder level 92% · auto-start G-501 (high-level rule)', chips: ['Automatic rule'], why: 'The PLC restarts the genset automatically when gas storage is nearly full.' },
       { asset: 'biogas', src: 'Logic baseline', text: 'program checksum matches approved baseline', chips: ['Logic unchanged'], why: 'The PLC program is the approved version.' },
-      { asset: 'scc', src: 'SCADA', text: 'Line 2 export +1.2 MW', chips: ['Expected export'], why: 'Extra export appeared exactly as expected.' },
+      { asset: 'scc', src: 'SCADA', text: 'Line 1 export +1.2 MW', chips: ['Expected export'], why: 'Extra export appeared exactly as expected.' },
     ],
     best: ['Confirm the automatic rule and close', 'Gas storage triggered the auto-start in approved logic. Close.', 'Closed. The extra gas earns revenue instead of being flared.'],
     lesson: 'Automation acts without people. Know the rules in your logic so automatic actions are not mistaken for intruders.',

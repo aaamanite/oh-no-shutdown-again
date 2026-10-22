@@ -51,7 +51,7 @@ export const ASSETS = {
   },
   wind: {
     name: 'Offshore wind farm', short: 'Wind farm', level: 'Generation · 33/132 kV', icon: 'wind',
-    desc: 'Operated by ONSA Power & Co. Four offshore turbines. The export cable lands at the shore station and feeds grid Line 2 alongside biogas genset G-502. Turbine controllers report to SCADA and take curtailment setpoints from the control center.',
+    desc: 'Operated by ONSA Power & Co. Four offshore turbines. The export cable lands at the shore station and feeds grid Line 2 together with the wind farm genset G-502 at the shore station. Turbine controllers report to SCADA and take curtailment setpoints from the control center.',
     protocols: ['IEC 61400-25', 'IEC 60870-5-104'],
   },
   solar: {
@@ -109,11 +109,6 @@ export const INSTRUMENTS = [
   { tag: 'PIT-501', stage: 'Genset', name: 'Pressure transmitter', kind: 'Pressure · genset inlet (mbar)', signal: AI },
   { tag: 'TIT-501', stage: 'Genset', name: 'Temperature transmitter', kind: 'Temperature · genset inlet (°C)', signal: AI },
   { tag: 'G-501', stage: 'Genset', name: 'Biogas genset 1', kind: 'Gas engine-generator · exports on grid Line 1', signal: 'Genset controller · Modbus TCP' },
-  { tag: 'MOV-502', stage: 'Genset', name: 'Genset 2 gas train motorized valve', kind: 'Motorized valve', signal: MOV },
-  { tag: 'FIT-502', stage: 'Genset', name: 'Ultrasonic flowmeter', kind: 'Flow · genset 2 fuel gas (Nm³/h)', signal: MB },
-  { tag: 'PIT-502', stage: 'Genset', name: 'Pressure transmitter', kind: 'Pressure · genset 2 inlet (mbar)', signal: AI },
-  { tag: 'TIT-502', stage: 'Genset', name: 'Temperature transmitter', kind: 'Temperature · genset 2 inlet (°C)', signal: AI },
-  { tag: 'G-502', stage: 'Genset', name: 'Biogas genset 2', kind: 'Gas engine-generator · exports on grid Line 2', signal: 'Genset controller · Modbus TCP' },
   { tag: 'MOV-601', stage: 'Flaring system', name: 'Flare motorized valve', kind: 'Motorized valve', signal: MOV },
   { tag: 'FIT-601', stage: 'Flaring system', name: 'Ultrasonic flowmeter', kind: 'Flow · flared biogas (Nm³/h)', signal: MB },
   { tag: 'MOV-602', stage: 'Flaring system', name: 'Pilot gas motorized valve', kind: 'Motorized valve', signal: MOV },
