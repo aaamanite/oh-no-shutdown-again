@@ -1407,7 +1407,7 @@ export class World {
     // a loop around every other area, linked to the nearest path or road
     this.scene.updateMatrixWorld(true);
     const b = new THREE.Box3();
-    for (const id of ['corp', 'dmz', 'scc', 'internet', 'biogas', 'solar']) {
+    for (const id of ['dmz', 'scc', 'internet', 'biogas', 'solar']) {
       b.setFromObject(this.areas[id]);
       const pad = 2.2;
       if (id === 'biogas') keep(loop(b.min.x - pad, -73.9, b.max.x + 1.6, b.max.z + pad, 'esw')); // open to the shore
