@@ -787,7 +787,7 @@ export const QUESTS = [
   { ch: 0, event: 'inspect:ctrl', icon: 'cpu', reward: 10000, action: 'asset:ctrl', title: 'Inspect the control house', desc: 'Tap the Substation Control House. Breaker commands start there.' },
   { ch: 0, event: 'network', icon: 'share', reward: 10000, action: 'panel:network', title: 'Map your zones and conduits', desc: 'Open Network to see the Purdue levels and which conduits are unprotected.' },
   { ch: 0, event: 'buy', icon: 'bag', reward: 0, action: 'panel:shop', title: 'Buy your first security control', desc: 'Open the Shop. Visibility first: you can’t defend what you can’t see.' },
-  { ch: 0, event: 'incident', icon: 'shield', reward: 25000, action: 'incident', title: 'Handle your first incident', desc: 'When the alarm fires, read the clues, tag the attack, then play a response card.' },
+  { ch: 0, event: 'incident', icon: 'shield', reward: 25000, action: 'incident', title: 'Handle your first incident', desc: 'When the alarm fires, read the clues, mark True or False Positive, then play a response card.' },
   { ch: 0, event: 'day2', icon: 'zap', reward: 30000, action: 'speed', title: 'Keep the lights on until midnight', desc: 'Finish Day 1. Fines and outages eat your budget.' },
   { ch: 1, event: 'sl3', icon: 'shield', reward: 40000, action: 'panel:shop', title: 'Reach Security Level 3', desc: 'Six controls installed. Mix visibility, segmentation, access and recovery.' },
   { ch: 1, event: 'prevent', icon: 'lock', reward: 30000, action: 'panel:network', title: 'Stop an attack before it starts', desc: 'Have the right control in place when an attack arrives.' },

@@ -203,7 +203,9 @@ small { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color
 .cchip.ok { background: rgba(122, 217, 166, .14); color: var(--mint); }
 .btn-tag { display: inline-flex; gap: 6px; align-items: center; border: 1.5px solid var(--line); border-radius: 9px; padding: 5px 10px; font-size: 12px; font-weight: 900; }
 .btn-tag:hover { background: var(--panel-3); }
-.clue.tagged .btn-tag { background: var(--red); border-color: var(--red); color: #fff; }
+.btn-tag.tp.on { background: var(--red); border-color: var(--red); color: #fff; }
+.btn-tag.fp.on { background: var(--mint); border-color: var(--mint); color: var(--mint-ink); }
+.clue.benign { border-color: var(--mint); background: #24352f; }
 .sticky-foot { position: sticky; bottom: -16px; background: linear-gradient(transparent, var(--panel) 30%); padding: 18px 0 14px; display: flex; gap: 8px; }
 
 /* debrief */

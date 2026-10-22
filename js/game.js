@@ -198,10 +198,10 @@ function buildPins() {
 }
 function refreshPins() {
   if (!S.incident) return;
-  const { scn, tags } = S.incident;
+  const { scn, tags, fps } = S.incident;
   for (const [id, el] of Object.entries(pinEls)) {
     const idx = scn.clues.map((c, i) => (c.asset === id ? i : -1)).filter(i => i >= 0);
-    const t = idx.filter(i => tags.has(i)).length;
+    const t = idx.filter(i => tags.has(i) || fps.has(i)).length;
     el.innerHTML = `${icon('search')} ${t}/${idx.length}`;
   }
 }
@@ -283,7 +283,7 @@ function renderBanner() {
   b.innerHTML = `
     <div class="b-ic">${icon('alert')}</div>
     <div class="b-tx"><small>${inc.drill ? 'Drill · ' : ''}Security alert · triage now</small><b>${esc(inc.scn.title)}</b>
-      <span class="b-sub">${inc.tags.size}/${inc.scn.clues.length} clues tagged · game clock held${S.speed === 0 ? ' · paused' : ''}</span></div>
+      <span class="b-sub">${classified(inc)}/${inc.scn.clues.length} clues classified · game clock held${S.speed === 0 ? ' · paused' : ''}</span></div>
     <div class="decide"><small>Decide in</small><b>${pad(Math.floor(left / 60))}:${pad(left % 60)}</b></div>`;
 }
 
@@ -292,8 +292,8 @@ function renderAction() {
   if (S.incident) {
     const inc = S.incident;
     el.innerHTML = `<div class="card inc-card">
-      <p>Tap the magnifier pins to read what each system logged. Tag what looks like the attack, then play a response card.</p>
-      <div class="row"><button class="btn" data-act="clues">${icon('search')} Clues ${inc.tags.size}/${inc.scn.clues.length}</button>
+      <p>Tap the magnifier pins to read what each system logged. Mark each line True Positive or False Positive, then play a response card.</p>
+      <div class="row"><button class="btn" data-act="clues">${icon('search')} Clues ${classified(inc)}/${inc.scn.clues.length}</button>
       <button class="btn primary" data-act="respond">${icon('cards')} Respond</button></div></div>`;
     return;
   }
@@ -470,7 +470,7 @@ function startIncident(base, drill) {
   const tripped = scn.clues.some(c => c.src.startsWith('Honeypot') && c.attack);
   if (tripped) { S.stats.hpTrips = (S.stats.hpTrips || 0) + 1; world.setHoneypotAlarm(true); toast('Honeypot RTU-99 tripped — something is exploring the OT network', 'bad', 'target'); }
   const total = decideTime();
-  S.incident = { scn, drill, tags: new Set(), left: total, total, startT: S.T, filter: 'all', clueOrder: shuffle(scn.clues.map((_, i) => i)) };
+  S.incident = { scn, drill, tags: new Set(), fps: new Set(), left: total, total, startT: S.T, filter: 'all', clueOrder: shuffle(scn.clues.map((_, i) => i)) };
   world.setAttacked(scn.targets);
   refreshConduits();
   buildPins();
@@ -490,10 +490,15 @@ function clueText(c) {
   return c.text.replace('{win}', `${pad((h + 23) % 24)}:00–${pad((h + 2) % 24)}:00`);
 }
 
-function toggleTag(i) {
+const classified = inc => inc.tags.size + inc.fps.size;
+
+// mark a clue True Positive (part of the attack) or False Positive (benign); clicking again clears it
+function markClue(i, kind) {
   const inc = S.incident;
   if (!inc) return;
-  if (inc.tags.has(i)) inc.tags.delete(i); else inc.tags.add(i);
+  const [mine, other] = kind === 'tp' ? [inc.tags, inc.fps] : [inc.fps, inc.tags];
+  other.delete(i);
+  if (mine.has(i)) mine.delete(i); else mine.add(i);
   Snd.click();
   const el = document.querySelector(`.clue[data-i="${i}"]`);
   if (el) el.outerHTML = clueHTML(inc.scn.clues[i], i);
@@ -512,14 +517,16 @@ function resolve(resp) {
   const scn = inc.scn;
   const q = resp ? resp.q : 'timeout';
   const attackIdx = scn.clues.map((c, i) => (c.attack ? i : -1)).filter(i => i >= 0);
-  const hit = attackIdx.filter(i => inc.tags.has(i)).length;
-  const fp = [...inc.tags].filter(i => !scn.clues[i].attack).length;
-  const n = attackIdx.length;
+  const hit = attackIdx.filter(i => inc.tags.has(i)).length;          // attack lines called True Positive
+  const fp = [...inc.tags].filter(i => !scn.clues[i].attack).length;  // noise wrongly called True Positive
+  const fpOk = [...inc.fps].filter(i => !scn.clues[i].attack).length; // noise correctly called False Positive
+  const miss = [...inc.fps].filter(i => scn.clues[i].attack).length;  // attack lines wrongly dismissed
+  const n = attackIdx.length, m = scn.clues.length - n;
 
   const respPts = scn.benign
     ? { best: 60, weak: 24, overreact: 8, timeout: 20 }[q] ?? 20
     : { best: 60, good: 42, weak: 20, overreact: 12, ignore: 0, timeout: 0 }[q];
-  const cluePts = n ? (30 * Math.max(0, hit - 0.5 * fp)) / n : Math.max(0, 30 - 10 * fp);
+  const cluePts = (30 * Math.max(0, hit + fpOk - 0.5 * (fp + miss))) / scn.clues.length;
   const timePts = resp ? (10 * inc.left) / inc.total : 0;
   const score = Math.round(respPts + cluePts + timePts);
   let grade = letterOf(score);
@@ -581,7 +588,7 @@ function resolve(resp) {
     scnId: scn.id, title: scn.title, drill: inc.drill, grade, score, q,
     respId: resp?.id || null, hit, n, fp, used: Math.round(inc.total - inc.left),
     feeders, hours, fine, cost, rel: Math.round(rel), note,
-    tags: [...inc.tags], clues: scn.clues, day: dayOf(S.T), clock: clockOf(S.T), startT: inc.startT,
+    tags: [...inc.tags], fps: [...inc.fps], fpOk, miss, m, clues: scn.clues, day: dayOf(S.T), clock: clockOf(S.T), startT: inc.startT,
   };
   S.history.push(record);
 
@@ -758,7 +765,7 @@ const PANELS = {
     return {
       danger: true,
       eyebrow: cluesEyebrow(), title: 'Clues',
-      html: `<p>Tag the lines that look like part of the attack. Some are routine noise — tagging those costs points. Your tags and your response card decide the grade.</p>
+      html: `<p>Classify every line: <b>True Positive</b> if it is part of the attack, <b>False Positive</b> if it is benign or routine. Right calls earn points, wrong calls cost them. Your calls and your response card decide the grade.</p>
         <div class="filters"><button class="${filter === 'all' ? 'on' : ''}" data-act="clues:all">All</button>${assets.map(id => `<button class="${filter === id ? 'on' : ''}" data-act="clues:${id}">${esc(ASSETS[id].short)}</button>`).join('')}</div>
         ${inc.clueOrder.map(i => inc.scn.clues[i]).map((c, k) => (filter === 'all' || c.asset === filter ? clueHTML(c, inc.clueOrder[k]) : '')).join('')}
         ${missing.length ? `<div class="box tiny muted">${icon('lock')} Some context is hidden. ${missing.map(id => esc(CTRL[id].short)).join(', ')} would add more detail to these logs.</div>` : ''}
@@ -776,8 +783,9 @@ const PANELS = {
       eyebrow: `${r.drill ? 'Drill' : 'Incident'} debrief · Day ${r.day} · ${r.clock}`, title: `Shift grade ${r.grade}`,
       html: `<div class="row"><div class="grade ${r.grade}">${r.grade}</div><div class="grow"><b>${esc(scn.title)}</b><div class="tiny muted">Score ${r.score}/100${r.drill ? ' · drill, no costs applied' : ''}</div></div></div>
         <div class="kv">
-          <span>Attack clues tagged</span><span class="${r.n && r.hit < r.n ? 'bad' : 'good'}">${scn.benign ? '— (no attack)' : `${r.hit}/${r.n}`}</span>
-          <span>Noise tagged as attack</span><span class="${r.fp ? 'bad' : 'good'}">${r.fp}</span>
+          <span>Attack lines → True Positive</span><span class="${r.n && r.hit < r.n ? 'bad' : 'good'}">${scn.benign ? '— (no attack)' : `${r.hit}/${r.n}`}</span>
+          <span>Benign lines → False Positive</span><span class="${(r.fpOk ?? 0) < (r.m ?? 0) ? 'bad' : 'good'}">${r.fpOk ?? 0}/${r.m ?? 0}</span>
+          <span>Wrong calls</span><span class="${r.fp + (r.miss || 0) ? 'bad' : 'good'}">${r.fp + (r.miss || 0)}</span>
           <span>Response</span><span>${resp ? esc(resp.tag) : '<span class="bad">Timed out</span>'}</span>
           <span>Decision time</span><span>${r.used}s</span>
           <span>Outage</span><span class="${r.hours ? 'bad' : 'good'}">${outage}</span>
@@ -790,10 +798,11 @@ const PANELS = {
         ${resp?.q !== 'best' ? `<div class="box"><small>Best response</small><p style="margin:5px 0 0"><b>${esc(best.title)}.</b> ${esc(best.result)}</p></div>` : ''}
         <div class="sec"><small>Every clue, explained</small></div>
         <div class="box">${(r.clues || scn.clues).map((c, i) => {
-          const tagged = r.tags.includes(i);
-          const right = tagged === c.attack;
-          return `<div class="explain"><h5>${esc(c.src)} <span class="pill ${c.attack ? 'bad' : ''}">${c.attack ? 'Attack' : 'Noise'}</span>
-            <span class="${right ? 'verdict-ok' : 'verdict-bad'}">${right ? '✓' : '✗'} ${tagged ? 'you tagged it' : 'not tagged'}</span></h5>
+          const call = r.tags.includes(i) ? 'tp' : (r.fps || []).includes(i) ? 'fp' : null;
+          const right = call === (c.attack ? 'tp' : 'fp');
+          const said = call === 'tp' ? 'you said True Positive' : call === 'fp' ? 'you said False Positive' : 'not classified';
+          return `<div class="explain"><h5>${esc(c.src)} <span class="pill ${c.attack ? 'bad' : 'ok'}">${c.attack ? 'True Positive' : 'False Positive'}</span>
+            <span class="${right ? 'verdict-ok' : 'verdict-bad'}">${right ? '✓' : '✗'} ${said}</span></h5>
             <p>${esc(c.why)}</p>${c.ttp ? `<div class="ttp">${esc(c.ttp)}</div>` : ''}</div>`;
         }).join('')}</div>
         <div class="box"><small>Lesson</small><p style="margin:5px 0 6px">${esc(scn.lesson)}</p><div class="tiny muted">Inspired by: ${esc(scn.inspired)}</div></div>
@@ -849,17 +858,20 @@ function historyHTML() {
 
 function cluesEyebrow() {
   const inc = S.incident;
-  return inc ? `${inc.tags.size} of ${inc.scn.clues.length} tagged · ${inc.scn.short}` : '';
+  return inc ? `${classified(inc)} of ${inc.scn.clues.length} classified · ${inc.scn.short}` : '';
 }
 
 function clueHTML(c, i) {
-  const tagged = S.incident.tags.has(i);
+  const tp = S.incident.tags.has(i), fp = S.incident.fps.has(i);
   const chips = c.chips.filter(ch => !ch.need || S.owned.has(ch.need))
     .map(ch => `<span class="cchip ${ch.tone || ''}">${esc(ch.t)}</span>`).join('');
-  return `<div class="clue ${tagged ? 'tagged' : ''}" data-i="${i}">
+  return `<div class="clue ${tp ? 'tagged' : fp ? 'benign' : ''}" data-i="${i}">
     <div class="clue-h"><span>${clueTime(c)} · ${esc(c.src)}</span><span>${esc(ASSETS[c.asset].short)}</span></div>
     <pre>${esc(clueText(c))}</pre>${chips ? `<div class="cchips">${chips}</div>` : ''}
-    <button class="btn-tag" data-act="tag:${i}">${tagged ? `${icon('check')} Tagged as attack` : `${icon('search')} Tag as attack`}</button></div>`;
+    <div class="row" style="gap:6px">
+      <button class="btn-tag tp ${tp ? 'on' : ''}" data-act="tp:${i}">${icon(tp ? 'check' : 'alert')} True Positive</button>
+      <button class="btn-tag fp ${fp ? 'on' : ''}" data-act="fp:${i}">${icon(fp ? 'check' : 'shield')} False Positive</button>
+    </div></div>`;
 }
 
 function openPanel(name, arg) {
@@ -922,7 +934,7 @@ function openRespond() {
     if (r.q === 'ignore') return '<div class="pb bad">Playbook: ignores the evidence</div>';
     return '';
   };
-  openModal(`<small>${esc(inc.scn.short)} · ${inc.tags.size} clues tagged</small>
+  openModal(`<small>${esc(inc.scn.short)} · ${inc.tags.size} True Positive · ${inc.fps.size} False Positive</small>
     <h3>Play a response card</h3>
     <p>Pick the response that fits the evidence. Under-reacting lets the attack land; over-reacting causes the outage yourself.${S.owned.has('backups') ? ' Config backups will halve any outage.' : ''}</p>
     <div class="rcards">${inc.order.map(r => `<button class="rcard" data-act="play:${r.id}">
@@ -936,8 +948,8 @@ function openHelp() {
     <p>Run ${esc(SITE.station)} for ${esc(SITE.utility)}. Earn revenue while feeders are energized, invest in controls, and triage incidents correctly.</p>
     <div class="help-grid">
       <div class="box"><b>Camera</b><p>Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom. The map rotates a full 360° — rail buttons rotate 45°, spin 360°, toggle top-down and reset. Tap your persona’s name tag to change your name. Keys: <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>Space</kbd> pause, <kbd>1</kbd>–<kbd>3</kbd> speed, <kbd>Esc</kbd> close.</p></div>
-      <div class="box"><b>Incidents</b><p>When an alert fires the game clock stops and a decision timer starts. Open the magnifier pins, read each log line, tag the ones that belong to the attack, then play one response card.</p></div>
-      <div class="box"><b>Grading</b><p>60% response quality, 30% clue accuracy (noise tagged as attack costs points), 10% speed. Treating an attack as a routine fault caps you at D; shutting the grid down yourself caps you at C.</p></div>
+      <div class="box"><b>Incidents</b><p>When an alert fires the game clock stops and a decision timer starts. Open the magnifier pins, read each log line, mark it True Positive (part of the attack) or False Positive (benign), then play one response card.</p></div>
+      <div class="box"><b>Grading</b><p>60% response quality, 30% clue accuracy (right True/False Positive calls earn points, wrong calls cost them), 10% speed. Treating an attack as a routine fault caps you at D; shutting the grid down yourself caps you at C.</p></div>
       <div class="box"><b>Controls</b><p>Some controls prevent a scenario outright. Visibility controls (inventory, monitoring, backups) add context chips to logs. The playbook annotates response cards. Opex is charged daily.</p></div>
       <div class="box"><b>Network overlay</b><p>Blue conduits are protected or baseline, amber need a control, orange is internet-exposed. Red pulses are an attack path in progress.</p></div>
       <div class="box"><b>For trainers</b><p>The SOC panel runs any scenario as a drill (graded, no costs). Every debrief explains each clue with its MITRE ATT&amp;CK for ICS technique.</p></div>
@@ -1013,7 +1025,8 @@ const ACTS = {
   focus: id => world.focus(id),
   buy: id => buy(id),
   clues: arg => { if (!S.incident) return; openPanel('clues', arg || 'all'); if (arg && arg !== 'all' && ASSETS[arg]) world.focus(arg); },
-  tag: i => toggleTag(+i),
+  tp: i => markClue(+i, 'tp'),
+  fp: i => markClue(+i, 'fp'),
   respond: () => openRespond(),
   play: id => { const r = S.incident?.scn.responses.find(x => x.id === id); if (r) resolve(r); },
   drill: id => { const s = SCENARIOS.find(x => x.id === id); if (s) startIncident(s, true); },
