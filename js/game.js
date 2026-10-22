@@ -131,7 +131,7 @@ let pinEls = {};
 
 const meEl = document.createElement('div');
 meEl.className = 'me';
-meEl.innerHTML = '<b>You</b><small>OT security lead</small>';
+meEl.innerHTML = `<b>You</b><small>OT security lead · ${esc(SITE.utility)}</small>`;
 labelsEl.appendChild(meEl);
 
 const instEls = world.instruments.map(({ tag, pos }) => {
@@ -179,7 +179,7 @@ function positionOverlays() {
   const me = world.project(world.personaAnchor());
   meEl.style.display = me.vis ? '' : 'none';
   meEl.style.transform = `translate(${me.x}px, ${me.y}px) translate(-50%, -100%)`;
-  const near = world.camera.position.distanceTo(world.centers.biogas) < 125;
+  const near = world.controls.target.distanceTo(world.centers.biogas) < 45 && world.camera.position.distanceTo(world.centers.biogas) < 140;
   for (const { el, pos } of instEls) {
     const p = near && world.project(pos);
     if (!p || !p.vis) { el.style.display = 'none'; continue; }
@@ -823,7 +823,7 @@ function openRespond() {
 }
 
 function openHelp() {
-  openModal(`<small>How to play</small><h3>Substation Sentinel</h3>
+  openModal(`<small>How to play</small><h3>${esc(SITE.game)}</h3>
     <p>Run ${esc(SITE.station)} for ${esc(SITE.utility)}. Earn revenue while feeders are energized, invest in controls, and triage incidents correctly.</p>
     <div class="help-grid">
       <div class="box"><b>Camera</b><p>Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom. Rail buttons rotate 45°, toggle top-down and reset. Keys: <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>Space</kbd> pause, <kbd>1</kbd>–<kbd>3</kbd> speed, <kbd>Esc</kbd> close.</p></div>
@@ -938,7 +938,7 @@ $('#start').addEventListener('click', () => {
   Snd.init();
   $('#intro').remove();
   S.started = true;
-  alertLog(`Shift started at ${SITE.station}.`);
+  alertLog(`${SITE.utility}: shift started at ${SITE.station}.`);
   toast('Welcome to Kestrel Point. Follow the quest card to get started.', 'good', 'zap');
   renderAction();
   renderHUD();

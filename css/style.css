@@ -109,6 +109,13 @@ small { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color
 .pin.done { background: var(--mint); color: var(--mint-ink); }
 .pin.done::after { border-top-color: var(--mint); }
 
+/* brand badge (bottom-left) */
+.brand { position: fixed; left: 14px; bottom: 14px; z-index: 4; display: flex; align-items: center; gap: 9px; background: var(--panel); border-radius: 14px; padding: 7px 12px 7px 7px; box-shadow: var(--shadow); }
+.brand-mark { background: var(--amber); color: #2a1d02; font-weight: 900; font-size: 11px; letter-spacing: .06em; border-radius: 9px; padding: 7px 7px; }
+.brand b { display: block; font-size: 13px; font-weight: 900; line-height: 1.15; }
+.brand small { display: block; font-size: 9.5px; }
+#sheet:not([hidden]) ~ .brand { display: none; }
+
 /* persona + instrument tags */
 .me { position: absolute; left: 0; top: 0; pointer-events: none; text-align: center; background: var(--mint); color: var(--mint-ink); border-radius: 9px; padding: 2px 8px 3px; box-shadow: 0 4px 12px rgba(0,0,0,.25); will-change: transform; }
 .me b { display: block; font-size: 11px; font-weight: 900; line-height: 1.1; }
@@ -279,6 +286,9 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--panel-3); bor
 .hint { color: var(--muted); font-size: 12px; font-weight: 700; }
 
 /* ---------- small screens ---------- */
+@media (max-width: 1100px) {
+  .brand { display: none; }
+}
 @media (max-width: 900px) {
   #banner { max-width: calc(100vw - 28px); min-width: 0; top: 112px; width: calc(100vw - 28px); }
   #toasts { top: 190px; }

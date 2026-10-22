@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Substation Sentinel — OT Security Simulator</title>
-  <meta name="description" content="A 3D OT security training game. Defend a 132/33 kV substation: read the logs, tag the attack, play the right response.">
+  <title>Oh no! shutdown again? — ONSA Power &amp; Co.</title>
+  <meta name="description" content="Oh no! shutdown again? — a 3D OT security training game by ONSA Power &amp; Co. Defend a 132/33 kV substation: read the logs, tag the attack, play the right response.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -84,15 +84,20 @@
     <button data-act="panel:alerts" data-icon="bell"><span>Alerts</span><i class="count" id="alert-count" hidden>0</i></button>
   </nav>
 
+  <div class="brand" title="Oh no! shutdown again? · ONSA Power &amp; Co.">
+    <span class="brand-mark">ONSA</span>
+    <div><b>Oh no! shutdown again?</b><small>ONSA Power &amp; Co.</small></div>
+  </div>
+
   <div id="toasts"></div>
   <div id="modal" hidden><div class="modal-inner" id="modal-inner"></div></div>
 
   <div id="intro">
     <div class="intro-card">
       <div class="logo"><span data-icon="zap"></span></div>
-      <small class="eyebrow">OT security simulator · Chapter 01</small>
-      <h1>Substation Sentinel</h1>
-      <p class="lede">You are the new OT security lead at <b>Kestrel Point</b>, a 132/33 kV substation run by Northwind Grid Co. It feeds 12,400 homes and St. Brigid Hospital. Attackers have noticed.</p>
+      <small class="eyebrow">ONSA Power &amp; Co. · OT security simulator</small>
+      <h1>Oh no! shutdown again?</h1>
+      <p class="lede">You are the new OT security lead at <b>Kestrel Point</b>, a 132/33 kV substation run by <b>ONSA Power &amp; Co.</b> A POME biogas plant feeds it; it feeds 12,400 homes and St. Brigid Hospital. Attackers have noticed — and nobody wants to hear “shutdown” again.</p>
       <ul>
         <li><b>Keep the lights on.</b> Every energized feeder earns revenue. Outages cost money, reliability and regulator fines.</li>
         <li><b>Invest in controls.</b> Asset inventory, monitoring, segmentation, MFA, backups — each one prevents or exposes real attack techniques.</li>

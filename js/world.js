@@ -63,6 +63,34 @@ const asMat = c => (typeof c === 'number' ? mat(c) : c);
 const box = (p, w, h, d, color, x, y, z) => add(p, BOX, asMat(color), x, y + h / 2, z, w, h, d);
 const cyl = (p, r, h, color, x, y, z) => add(p, CYL, asMat(color), x, y + h / 2, z, r, h, r);
 
+// Canvas text for signs and uniform prints; redrawn once web fonts arrive.
+function textTexture(lines, w, h, bg) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  const draw = () => {
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, w, h);
+    if (bg) { g.fillStyle = bg; g.fillRect(0, 0, w, h); }
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    for (const L of lines) {
+      g.font = `${L.weight || 900} ${L.size}px Nunito, Arial, sans-serif`;
+      g.fillStyle = L.color;
+      g.fillText(L.text, w / 2, L.y);
+    }
+    t.needsUpdate = true;
+  };
+  draw();
+  document.fonts?.ready.then(draw);
+  return t;
+}
+
+const BRAND = { navy: '#1b2a4a', amber: '#f2b33d', panel: '#1d2928', white: '#f4f6f2' };
+
 // Window-grid facade: day map plus an emissive map whose lit windows glow at night.
 function facadeMaterials(w, h, d, base, glass, roof, seed) {
   const rand = rng(seed);
@@ -110,7 +138,7 @@ export class World {
     const c = (this.controls = new MapControls(this.camera, r.domElement));
     c.enableDamping = true;
     c.dampingFactor = 0.09;
-    c.minDistance = 35;
+    c.minDistance = 14;
     c.maxDistance = 330;
     c.maxPolarAngle = 1.32;
     c.screenSpacePanning = false;
@@ -161,6 +189,7 @@ export class World {
     this.buildTrees();
     this.buildRings();
     this.buildPersona();
+    this.buildSigns();
 
     new ResizeObserver(() => this.resize()).observe(el);
     this.bindPicking();
@@ -251,6 +280,35 @@ export class World {
     });
   }
 
+  // ---------- ONSA Power & Co. signage ----------
+  sign(x, y, z, w, h, rotY, lines, posts = true) {
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    g.rotation.y = rotY;
+    const face = new THREE.MeshStandardMaterial({ map: textTexture(lines, 1024, Math.round((1024 * h) / w), BRAND.panel), roughness: 0.7 });
+    const edge = mat(0x2d3f3d);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.25), [edge, edge, edge, edge, face, face]);
+    board.position.y = y + h / 2;
+    board.castShadow = true;
+    g.add(board);
+    if (posts) for (const px of [-w / 2 + 0.4, w / 2 - 0.4]) box(g, 0.25, y, 0.25, COL.steelDark, px, 0, 0);
+    this.scene.add(g);
+    this.nightMats.push(face);
+    face.emissive = new THREE.Color(0xffffff);
+    face.emissiveMap = face.map;
+    face.emissiveIntensity = 0;
+  }
+
+  buildSigns() {
+    const title = (big, sub, k = 1) => [
+      { text: big, size: 150 * k, y: 120 * k, color: BRAND.amber },
+      { text: sub, size: 54 * k, y: 232 * k, color: BRAND.white, weight: 800 },
+    ];
+    this.sign(-24.2, 1.6, -5.8, 7, 2.2, 0, title('ONSA Power & Co.', 'Kestrel Point 132/33 kV Substation'));
+    this.sign(-48, 26, -26.3, 10, 2.8, 0, title('ONSA', 'POWER & CO. · HEADQUARTERS'), false);
+    this.sign(-35.5, 1.6, -37.2, 7, 2.2, 0, title('ONSA Power & Co.', 'POME Biogas Plant'));
+  }
+
   // ---------- persona: the player, in hi-vis coverall and white helmet ----------
   buildPersona() {
     const p = (this.persona = new THREE.Group());
@@ -271,7 +329,7 @@ export class World {
     });
     part(body, BOX, HIVIS, 0, 1.36, 0).scale.set(0.72, 0.84, 0.4);
     for (const y of [1.18, 1.42]) part(body, BOX, STRIPE, 0, y, 0).scale.set(0.74, 0.07, 0.42);
-    for (const x of [-0.2, 0.2]) part(body, BOX, STRIPE, x, 1.56, 0).scale.set(0.07, 0.36, 0.42);
+    for (const x of [-0.2, 0.2]) part(body, BOX, STRIPE, x, 1.62, 0).scale.set(0.07, 0.2, 0.42);
     this.arms = [-0.47, 0.47].map(x => {
       const arm = new THREE.Group();
       arm.position.set(x, 1.74, 0);
@@ -287,6 +345,17 @@ export class World {
     part(body, DOME, HELMET, 0, 2.1, 0).scale.set(0.25, 0.22, 0.27);
     part(body, new THREE.CylinderGeometry(0.29, 0.29, 0.03, 18), HELMET, 0, 2.1, 0.03);
     part(body, BOX, HELMET, 0, 2.1, 0.26).scale.set(0.24, 0.03, 0.14); // peak
+    // ONSA Power & Co. prints: chest, back and helmet
+    const print = (lines, w, h, pw, ph, x, y, z, ry = 0, rx = 0) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), new THREE.MeshStandardMaterial({ map: textTexture(lines, w, h), transparent: true, alphaTest: 0.2, roughness: 0.8 }));
+      m.position.set(x, y, z);
+      m.rotation.set(rx, ry, 0);
+      body.add(m);
+    };
+    const ONSA = (c, k = 1) => [{ text: 'ONSA', size: 118 * k, y: 72 * k, color: c }, { text: 'POWER & CO.', size: 44 * k, y: 158 * k, color: c, weight: 800 }];
+    print(ONSA(BRAND.navy), 512, 200, 0.52, 0.16, 0, 1.3, 0.203);
+    print(ONSA(BRAND.navy), 512, 200, 0.56, 0.17, 0, 1.3, -0.203, Math.PI);
+    print([{ text: 'ONSA', size: 150, y: 64, color: BRAND.navy }], 512, 128, 0.22, 0.07, 0, 2.2, 0.25, 0, -0.45);
     body.scale.setScalar(1.8);
     this.body = body;
 

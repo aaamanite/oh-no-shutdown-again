@@ -2,7 +2,8 @@
 // Everything here is fictional; the techniques are real (MITRE ATT&CK for ICS IDs where noted).
 
 export const SITE = {
-  utility: 'Northwind Grid Co.',
+  game: 'Oh no! shutdown again?',
+  utility: 'ONSA Power & Co.',
   station: 'Kestrel Point 132/33 kV',
 };
 
