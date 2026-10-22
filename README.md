@@ -4,7 +4,7 @@
 
 A 3D, browser-based OT/ICS security training game. You are the OT Security Lead at **PMU Bukit Mutiara**, a 132/33 kV substation run by ONSA Power & Co. Keep the lights on, invest in security controls, and triage incidents modelled on real grid attacks.
 
-**Play:** open `index.html` through any static web server (or GitHub Pages). No build step, no install.
+**Play:** https://oh-no-shutdown-again.aaamanite.workers.dev — free on Cloudflare, redeployed automatically on every push to `main`. It also runs from any static web server (or GitHub Pages). No build step, no install.
 
 ## The site
 
