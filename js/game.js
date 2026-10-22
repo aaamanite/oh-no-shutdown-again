@@ -253,32 +253,37 @@ function positionOverlays() {
 }
 
 // ---------- HUD ----------
+const RANKS = ['Trainee', 'Analyst', 'Responder', 'Defender', 'Guardian', 'Grid Sentinel'];
 function renderHUD() {
   $('#funds').textContent = money(S.funds);
   $('#funds').style.color = S.funds < 0 ? 'var(--red)' : '';
   $('#day').textContent = `Day ${dayOf(S.T)}`;
   $('#clock').textContent = clockOf(S.T);
   const rel = Math.round(S.reliability);
-  $('#rel span').textContent = rel;
+  $('#rel-val').textContent = rel;
   const fg = $('#rel .fg');
-  fg.style.width = `${rel}%`;
-  fg.style.background = rel >= 75 ? 'var(--lime)' : rel >= 50 ? 'var(--amber)' : 'var(--red)';
+  fg.style.strokeDasharray = `${rel} 100`;
+  fg.style.stroke = rel >= 75 ? 'var(--lime)' : rel >= 50 ? 'var(--amber)' : 'var(--red)';
   const sl = securityLevel();
   $('#sl').textContent = sl;
-  $('#sl').parentElement.title = `Security level ${sl} · ${S.owned.size}/${CONTROLS.length} controls`;
-  document.querySelectorAll('#sl-steps i').forEach((s, k) => s.classList.toggle('on', k < sl));
-  const lamp = $('#chip-threat');
+  $('#sec').title = `Security level ${sl} · ${S.owned.size}/${CONTROLS.length} controls`;
   const soon = S.nextIncidentAt - S.T;
   const [level, text] = S.incident ? ['active', 'Active incident'] : soon < 60 ? ['high', 'High'] : soon < 120 ? ['elevated', 'Elevated'] : ['guarded', 'Guarded'];
-  lamp.dataset.level = level;
-  lamp.textContent = text;
+  $('#threat').dataset.level = level;
+  $('#chip-threat').textContent = text;
+  // operator card: rank and XP progress (a level every 250 XP)
+  const lvl = Math.floor(S.xp / 250) + 1;
+  $('#op-name').textContent = S.player || 'Operator';
+  $('#op-level').textContent = lvl;
+  $('#op-rank').textContent = RANKS[Math.min(lvl - 1, RANKS.length - 1)];
+  $('#op-xp').style.width = `${((S.xp % 250) / 250) * 100}%`;
   $('#chip-hold').hidden = !S.incident;
   $('#soc-dot').hidden = !S.incident;
   const ac = $('#alert-count');
   ac.hidden = !S.unread;
   ac.textContent = S.unread > 9 ? '9+' : S.unread;
   document.querySelectorAll('#speeds button').forEach(b => b.classList.toggle('on', +b.dataset.speed === S.speed));
-  document.querySelectorAll('.nav button[data-act]').forEach(b => b.classList.toggle('on', S.panel && b.dataset.act === `panel:${S.panel.name}`));
+  document.querySelectorAll('.dock button[data-act]').forEach(b => b.classList.toggle('on', S.panel && b.dataset.act === `panel:${S.panel.name}`));
   refreshLabels();
 }
 
@@ -291,8 +296,8 @@ function renderBanner() {
   b.classList.toggle('urgent', left <= 30);
   b.innerHTML = `
     <div class="b-ic">${icon('alert')}</div>
-    <div class="b-tx"><small>${inc.drill ? 'Drill · ' : ''}Alarm · triage now</small><b>${esc(inc.scn.title)}</b></div>
-    <span class="b-sub">${classified(inc)}/${inc.scn.clues.length} classified · clock held${S.speed === 0 ? ' · paused' : ''}</span>
+    <div class="b-tx"><small>${inc.drill ? 'Drill · ' : ''}Security alert · triage now</small><b>${esc(inc.scn.title)}</b>
+      <span class="b-sub">${classified(inc)}/${inc.scn.clues.length} detections classified · clock held${S.speed === 0 ? ' · paused' : ''}</span></div>
     <div class="decide"><small>Decide in</small><b>${pad(Math.floor(left / 60))}:${pad(left % 60)}</b></div>`;
 }
 
@@ -692,7 +697,7 @@ const PANELS = {
   shop() {
     const cats = [...new Set(CONTROLS.map(c => c.cat))];
     return {
-      eyebrow: `Security level ${securityLevel()} · ${S.owned.size}/${CONTROLS.length} installed`, title: 'Security controls',
+      eyebrow: `Security level ${securityLevel()} · ${S.owned.size}/${CONTROLS.length} installed`, title: 'Security upgrades',
       html: `<p>Controls cost capex now and opex every day. Each one prevents an attack technique, gives you better evidence, or speeds recovery.</p>
         ${cats.map(cat => `<div class="sec"><small>${esc(cat)}</small></div>${CONTROLS.filter(c => c.cat === cat).map(c => {
           const owned = S.owned.has(c.id);
@@ -956,7 +961,7 @@ function openHelp() {
   openModal(`<small>How to play</small><h3>${esc(SITE.game)}</h3>
     <p>Run ${esc(SITE.station)} for ${esc(SITE.utility)}. Earn revenue while feeders are energized, invest in controls, and triage incidents correctly.</p>
     <div class="help-grid">
-      <div class="box"><b>Camera</b><p>Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom. The map rotates a full 360° — the camera toolbar (bottom right) rotates 45°, spins 360°, toggles top-down and resets the view. Tap your persona’s name tag to change your name. Keys: <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>Space</kbd> pause, <kbd>1</kbd>–<kbd>3</kbd> speed, <kbd>Esc</kbd> close.</p></div>
+      <div class="box"><b>Camera</b><p>Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom. The map rotates a full 360° — the camera bar on the right rotates 45°, spins 360°, toggles top-down and resets the view. Tap your persona’s name tag to change your name. Keys: <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>Space</kbd> pause, <kbd>1</kbd>–<kbd>3</kbd> speed, <kbd>Esc</kbd> close.</p></div>
       <div class="box"><b>Incidents</b><p>When an alert fires the game clock stops and a decision timer starts. Open the magnifier pins, read each log line, mark it True Positive (part of the attack) or False Positive (benign), then respond or remediate.</p></div>
       <div class="box"><b>Grading</b><p>60% response quality, 30% detection accuracy (right True/False Positive calls earn points, wrong calls cost them), 10% speed. Treating an attack as a routine fault caps you at D; shutting the grid down yourself caps you at C.</p></div>
       <div class="box"><b>Controls</b><p>Some controls prevent a scenario outright. Visibility controls (inventory, monitoring, backups) add context chips to logs. The playbook annotates response options. Opex is charged daily.</p></div>

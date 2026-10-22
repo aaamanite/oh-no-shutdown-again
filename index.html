@@ -7,7 +7,7 @@
   <meta name="description" content="Oh no! shutdown again? — a 3D OT security training game by ONSA Power &amp; Co. Defend a 132/33 kV substation: read the logs, call True or False Positive, respond or remediate.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
   <script type="importmap">
     { "imports": {
@@ -20,43 +20,67 @@
   <div id="scene"></div>
   <div id="labels"></div>
 
-  <!-- command bar: brand · plant readouts · shift clock -->
-  <header class="cmdbar">
-    <div class="cb-brand">
-      <img src="img/onsa-logo-light.png" alt="ONSA Power &amp; Co.">
-      <div class="cb-title"><b>Oh no! shutdown again?</b><small>PMU Bukit Mutiara · 132/33 kV</small></div>
-    </div>
-    <div class="cb-readouts">
-      <div class="ro"><small>Funds</small><b id="funds">$0</b></div>
-      <div class="ro" id="rel" title="Grid reliability"><small>Reliability</small><div class="meter"><i class="fg"></i></div><span>80</span></div>
-      <div class="ro" title="Security level"><small>Security</small><div class="steps" id="sl-steps"><i></i><i></i><i></i><i></i></div><span id="sl">1</span></div>
-      <div class="ro"><small>Threat</small><span class="lamp" id="chip-threat" data-level="guarded">Guarded</span></div>
-    </div>
-    <div class="cb-clock">
-      <div class="clk"><small id="day">Day 1</small><b id="clock">06:00</b><em id="chip-hold" hidden>Clock held</em></div>
-      <div class="speeds" id="speeds">
-        <button data-speed="0" data-icon="pause" title="Pause (Space)"></button>
-        <button data-speed="1" class="on">1×</button>
-        <button data-speed="2">2×</button>
-        <button data-speed="4">4×</button>
+  <!-- top-left: operator + resources -->
+  <div class="hud-left">
+    <div class="operator glass" data-act="rename" title="Change your name">
+      <div class="avatar"><img src="img/onsa-icon-dark.png" alt=""><span class="lvl" id="op-level">1</span></div>
+      <div class="op-info">
+        <b id="op-name">Operator</b>
+        <small id="op-rank">Trainee</small>
+        <div class="xp"><i id="op-xp"></i></div>
       </div>
     </div>
-  </header>
+    <div class="resources glass">
+      <div class="res" title="Available funds"><span class="r-ic coin" data-icon="coins"></span><div><small>Funds</small><b id="funds">$0</b></div></div>
+      <div class="res" id="rel" title="Grid reliability">
+        <span class="ring"><svg viewBox="0 0 36 36"><circle class="bg" cx="18" cy="18" r="15.9"/><circle class="fg" cx="18" cy="18" r="15.9" pathLength="100"/></svg><span id="rel-val">80</span></span>
+        <div><small>Grid</small><b>Reliability</b></div>
+      </div>
+      <div class="res" id="sec" title="Security level"><span class="r-ic shield"><b id="sl">1</b></span><div><small>Security</small><b>Level</b></div></div>
+    </div>
+  </div>
 
+  <!-- top-centre: threat meter (becomes the alarm during incidents) -->
+  <div class="threat glass" id="threat">
+    <span class="t-ic" data-icon="radar"></span>
+    <div class="t-body"><small>Threat level</small><div class="t-bar" id="t-bar"><i></i><i></i><i></i><i></i></div></div>
+    <b id="chip-threat">Guarded</b>
+  </div>
   <div id="banner" hidden></div>
 
-  <!-- console navigation -->
-  <nav class="nav">
-    <button data-act="panel:site" data-icon="pin"><span>Site</span></button>
-    <button data-act="panel:network" data-icon="share"><span>Network</span></button>
-    <button data-act="panel:shop" data-icon="bag"><span>Controls</span></button>
-    <button data-act="panel:soc" data-icon="shield"><span>SOC</span><i class="dot" id="soc-dot" hidden></i></button>
-    <button data-act="panel:alerts" data-icon="bell"><span>Alerts</span><i class="count" id="alert-count" hidden>0</i></button>
-    <button data-act="panel:report" data-icon="chart"><span>Report</span></button>
-    <button data-act="panel:quests" data-icon="flag"><span>Shift</span></button>
-    <span class="nav-fill"></span>
-    <button id="rb-help" class="img" title="How to play"><img src="img/onsa-icon-lime.png" alt=""><span>Help</span></button>
-  </nav>
+  <!-- top-right: clock, speed, settings -->
+  <div class="hud-right glass">
+    <div class="clk"><small id="day">Day 1</small><b id="clock">06:00</b><em id="chip-hold" hidden>Clock held</em></div>
+    <div class="speeds" id="speeds">
+      <button data-speed="0" data-icon="pausef" title="Pause (Space)"></button>
+      <button data-speed="1" class="on" data-icon="playf" title="Normal speed (1)"></button>
+      <button data-speed="2" data-icon="ff" title="Fast (2)"></button>
+      <button data-speed="4" data-icon="fff" title="Fastest (3)"></button>
+    </div>
+    <div class="settings">
+      <button id="rb-layers" class="on" data-icon="layers" title="Network overlay"></button>
+      <button id="rb-light" title="Lighting: auto"></button>
+      <button id="rb-sound" title="Sound"></button>
+      <button id="rb-quality" class="txt" title="Graphics quality"></button>
+      <button id="rb-help" class="img" title="How to play"><img src="img/onsa-icon-lime.png" alt="How to play"></button>
+    </div>
+  </div>
+
+  <!-- left: mission tracker -->
+  <div id="action"></div>
+
+  <!-- right: camera -->
+  <div class="camera glass" role="toolbar" aria-label="Map controls">
+    <button id="rb-zin" data-icon="plus" title="Zoom in"></button>
+    <button id="rb-zout" data-icon="minus" title="Zoom out"></button>
+    <i class="sep"></i>
+    <button id="rb-rotl" data-icon="rotl" title="Rotate left (Q)"></button>
+    <button id="rb-rotr" data-icon="rotr" title="Rotate right (E)"></button>
+    <button id="rb-top" data-icon="compass" title="Top-down / perspective"></button>
+    <button id="rb-spin" class="txt" title="Spin the map 360°">360°</button>
+    <i class="sep"></i>
+    <button id="rb-reset" class="img" title="Reset view"><img src="img/onsa-icon-dark.png" alt="Reset view"></button>
+  </div>
 
   <aside id="sheet" hidden>
     <header>
@@ -66,63 +90,49 @@
     <div class="sheet-body" id="sheet-body"></div>
   </aside>
 
-  <div id="action"></div>
+  <!-- bottom: action dock -->
+  <nav class="dock">
+    <button data-act="panel:site" data-icon="map"><span>Site</span></button>
+    <button data-act="panel:network" data-icon="share"><span>Network</span></button>
+    <button data-act="panel:shop" data-icon="upgrade"><span>Upgrades</span></button>
+    <button data-act="panel:soc" data-icon="radar" class="soc"><span>SOC</span><i class="dot" id="soc-dot" hidden></i></button>
+    <button data-act="panel:alerts" data-icon="bell"><span>Alerts</span><i class="count" id="alert-count" hidden>0</i></button>
+    <button data-act="panel:report" data-icon="trophy"><span>Report</span></button>
+    <button data-act="panel:quests" data-icon="target2"><span>Missions</span></button>
+  </nav>
 
-  <!-- camera & display toolbar -->
-  <div class="camera" role="toolbar" aria-label="Map controls">
-    <div class="grp">
-      <button id="rb-rotl" data-icon="rotl" title="Rotate left (Q)"></button>
-      <button id="rb-top" data-icon="compass" title="Top-down / perspective"></button>
-      <button id="rb-rotr" data-icon="rotr" title="Rotate right (E)"></button>
-      <button id="rb-spin" class="txt" title="Spin the map 360°">360°</button>
-    </div>
-    <div class="grp">
-      <button id="rb-zout" data-icon="minus" title="Zoom out"></button>
-      <button id="rb-zin" data-icon="plus" title="Zoom in"></button>
-      <button id="rb-reset" class="img" title="Reset view"><img src="img/onsa-icon-dark.png" alt="Reset view"></button>
-    </div>
-    <div class="grp">
-      <button id="rb-layers" class="on" data-icon="layers" title="Network overlay"></button>
-      <button id="rb-light" title="Lighting: auto"></button>
-      <button id="rb-sound" title="Sound"></button>
-      <button id="rb-quality" class="txt" title="Graphics quality"></button>
-    </div>
-  </div>
+  <img class="corner-logo" src="img/onsa-logo-light.png" alt="ONSA Power &amp; Co.">
 
   <div id="toasts"></div>
   <div id="modal" hidden><div class="modal-inner" id="modal-inner"></div></div>
 
+  <!-- title screen -->
   <div id="intro">
-    <div class="intro-grid">
-      <section class="intro-brand">
-        <img class="intro-logo" src="img/onsa-logo-light.png" alt="ONSA Power &amp; Co.">
-        <div>
-          <small class="eyebrow">OT Security Simulator</small>
-          <h1>Oh no! shutdown again?</h1>
-          <p class="tagline">Night shift at PMU Bukit Mutiara. Every alarm could be a fault — or someone inside your network.</p>
-        </div>
-        <ul class="intro-facts">
-          <li><b>3</b><span>generation sites</span></li>
-          <li><b>4</b><span>33 kV feeders</span></li>
-          <li><b>12,400</b><span>homes on supply</span></li>
-        </ul>
-      </section>
-      <section class="intro-brief">
-        <small class="eyebrow">Shift briefing</small>
-        <p class="lede">You are the new OT Security Lead at <b>PMU Bukit Mutiara</b>, the 132/33 kV substation at the heart of the <b>ONSA Power &amp; Co.</b> grid. A biogas power plant, an offshore wind farm and a solar farm feed it. It supplies 12,400 homes, Hospital Bukit Mutiara, Kolej Komuniti Bukit Mutiara, Mutiara Avenue Mall, ONSA's HQ and the R&amp;D Centre, where researchers are preparing the next big project: space-based solar power, beamed down wirelessly. Attackers have noticed — and nobody wants to hear “shutdown” again.</p>
-        <ol class="intro-steps">
-          <li><b>Keep the lights on.</b> Every energized feeder earns revenue. Outages cost money, reliability and regulator fines.</li>
-          <li><b>Invest in controls.</b> Asset inventory, monitoring, segmentation, MFA, backups — each one prevents or exposes real attack techniques.</li>
-          <li><b>Triage incidents.</b> Read what each system logged, mark each line True Positive or False Positive, then respond or remediate. Overreacting is a failure too.</li>
-        </ol>
-        <label class="name-field" for="player-name"><small>Operator name</small>
-          <input id="player-name" maxlength="24" placeholder="Type your name" autocomplete="off" spellcheck="false">
+    <div class="intro-grid-bg"></div>
+    <div class="title-screen">
+      <img class="intro-logo" src="img/onsa-logo-light.png" alt="ONSA Power &amp; Co.">
+      <small class="eyebrow">OT Security Simulator</small>
+      <h1><span>Oh no!</span> Shutdown again?</h1>
+      <p class="tagline">Defend the PMU Bukit Mutiara grid. Spot the attack, ignore the noise, keep the lights on.</p>
+
+      <div class="launch">
+        <label class="callsign" for="player-name"><small>Enter your callsign</small>
+          <input id="player-name" maxlength="24" placeholder="Your name" autocomplete="off" spellcheck="false">
         </label>
-        <div class="intro-actions">
-          <button class="btn primary" id="start">Begin shift</button>
-          <span class="hint">Drag to pan · right-drag to rotate 360° · scroll to zoom</span>
-        </div>
-      </section>
+        <button class="btn primary big" id="start" data-icon="playf">Start mission</button>
+      </div>
+
+      <div class="features">
+        <div class="feat"><span data-icon="zap"></span><b>Keep the lights on</b><p>Energized feeders earn revenue. Outages cost money and fines.</p></div>
+        <div class="feat"><span data-icon="upgrade"></span><b>Upgrade defences</b><p>Inventory, monitoring, segmentation, MFA, backups.</p></div>
+        <div class="feat"><span data-icon="radar"></span><b>Hunt the attack</b><p>Mark each log True or False Positive, then respond. Overreacting fails too.</p></div>
+      </div>
+
+      <details class="briefing">
+        <summary>Mission briefing</summary>
+        <p class="lede">You are the new OT Security Lead at <b>PMU Bukit Mutiara</b>, the 132/33 kV substation at the heart of the <b>ONSA Power &amp; Co.</b> grid. A biogas power plant, an offshore wind farm and a solar farm feed it. It supplies 12,400 homes, Hospital Bukit Mutiara, Kolej Komuniti Bukit Mutiara, Mutiara Avenue Mall, ONSA's HQ and the R&amp;D Centre, where researchers are preparing the next big project: space-based solar power, beamed down wirelessly. Attackers have noticed — and nobody wants to hear “shutdown” again.</p>
+      </details>
+      <span class="hint">Drag to pan · right-drag to rotate 360° · scroll to zoom</span>
     </div>
   </div>
 

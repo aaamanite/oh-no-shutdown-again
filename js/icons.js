@@ -43,6 +43,17 @@ const P = {
   play: '<polygon points="6 3 20 12 6 21 6 3"/>',
   target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   dollar: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  // game HUD set
+  coins: '<ellipse cx="9" cy="7" rx="6" ry="3"/><path d="M3 7v4c0 1.66 2.69 3 6 3s6-1.34 6-3V7"/><path d="M9 14v3c0 1.66 2.69 3 6 3s6-1.34 6-3v-4c0-1.66-2.69-3-6-3"/>',
+  radar: '<path d="M19.07 4.93A10 10 0 1 0 22 12"/><path d="M16.24 7.76A6 6 0 1 0 18 12"/><circle cx="12" cy="12" r="2"/><line x1="12" y1="12" x2="19" y2="5"/>',
+  map: '<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>',
+  trophy: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
+  upgrade: '<path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6z"/><polyline points="8.5 12.5 12 9 15.5 12.5"/><line x1="12" y1="9" x2="12" y2="16"/>',
+  ff: '<polygon points="3 5 11 12 3 19 3 5" fill="currentColor"/><polygon points="12 5 20 12 12 19 12 5" fill="currentColor"/>',
+  fff: '<polygon points="1 6 7.5 12 1 18 1 6" fill="currentColor"/><polygon points="8.5 6 15 12 8.5 18 8.5 6" fill="currentColor"/><polygon points="16 6 22.5 12 16 18 16 6" fill="currentColor"/>',
+  playf: '<polygon points="6 4 19 12 6 20 6 4" fill="currentColor"/>',
+  pausef: '<rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/>',
+  target2: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/>',
 };
 
 export function icon(name, cls = '') {
