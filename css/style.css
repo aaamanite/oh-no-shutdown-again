@@ -124,6 +124,7 @@ small { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color
 .me::after { content: ''; position: absolute; left: 50%; bottom: -4px; transform: translateX(-50%); border: 4px solid transparent; border-top-color: var(--mint); border-bottom: 0; }
 .itag { position: absolute; left: 0; top: 0; pointer-events: auto; font-family: var(--mono); font-size: 9.5px; font-weight: 600; color: #eef3ef; background: rgba(29, 41, 40, .85); border-radius: 5px; padding: 1px 5px; white-space: nowrap; will-change: transform; }
 .itag:hover { background: var(--mint); color: var(--mint-ink); }
+.itag.line { pointer-events: none; font-family: 'Nunito', sans-serif; font-weight: 800; font-size: 10px; background: rgba(95, 182, 217, .9); color: #0d2430; }
 
 /* ---------- sheet (left panel) ---------- */
 #sheet { position: fixed; left: 14px; top: 122px; bottom: 90px; width: 372px; z-index: 7; background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; border: 1.5px solid transparent; animation: slidein .2s ease-out; }

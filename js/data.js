@@ -48,6 +48,16 @@ export const ASSETS = {
     desc: 'St. Brigid Hospital, the water pumping station and 3,100 commercial customers.',
     protocols: [],
   },
+  wind: {
+    name: 'Offshore wind farm', short: 'Wind farm', level: 'Generation · 33/132 kV', icon: 'wind',
+    desc: 'Four offshore turbines. The export cable lands at the shore station and feeds grid Line 2 alongside biogas genset G-502. Turbine controllers report to SCADA and take curtailment setpoints from the control center.',
+    protocols: ['IEC 61400-25', 'IEC 60870-5-104'],
+  },
+  townC: {
+    name: 'Feeder C · College', short: 'Feeder C', level: 'Load · 33 kV', icon: 'school',
+    desc: 'Kestrel Point College: lecture halls, labs, two hostels, a library and the sports ground — 4,800 students and staff on 33 kV Feeder C.',
+    protocols: [],
+  },
   biogas: {
     name: 'POME biogas plant', short: 'Biogas plant', level: 'Generation · 11/132 kV', icon: 'flame',
     desc: 'Palm oil mill effluent (POME) is pumped from the raw pond to the mixing pit, digested in the AD tank and covered lagoon, cleaned of H₂S in the scrubber and burned in the genset. Surplus gas goes to the flare. A PLC in the MCC room reads every transmitter on the pipelines and drives the motorized valves.',
@@ -82,7 +92,12 @@ export const INSTRUMENTS = [
   { tag: 'FIT-501', stage: 'Genset', name: 'Ultrasonic flowmeter', kind: 'Flow · genset fuel gas (Nm³/h)', signal: MB },
   { tag: 'PIT-501', stage: 'Genset', name: 'Pressure transmitter', kind: 'Pressure · genset inlet (mbar)', signal: AI },
   { tag: 'TIT-501', stage: 'Genset', name: 'Temperature transmitter', kind: 'Temperature · genset inlet (°C)', signal: AI },
-  { tag: 'G-501', stage: 'Genset', name: 'Biogas genset', kind: 'Gas engine-generator', signal: 'Genset controller · Modbus TCP' },
+  { tag: 'G-501', stage: 'Genset', name: 'Biogas genset 1', kind: 'Gas engine-generator · exports on grid Line 1', signal: 'Genset controller · Modbus TCP' },
+  { tag: 'MOV-502', stage: 'Genset', name: 'Genset 2 gas train motorized valve', kind: 'Motorized valve', signal: MOV },
+  { tag: 'FIT-502', stage: 'Genset', name: 'Ultrasonic flowmeter', kind: 'Flow · genset 2 fuel gas (Nm³/h)', signal: MB },
+  { tag: 'PIT-502', stage: 'Genset', name: 'Pressure transmitter', kind: 'Pressure · genset 2 inlet (mbar)', signal: AI },
+  { tag: 'TIT-502', stage: 'Genset', name: 'Temperature transmitter', kind: 'Temperature · genset 2 inlet (°C)', signal: AI },
+  { tag: 'G-502', stage: 'Genset', name: 'Biogas genset 2', kind: 'Gas engine-generator · exports on grid Line 2', signal: 'Genset controller · Modbus TCP' },
   { tag: 'MOV-601', stage: 'Flaring system', name: 'Flare motorized valve', kind: 'Motorized valve', signal: MOV },
   { tag: 'FIT-601', stage: 'Flaring system', name: 'Ultrasonic flowmeter', kind: 'Flow · flared biogas (Nm³/h)', signal: MB },
   { tag: 'MOV-602', stage: 'Flaring system', name: 'Pilot gas motorized valve', kind: 'Motorized valve', signal: MOV },
@@ -102,8 +117,9 @@ export function instrumentRisk(i) {
 }
 
 export const FEEDERS = {
-  A: { asset: 'townA', share: 0.45, customers: 12400, label: '12,400 homes' },
-  B: { asset: 'townB', share: 0.55, customers: 3100, label: 'hospital + 3,100 customers' },
+  A: { asset: 'townA', share: 0.38, customers: 12400, label: '12,400 homes' },
+  B: { asset: 'townB', share: 0.42, customers: 3100, label: 'hospital + 3,100 customers' },
+  C: { asset: 'townC', share: 0.2, customers: 4800, label: 'college · 4,800 students' },
 };
 
 export const PURDUE = [
@@ -112,7 +128,7 @@ export const PURDUE = [
   { level: 'L3.5 OT DMZ', ids: ['dmz'] },
   { level: 'L3 Operations', ids: ['scc'] },
   { level: 'L2 Station control', ids: ['ctrl'] },
-  { level: 'L1–0 Protection & process', ids: ['yard', 'biogas'] },
+  { level: 'L1–0 Protection & process', ids: ['yard', 'biogas', 'wind'] },
 ];
 
 // guard: the control that protects this conduit. exposedUntil: conduit disappears once that control is owned.
@@ -121,6 +137,7 @@ export const CONDUITS = [
   { id: 'inet-dmz', a: 'internet', b: 'dmz', name: 'Vendor remote access', proto: 'SSL VPN → RDP', guard: 'mfa' },
   { id: 'corp-dmz', a: 'corp', b: 'dmz', name: 'IT ↔ OT DMZ', proto: 'SMB, HTTPS, OPC UA', guard: 'itotfw' },
   { id: 'dmz-scc', a: 'dmz', b: 'scc', name: 'DMZ ↔ Control Center', proto: 'Historian replication', guard: 'itotfw' },
+  { id: 'scc-wind', a: 'scc', b: 'wind', name: 'Wind farm telecontrol', proto: 'IEC 61400-25 / IEC 104' },
   { id: 'scc-bio', a: 'scc', b: 'biogas', name: 'Generator telecontrol', proto: 'IEC 104 output setpoints' },
   { id: 'scc-ctrl', a: 'scc', b: 'ctrl', name: 'SCADA WAN', proto: 'IEC 60870-5-104, DNP3' },
   { id: 'ctrl-yard', a: 'ctrl', b: 'yard', name: 'Station bus', proto: 'IEC 61850 MMS + GOOSE', guard: 'portsec' },
@@ -265,10 +282,10 @@ export const SCENARIOS = [
         result: 'You reclose; the attacker opens it again, then the Feeder B incomer, then wipes the HMI. Crews drive out to switch by hand.',
       },
       {
-        id: 'deenergize', tag: 'Shutdown', q: 'overreact', cost: 40000, outage: { feeders: ['A', 'B'], hours: 6 }, rel: -12,
+        id: 'deenergize', tag: 'Shutdown', q: 'overreact', cost: 40000, outage: { feeders: ['A', 'B', 'C'], hours: 6 }, rel: -12,
         title: 'De-energize the substation until forensics finish',
         desc: 'Take everything out of service until the investigation is complete.',
-        result: 'The attacker has nothing left to switch — because you switched it all off. 15,500 customers dark for six hours.',
+        result: 'The attacker has nothing left to switch — because you switched it all off. 15,500 customers and the college dark for six hours.',
       },
     ],
     timeout: 'Nobody acted. The attacker opened the second incomer and wiped the HMI, and crews had to switch by hand.',
@@ -359,10 +376,10 @@ export const SCENARIOS = [
         result: 'CB-T1 recloses — and trips again 40 seconds later, followed by T2. Both feeders go dark.',
       },
       {
-        id: 'rebuild', tag: 'Shutdown', q: 'overreact', cost: 60000, outage: { feeders: ['A', 'B'], hours: 7 }, rel: -12,
+        id: 'rebuild', tag: 'Shutdown', q: 'overreact', cost: 60000, outage: { feeders: ['A', 'B', 'C'], hours: 7 }, rel: -12,
         title: 'De-energize and re-commission every relay',
         desc: 'Take all bays out of service and rebuild protection from scratch.',
-        result: 'The attack ends because there is nothing left to attack. 15,500 customers lose power for seven hours on your order.',
+        result: 'The attack ends because there is nothing left to attack. 15,500 customers and the college lose power for seven hours on your order.',
       },
     ],
     timeout: 'With no decision, the rogue publisher tripped T2 as well. Crews reclosed by hand after someone found the laptop by chance.',
@@ -453,10 +470,10 @@ export const SCENARIOS = [
         result: 'Days later a tree hits Feeder B. 51-B1 does not trip; the fault burns until upstream protection operates. Transformer damaged, hospital on generators.',
       },
       {
-        id: 'audit', tag: 'Shutdown', q: 'overreact', cost: 80000, outage: { feeders: ['A', 'B'], hours: 8 }, rel: -12,
+        id: 'audit', tag: 'Shutdown', q: 'overreact', cost: 80000, outage: { feeders: ['A', 'B', 'C'], hours: 8 }, rel: -12,
         title: 'Take the substation offline for a full audit',
         desc: 'Every relay, every setting, before anything is energized again.',
-        result: 'Every relay gets audited — with 15,500 customers off supply while you do it.',
+        result: 'Every relay gets audited — with 15,500 customers and the college off supply while you do it.',
       },
     ],
     timeout: 'No one acted and the bad settings stayed in. The next real fault was not cleared in time and damaged equipment.',
@@ -547,7 +564,7 @@ export const SCENARIOS = [
         result: 'svc_upd.exe runs on HIST-01 and reaches the SCADA servers through rule 47. Operators lose their screens and run manual for hours.',
       },
       {
-        id: 'shutdown', tag: 'Shutdown', q: 'overreact', cost: 0, outage: { feeders: ['A', 'B'], hours: 10 }, rel: -15,
+        id: 'shutdown', tag: 'Shutdown', q: 'overreact', cost: 0, outage: { feeders: ['A', 'B', 'C'], hours: 10 }, rel: -15,
         title: 'Halt grid operations until IT is clean',
         desc: 'Better safe than sorry: no grid operations until the IT incident is over.',
         result: 'OT was never infected, but customers were off supply for ten hours. You turned an IT incident into a grid outage.',
@@ -642,7 +659,7 @@ export const SCENARIOS = [
         result: 'Feeder B is reclosed — and reopened four minutes later. The attacker plays this game for hours.',
       },
       {
-        id: 'wan', tag: 'Shutdown', q: 'overreact', cost: 30000, outage: { feeders: ['A', 'B'], hours: 4 }, rel: -10,
+        id: 'wan', tag: 'Shutdown', q: 'overreact', cost: 30000, outage: { feeders: ['A', 'B', 'C'], hours: 4 }, rel: -10,
         title: 'Shut down the SCADA WAN to every substation',
         desc: 'Nothing gets in if nothing is connected.',
         result: 'Every station drops to local control. Without remote switching, the evening peak forces load shedding for four hours.',
@@ -720,7 +737,7 @@ export const SCENARIOS = [
         result: 'The rollback interrupts a supervised update; Feeder B is switched out for an hour while bay 2 is re-tested.',
       },
       {
-        id: 'isolate', tag: 'Shutdown', q: 'overreact', cost: 25000, outage: { feeders: ['A', 'B'], hours: 3 }, rel: -10,
+        id: 'isolate', tag: 'Shutdown', q: 'overreact', cost: 25000, outage: { feeders: ['A', 'B', 'C'], hours: 3 }, rel: -10,
         title: 'Isolate the substation until the firmware is proven safe',
         desc: 'Disconnect and de-energize until a full review is done.',
         result: 'You cut a healthy station off for an approved job. Three hours without supply while it is brought back.',

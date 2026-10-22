@@ -36,7 +36,7 @@ const S = {
   T: 7 * 60, speed: 1,
   funds: 350000, reliability: 80, xp: 0,
   owned: new Set(),
-  feeders: { A: { on: true, until: 0 }, B: { on: true, until: 0 } },
+  feeders: Object.fromEntries(Object.keys(FEEDERS).map(f => [f, { on: true, until: 0 }])),
   incident: null,
   nextIncidentAt: 9 * 60 + 30,
   recent: [],
@@ -145,6 +145,14 @@ try { S.player = localStorage.getItem(NAME_KEY) || ''; } catch { S.player = ''; 
 renderMe();
 labelsEl.appendChild(meEl);
 
+const lineEls = world.lineTags.map(({ text, pos }) => {
+  const el = document.createElement('div');
+  el.className = 'itag line';
+  el.textContent = text;
+  labelsEl.appendChild(el);
+  return { el, pos };
+});
+
 const instEls = world.instruments.map(({ tag, pos }) => {
   const el = document.createElement('button');
   el.className = 'itag';
@@ -191,6 +199,13 @@ function positionOverlays() {
   meEl.style.display = me.vis ? '' : 'none';
   meEl.style.transform = `translate(${me.x}px, ${me.y}px) translate(-50%, -100%)`;
   const near = world.controls.target.distanceTo(world.centers.biogas) < 45 && world.camera.position.distanceTo(world.centers.biogas) < 140;
+  const lineNear = world.camera.position.distanceTo(world.controls.target) < 200;
+  for (const { el, pos } of lineEls) {
+    const p = lineNear && world.project(pos);
+    if (!p || !p.vis) { el.style.display = 'none'; continue; }
+    el.style.display = '';
+    el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`;
+  }
   for (const { el, pos } of instEls) {
     const p = near && world.project(pos);
     if (!p || !p.vis) { el.style.display = 'none'; continue; }
@@ -338,7 +353,7 @@ function advance(gm) {
   const prevDay = dayOf(S.T);
   S.T += gm;
   const h = hourOf(S.T);
-  const served = (S.feeders.A.on ? FEEDERS.A.share : 0) + (S.feeders.B.on ? FEEDERS.B.share : 0);
+  const served = Object.entries(FEEDERS).reduce((sum, [f, F]) => sum + (S.feeders[f].on ? F.share : 0), 0);
   const rev = REV_PER_MIN * demand(h) * served * gm;
   S.funds += rev;
   S.stats.revenue += rev;

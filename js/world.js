@@ -21,7 +21,9 @@ const LAYOUT = {
   yard: { c: [2, -1], r: 21, hub: [2, 1.2, -2], label: [6, 13, -1] },
   townA: { c: [68, -21], r: 23, hub: [46, 1.2, -19], label: [68, 7, -21] },
   townB: { c: [68, 20], r: 23, hub: [46, 1.2, 19], label: [68, 14, 15] },
-  biogas: { c: [0, -46], r: 30, hub: [22.5, 1.2, -36.6], label: [-9, 13, -46] },
+  biogas: { c: [2, -46], r: 32, hub: [22.5, 1.2, -36.6], label: [-9, 13, -46] },
+  wind: { c: [76, -78], r: 32, hub: [56, 1.2, -50.5], label: [76, 26, -78] },
+  townC: { c: [74, 62], r: 24, hub: [52, 1.2, 50], label: [71, 13, 56] },
 };
 
 const _mats = new Map();
@@ -165,12 +167,13 @@ export class World {
     this.pickables = [];
     this.spinners = [];
     this.nightMats = [];
-    this.feederOn = { A: true, B: true };
+    this.feederOn = { A: true, B: true, C: true };
     this.feederMats = {
       A: new THREE.MeshStandardMaterial({ color: 0x4d5a63, emissive: 0xffd27a, emissiveIntensity: 0 }),
       B: new THREE.MeshStandardMaterial({ color: 0x4d5a63, emissive: 0xffd27a, emissiveIntensity: 0 }),
+      C: new THREE.MeshStandardMaterial({ color: 0x4d5a63, emissive: 0xffd27a, emissiveIntensity: 0 }),
     };
-    this.feederFacades = { A: [], B: [] };
+    this.feederFacades = { A: [], B: [], C: [] };
     this.conduits = {};
     this.rings = {};
     this._n = -1;
@@ -185,6 +188,8 @@ export class World {
     this.buildInternet();
     this.buildTown();
     this.buildBiogas();
+    this.buildWind();
+    this.buildCollege();
     this.buildLines();
     this.buildTrees();
     this.buildRings();
@@ -519,6 +524,7 @@ export class World {
     flat(78, 5, COL.road, 57, 0, 0.07);
     flat(4, 78, COL.road, -30, 4, 0.08);
     flat(4, 82, COL.road, 60, 0, 0.08);
+    flat(4, 26, COL.road, 60, 53, 0.08);
     flat(4, 82, COL.road, 78, 0, 0.08);
     for (let x = -88; x < 95; x += 6) if (x < -22 || x > 22) flat(2.2, 0.25, 0xf1ead8, x, 0, 0.09);
 
@@ -588,7 +594,7 @@ export class World {
 
     // breaker status lamps per feeder
     this.lamps = {};
-    for (const [f, z] of [['A', -4.5], ['B', 4.5]]) {
+    for (const [f, z] of [['A', -4.5], ['C', 0], ['B', 4.5]]) {
       const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 10), new THREE.MeshBasicMaterial({ color: 0x5ee08f }));
       lamp.position.set(18.5, 11.1, z);
       g.add(lamp);
@@ -729,7 +735,7 @@ export class World {
     this.instruments = [];
     const Z = -46, LY = 0.8, GY = 3.2, HZ = -39.5; // process line, liquid/gas pipe heights, gas header z
     const LIQ = 0x7d6a55, GAS = 0xd9b44a, RL = 0.28, RG = 0.3;
-    box(g, 81, 0.12, 18, 0xc9c3b6, 0.5, 0, Z);
+    box(g, 89, 0.12, 18, 0xc9c3b6, 4.5, 0, Z);
 
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
     const UP = V(0, 1, 0);
@@ -881,6 +887,20 @@ export class World {
     cyl(g, 0.3, 3, 0x8a9399, 33.6, 3.52, -43.6);
     for (const x of [33.2, 35.5]) box(g, 1.2, 2.2, 0.06, 0x2f4a3d, x, 0.12, -41.68);
     tag('G-501', 35.5, 5.6, -43);
+
+    // second genset G-502 on its own gas train, exporting on grid Line 2
+    run([V(31.6, GY, -43), V(31.6, GY, -47), V(40, GY, -47)], RG, GAS);
+    mov('MOV-502', 33.2, GY, -47, 'x', RG);
+    usfm('FIT-502', 34.8, GY, -47, 'x', RG);
+    pt('PIT-502', 36.6, GY, -47);
+    tt('TIT-502', 38.1, GY, -47);
+    box(g, 7, 3.4, 2.6, 0x3f6e58, 43.5, 0.12, -47);
+    box(g, 2.2, 0.6, 2.2, 0x9aa3a8, 45.6, 3.52, -47);
+    cyl(g, 0.3, 3, 0x8a9399, 41.6, 3.52, -47.6);
+    for (const x of [41.2, 43.5]) box(g, 1.2, 2.2, 0.06, 0x2f4a3d, x, 0.12, -45.68);
+    tag('G-502', 43.5, 5.6, -47);
+    box(g, 2.4, 2.2, 1.8, COL.xfmr, 43.5, 0.12, -51.6);
+    for (const x of [-0.6, 0, 0.6]) cyl(g, 0.12, 1, COL.porcelain, 43.5 + x, 2.32, -51.6);
     box(g, 2.4, 2.2, 1.8, COL.xfmr, 35.5, 0.12, -39.4);
     for (const x of [-0.6, 0, 0.6]) cyl(g, 0.12, 1, COL.porcelain, 35.5 + x, 2.32, -39.4);
 
@@ -889,6 +909,71 @@ export class World {
     box(g, 4.3, 0.3, 2.9, 0x6b7378, 22.5, 3.12, -38.4);
     cyl(g, 0.05, 2, COL.steelDark, 23.9, 3.42, -38.9);
     tag('PLC-01', 22.5, 4.4, -38.4);
+  }
+
+  buildWind() {
+    const g = this.group('wind');
+    const blade = new THREE.BoxGeometry(0.5, 7.5, 0.15);
+    blade.translate(0, 3.75, 0);
+    for (const [x, z] of [[52, -74], [68, -82], [84, -74], [100, -82]]) {
+      cyl(g, 1.3, 1.2, 0xf2c94c, x, 0, z);
+      add(g, new THREE.CylinderGeometry(0.35, 0.65, 18, 10), mat(0xf4f4f0), x, 1.2 + 9, z);
+      box(g, 1, 1, 2.4, 0xf4f4f0, x, 19.2, z - 0.4);
+      const rotor = new THREE.Group();
+      rotor.position.set(x, 19.7, z + 1);
+      for (let i = 0; i < 3; i++) {
+        const b = new THREE.Mesh(blade, mat(0xfafaf6));
+        b.rotation.z = (i * Math.PI * 2) / 3;
+        b.castShadow = true;
+        rotor.add(b);
+      }
+      add(rotor, new THREE.SphereGeometry(0.45, 10, 8), mat(0xe0e0dc), 0, 0, 0.1);
+      rotor.rotation.z = Math.random() * 6;
+      g.add(rotor);
+      this.spinners.push({ obj: rotor, axis: 'z', speed: 1.1 + Math.random() * 0.3 });
+    }
+    // export-cable landing station on the shore, tied into grid Line 2
+    box(g, 5, 3, 3.6, 0xcfc8ba, 57, 0, -51.5);
+    box(g, 5.4, 0.3, 4, 0x6b7378, 57, 3, -51.5);
+    box(g, 2.2, 2, 1.6, COL.xfmr, 53.2, 0, -52.6);
+  }
+
+  buildCollege() {
+    const g = this.group('townC');
+    const facade = (w, h, d, x, z, base, seed) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), facadeMaterials(w, h, d, base, '#33506b', 0x6b7378, seed));
+      m.position.set(x, h / 2, z);
+      m.castShadow = m.receiveShadow = true;
+      g.add(m);
+      this.feederFacades.C.push(...new Set(m.material.filter(q => q.emissiveMap)));
+    };
+    // academic block with a clock tower, two hostels, a library
+    facade(18, 8, 10, 71, 56, '#d9c7a8', 61);
+    facade(4, 15, 4, 71, 50.5, '#cdb894', 62);
+    add(g, new THREE.ConeGeometry(3.1, 2.4, 4), mat(0x8c5a43), 71, 16.2, 50.5).rotation.y = Math.PI / 4;
+    const clock = new THREE.Mesh(new THREE.CircleGeometry(1.1, 24), new THREE.MeshBasicMaterial({ color: 0xf4f1e8 }));
+    clock.position.set(71, 12.5, 52.52);
+    g.add(clock);
+    facade(8, 10, 7, 89, 52, '#c9d2d6', 63);
+    facade(8, 10, 7, 89, 63, '#c9d2d6', 64);
+    facade(9, 5, 7, 52, 60, '#e2d6c2', 65);
+    // sports field with track
+    const flatG = (w, d, color, x, z, y) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat(color));
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(x, y, z);
+      m.receiveShadow = true;
+      g.add(m);
+    };
+    flatG(28, 15, 0xb8664a, 72, 73, 0.05);
+    flatG(24, 11, 0x7fb069, 72, 73, 0.06);
+    flatG(0.25, 11, 0xf1ead8, 72, 73, 0.07);
+    for (const x of [60.8, 83.2]) box(g, 0.15, 2.2, 3.2, 0xf1ead8, x, 0, 73);
+    // college sign
+    this.sign(54.5, 1.4, 46.5, 6, 1.8, 0, [
+      { text: 'KESTREL POINT', size: 120, y: 120, color: BRAND.amber },
+      { text: 'COLLEGE', size: 80, y: 230, color: BRAND.white, weight: 800 },
+    ]);
   }
 
   lattice(parent, x, z, h, base, top) {
@@ -951,16 +1036,23 @@ export class World {
   }
 
   buildLines() {
-    this.chain([[24, -5], [32, -10], [40, -15], [46, -19]], 13);
-    this.chain([[24, 5], [32, 10], [40, 15], [46, 19]], 13);
-    this.chain([[0, -16], [0, -26], [0, -35]], 15);
+    this.chain([[24, -5], [32, -10], [40, -15], [46, -19]], 13);  // Feeder A
+    this.chain([[24, 5], [32, 10], [40, 15], [46, 19]], 13);      // Feeder B
+    this.chain([[16, 17], [28, 30], [40, 40], [50, 47]], 13);     // Feeder C
+    this.chain([[0, -16], [0, -26], [16, -33], [31, -36]], 15);   // grid Line 1 · G-501
+    this.chain([[22, -17], [31, -22], [40, -29], [45, -41], [53, -50]], 15); // grid Line 2 · G-502 + wind
+    this.lineTags = [
+      { text: '132 kV Line 1 · Genset G-501', pos: new THREE.Vector3(8, 17, -30) },
+      { text: '132 kV Line 2 · Genset G-502 + wind', pos: new THREE.Vector3(36, 17, -25.5) },
+      { text: '33 kV Feeder C · College', pos: new THREE.Vector3(34, 15, 35) },
+    ];
   }
 
   buildTrees() {
     const rand = rng(99);
     const blocked = [
       [-24, -18, 24, 18], [-58, -42, -36, -14], [-31, -34, -16, -21], [-42, 13, -25, 30], [-71, 34, -58, 46],
-      [42, -42, 96, 42], [-95, -4, 96, 4], [-33, -48, -27, 43], [-5, -56, 5, -12], [-42, -58, 42, -35], [20, -24, 48, 24], [-66, -16, -30, -8],
+      [42, -42, 96, 42], [44, 42, 100, 84], [40, -58, 60, -34], [12, -36, 50, -14], [12, 14, 52, 50], [-95, -4, 96, 4], [-33, -48, -27, 43], [-5, -56, 5, -12], [-42, -58, 42, -35], [20, -24, 48, 24], [-66, -16, -30, -8],
     ];
     const spots = [];
     for (let i = 0; i < 900 && spots.length < 170; i++) {
@@ -1061,7 +1153,7 @@ export class World {
     this.waterMat.color.setHex(COL.water).lerp(new THREE.Color(0x203a44), 1 - n);
     const night = 1 - n;
     for (const m of this.nightMats) m.emissiveIntensity = night * 0.95;
-    for (const f of ['A', 'B']) {
+    for (const f of ['A', 'B', 'C']) {
       const k = this.feederOn[f] ? night * 1.3 : 0;
       this.feederMats[f].emissiveIntensity = k;
       for (const m of this.feederFacades[f]) m.emissiveIntensity = this.feederOn[f] ? night * 0.95 : 0;
