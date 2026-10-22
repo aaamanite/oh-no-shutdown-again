@@ -204,6 +204,11 @@ export const CONTROLS = [
     effect: 'Halves outage time after any incident; settings checksums appear in clues.', ref: 'NERC CIP-009 · CIP-010',
   },
   {
+    id: 'honeypot', cat: 'Deception', name: 'OT honeypot (decoy RTU-99)', short: 'Honeypot', cost: 45000, opex: 1000,
+    desc: 'A decoy RTU with a fake HMI page, placed in the switchyard network. No legitimate user or system ever talks to it — so any connection is an attacker exploring.',
+    effect: 'Adds a high-confidence "honeypot tripped" clue to real attacks and +30 s to decide. Stays quiet on false alarms.', ref: 'MITRE D3FEND D3-DE Decoy Environment',
+  },
+  {
     id: 'playbook', cat: 'People', name: 'IR playbook & tabletop drills', short: 'IR playbook', cost: 35000, opex: 1000,
     desc: 'Operators, protection engineers and the SOC rehearse OT-specific responses together.',
     effect: 'Response cards show playbook guidance.', ref: 'NERC CIP-008',
@@ -765,6 +770,15 @@ export const SCENARIOS = [
     lesson: 'Not every alert is an attack. Change records, badge data and control-room tags let you close true-but-authorised alerts in minutes, and save escalation for the ones that matter.',
   },
 ];
+
+// What the honeypot sees during each attack: who touched the decoy, and how.
+export const HONEYPOT = {
+  'vendor-rdp': ['10.30.1.5 (vendor VPN pool)', 'TCP/3389 RDP login attempt'],
+  'goose-trip': ['10.50.2.99 (unknown laptop)', 'MMS TCP/102 · dataset browse'],
+  'usb-relay': ['10.50.2.20 (EWS-01)', 'MMS TCP/102 · settings read'],
+  'ransomware': ['10.10.4.22 (FS-02, corporate IT)', 'SMB TCP/445 · ADMIN$ write'],
+  'exposed-rtu': ['92.63.197.18 (internet)', 'IEC 104 TCP/2404 · interrogation'],
+};
 
 export const CHAPTERS = ['First shift at Bukit Mutiara', 'Harden the station'];
 

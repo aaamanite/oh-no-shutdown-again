@@ -1,6 +1,6 @@
 // Game loop, economy, incidents and all HUD/panel UI.
 import { World } from './world.js';
-import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, FEEDERS, PURDUE, SITE, PROCESS, INSTRUMENTS, instrumentRisk } from './data.js';
+import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, FEEDERS, PURDUE, SITE, PROCESS, INSTRUMENTS, instrumentRisk, HONEYPOT } from './data.js';
 import { icon, hydrateIcons } from './icons.js';
 
 // ---------- helpers ----------
@@ -85,7 +85,7 @@ const daylight = () => {
   return smooth(5, 7.5, h) * (1 - smooth(18, 20.5, h));
 };
 const isBlocked = scn => !!scn.blockedBy && S.owned.has(scn.blockedBy);
-const decideTime = () => BASE_DECIDE + (S.owned.has('ids') ? 60 : 0);
+const decideTime = () => BASE_DECIDE + (S.owned.has('ids') ? 60 : 0) + (S.owned.has('honeypot') ? 30 : 0);
 
 function conduitState(c) {
   if (c.exposedUntil) return S.owned.has(c.exposedUntil) ? 'hidden' : 'exposed';
@@ -151,6 +151,11 @@ npcEl.dataset.act = 'researcher';
 npcEl.innerHTML = `<b>Researcher</b><small>SBSP research · ONSA R&amp;D</small>`;
 labelsEl.appendChild(npcEl);
 
+const hpEl = document.createElement('div');
+hpEl.className = 'itag hp';
+hpEl.textContent = 'HONEYPOT · RTU-99 (decoy)';
+labelsEl.appendChild(hpEl);
+
 const lineEls = world.lineTags.map(({ text, pos }) => {
   const el = document.createElement('div');
   el.className = 'itag line';
@@ -208,7 +213,10 @@ function positionOverlays() {
   const rp = world.project(world.researcherAnchor());
   npcEl.style.display = rp.vis ? '' : 'none';
   npcEl.style.transform = `translate(${rp.x}px, ${rp.y}px) translate(-50%, -100%)`;
-  const lineNear = world.camera.position.distanceTo(world.controls.target) < 200;
+  const hpp = world.honeypot.visible && world.project(world.honeypotAnchor());
+  hpEl.style.display = hpp && hpp.vis ? '' : 'none';
+  if (hpp) hpEl.style.transform = `translate(${hpp.x}px, ${hpp.y}px) translate(-50%, -100%)`;
+  const lineNear = world.camera.position.distanceTo(world.controls.target) < 260;
   for (const { el, pos } of lineEls) {
     const p = lineNear && world.project(pos);
     if (!p || !p.vis) { el.style.display = 'none'; continue; }
@@ -427,8 +435,34 @@ function triggerScheduled(now) {
   startIncident(scn, false);
 }
 
-function startIncident(scn, drill) {
+// With the honeypot installed, every incident gets one extra log line from the decoy.
+function withHoneypot(scn) {
+  if (!S.owned.has('honeypot')) return scn;
+  const hp = HONEYPOT[scn.id];
+  const asset = scn.targets.includes('ctrl') ? 'ctrl' : scn.targets[0];
+  const first = Math.min(...scn.clues.map(c => c.at));
+  const clue = hp
+    ? {
+      asset, src: 'Honeypot RTU-99 (decoy)', at: first + 40, attack: true,
+      text: `connection from ${hp[0]}\n${hp[1]} · decoy has no legitimate users`,
+      chips: [{ t: 'Honeypot tripped' }, { t: 'Zero false positives', tone: 'ok' }],
+      why: 'A honeypot is a decoy that nobody legitimate uses, so any touch is an attacker exploring the network. It is one of the earliest, most trustworthy warnings you can get.',
+      ttp: 'T0846 Remote System Discovery',
+    }
+    : {
+      asset, src: 'Honeypot RTU-99 (decoy)', at: -60, attack: false,
+      text: 'no connections in the last 30 days · decoy quiet',
+      chips: [{ t: 'Honeypot quiet', tone: 'ok' }],
+      why: 'The decoy saw nothing. Attackers exploring the network usually trip it, so a quiet honeypot supports this being authorised work.',
+    };
+  return { ...scn, clues: [...scn.clues, clue] };
+}
+
+function startIncident(base, drill) {
   if (S.incident) return;
+  const scn = withHoneypot(base);
+  const tripped = scn.clues.some(c => c.src.startsWith('Honeypot') && c.attack);
+  if (tripped) { S.stats.hpTrips = (S.stats.hpTrips || 0) + 1; world.setHoneypotAlarm(true); toast('Honeypot RTU-99 tripped — something is exploring the OT network', 'bad', 'target'); }
   const total = decideTime();
   S.incident = { scn, drill, tags: new Set(), left: total, total, startT: S.T, filter: 'all' };
   world.setAttacked(scn.targets);
@@ -541,12 +575,13 @@ function resolve(resp) {
     scnId: scn.id, title: scn.title, drill: inc.drill, grade, score, q,
     respId: resp?.id || null, hit, n, fp, used: Math.round(inc.total - inc.left),
     feeders, hours, fine, cost, rel: Math.round(rel), note,
-    tags: [...inc.tags], day: dayOf(S.T), clock: clockOf(S.T), startT: inc.startT,
+    tags: [...inc.tags], clues: scn.clues, day: dayOf(S.T), clock: clockOf(S.T), startT: inc.startT,
   };
   S.history.push(record);
 
   S.incident = null;
   world.setAttacked([]);
+  world.setHoneypotAlarm(false);
   refreshConduits();
   buildPins();
   closeModal();
@@ -654,7 +689,7 @@ const PANELS = {
       eyebrow: 'Security operations', title: 'SOC',
       html: `${inc ? `<div class="box" style="border:1.5px solid var(--red)"><small style="color:#ffa79e">Open incident</small><b style="display:block;margin:4px 0 8px">${esc(inc.scn.title)}</b>
           <div class="row"><button class="btn sm" data-act="clues">${icon('search')} Clues</button><button class="btn sm primary" data-act="respond">${icon('cards')} Respond</button></div></div>`
-        : `<div class="box"><small>Status</small><p style="margin:4px 0 8px">No open incidents. Monitoring ${OT_SOURCES()} log sources.</p>
+        : `<div class="box"><small>Status</small><p style="margin:4px 0 8px">No open incidents. Monitoring ${OT_SOURCES()} log sources.${S.owned.has('honeypot') ? ` Honeypot RTU-99 armed · ${S.stats.hpTrips || 0} trips so far.` : ''}</p>
           <button class="btn sm" data-act="skip">${icon('clock')} Skip to next alert</button></div>`}
         <div class="sec"><small>Drills</small></div>
         <p>Run any scenario as a tabletop drill. It is graded and debriefed, but costs, fines and outages are not applied. Drills bypass your preventive controls.</p>
@@ -678,6 +713,7 @@ const PANELS = {
           <div class="kpi"><small>Customer-hours lost</small><b>${Math.round(S.stats.customerMin / 60).toLocaleString()}</b></div>
           <div class="kpi"><small>Incidents handled</small><b>${real.length}</b></div>
           <div class="kpi"><small>Attacks prevented</small><b>${S.stats.prevented}</b></div>
+          <div class="kpi"><small>Honeypot trips</small><b>${S.owned.has('honeypot') ? S.stats.hpTrips || 0 : '—'}</b></div>
           <div class="kpi"><small>Average grade</small><b>${avg === null ? '—' : letterOf(avg)}</b></div>
           <div class="kpi"><small>XP</small><b>${S.xp}</b></div>
         </div>
@@ -747,7 +783,7 @@ const PANELS = {
         <div class="box"><small>What happened</small><p style="margin:5px 0 0">${resp ? `<b>${esc(resp.title)}.</b> ${esc(resp.result)}` : esc(scn.timeout)}</p></div>
         ${resp?.q !== 'best' ? `<div class="box"><small>Best response</small><p style="margin:5px 0 0"><b>${esc(best.title)}.</b> ${esc(best.result)}</p></div>` : ''}
         <div class="sec"><small>Every clue, explained</small></div>
-        <div class="box">${scn.clues.map((c, i) => {
+        <div class="box">${(r.clues || scn.clues).map((c, i) => {
           const tagged = r.tags.includes(i);
           const right = tagged === c.attack;
           return `<div class="explain"><h5>${esc(c.src)} <span class="pill ${c.attack ? 'bad' : ''}">${c.attack ? 'Attack' : 'Noise'}</span>
@@ -924,6 +960,7 @@ function buy(id) {
   alertLog(`Installed control: ${c.name} (${money(c.cost)}).`, 'good');
   if (id === 'ids' && S.incident) { S.incident.left += 60; S.incident.total += 60; }
   refreshConduits();
+  world.setHoneypot(S.owned.has('honeypot'));
   checkQuests();
   renderPanel();
   renderHUD();

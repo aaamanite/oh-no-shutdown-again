@@ -29,6 +29,19 @@ const LAYOUT = {
   rnd: { c: [-45, 74], r: 16, hub: [-45, 1.2, 62], label: [-46, 20, 84] },
 };
 
+// Each area sits at its own offset so sites are spread apart — the town and hospital well clear of the grid.
+const OFFSETS = {
+  internet: [-20, 0], corp: [-20, 0], dmz: [-17, 0], scc: [-26, 0],
+  townA: [45, 0], townB: [45, 0], townC: [45, 25], townD: [0, 25],
+  biogas: [0, -20], wind: [0, -20], rnd: [-25, 30], solar: [-45, 20],
+};
+for (const [id, [dx, dz]] of Object.entries(OFFSETS)) {
+  const L = LAYOUT[id];
+  L.c = [L.c[0] + dx, L.c[1] + dz];
+  L.hub = [L.hub[0] + dx, L.hub[1], L.hub[2] + dz];
+  L.label = [L.label[0] + dx, L.label[1], L.label[2] + dz];
+}
+
 const _mats = new Map();
 function mat(color, extra) {
   const key = color + (extra ? JSON.stringify(extra) : '');
@@ -97,6 +110,14 @@ function textTexture(lines, w, h, bg) {
   return t;
 }
 
+// closest point on a 2D segment [ax, az, bx, bz] → [x, z, distance]
+function nearestOnSeg(px, pz, [ax, az, bx, bz]) {
+  const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+  const t = l2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / l2)) : 0;
+  const x = ax + dx * t, z = az + dz * t;
+  return [x, z, Math.hypot(px - x, pz - z)];
+}
+
 const BRAND = { navy: '#1b2a4a', amber: '#f2b33d', panel: '#1d2928', white: '#f4f6f2' };
 
 // Window-grid facade: day map plus an emissive map whose lit windows glow at night.
@@ -140,24 +161,24 @@ export class World {
     this.bgDay = new THREE.Color(0xcbe2dc);
     this.bgNight = new THREE.Color(0x111b25);
     this.scene.background = this.bgDay.clone();
-    this.scene.fog = new THREE.Fog(this.bgDay.clone(), 280, 560);
+    this.scene.fog = new THREE.Fog(this.bgDay.clone(), 380, 780);
 
     this.camera = new THREE.PerspectiveCamera(30, el.clientWidth / el.clientHeight, 1, 1400);
     const c = (this.controls = new MapControls(this.camera, r.domElement));
     c.enableDamping = true;
     c.dampingFactor = 0.09;
     c.minDistance = 14;
-    c.maxDistance = 330;
+    c.maxDistance = 430;
     c.maxPolarAngle = 1.32;
     c.screenSpacePanning = false;
-    this.home = { target: new THREE.Vector3(0, 0, -4), radius: 225, phi: 0.9, theta: 0.78 };
+    this.home = { target: new THREE.Vector3(5, 0, 8), radius: 300, phi: 0.9, theta: 0.78 };
     this.setView(this.home.target, this.home);
 
     this.hemi = new THREE.HemisphereLight(0xffffff, 0xb6a27e, 1.15);
     const sun = (this.sun = new THREE.DirectionalLight(0xfff1d6, 1.7));
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -150, right: 150, top: 150, bottom: -150, near: 10, far: 520 });
+    Object.assign(sun.shadow.camera, { left: -200, right: 200, top: 200, bottom: -200, near: 10, far: 620 });
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.15;
     this.scene.add(this.hemi, sun, sun.target);
@@ -185,10 +206,14 @@ export class World {
     this.rings = {};
     this._n = -1;
     this._t = 0;
+    this.areas = {};
+    this.blockers = [];
+    this.towerFeet = [];
 
     this.buildGround();
     this.buildYard();
     this.buildControlHouse();
+    this.buildHoneypot();
     this.buildCorporate();
     this.buildDMZ();
     this.buildControlCenter();
@@ -201,10 +226,12 @@ export class World {
     this.buildMall();
     this.buildRnD();
     this.buildLines();
+    this.buildSigns();
+    this.buildWalkpaths();
     this.buildTrees();
     this.buildRings();
+    this.buildNavGrid();
     this.buildPersona();
-    this.buildSigns();
 
     new ResizeObserver(() => this.resize()).observe(el);
     this.bindPicking();
@@ -297,7 +324,7 @@ export class World {
   }
 
   // ---------- ONSA Power & Co. signage ----------
-  sign(x, y, z, w, h, rotY, lines, posts = true) {
+  sign(x, y, z, w, h, rotY, lines, posts = true, parent = this.scene) {
     const g = new THREE.Group();
     g.position.set(x, 0, z);
     g.rotation.y = rotY;
@@ -308,7 +335,8 @@ export class World {
     board.castShadow = true;
     g.add(board);
     if (posts) for (const px of [-w / 2 + 0.4, w / 2 - 0.4]) box(g, 0.25, y, 0.25, COL.steelDark, px, 0, 0);
-    this.scene.add(g);
+    parent.add(g);
+    if (parent === this.scene) this.blockers.push(g);
     this.nightMats.push(face);
     face.emissive = new THREE.Color(0xffffff);
     face.emissiveMap = face.map;
@@ -321,11 +349,11 @@ export class World {
       { text: sub, size: 54 * k, y: 232 * k, color: BRAND.white, weight: 800 },
     ];
     this.sign(-24.2, 1.6, -5.8, 7, 2.2, 0, title('ONSA Power & Co.', 'PMU BUKIT MUTIARA · 132/33 kV'));
-    this.sign(-48, 26, -26.3, 10, 2.8, 0, title('ONSA', 'POWER & CO. · HEADQUARTERS'), false);
-    this.sign(-35.5, 1.6, -37.2, 7, 2.2, 0, title('ONSA Power & Co.', 'POME Biogas Plant'));
+    this.sign(-48, 26, -26.3, 10, 2.8, 0, title('ONSA', 'POWER & CO. · HEADQUARTERS'), false, this.areas.corp);
+    this.sign(-35.5, 1.6, -37.2, 7, 2.2, 0, title('ONSA Power & Co.', 'POME Biogas Plant'), true, this.areas.biogas);
     this.sign(69, 5.4, 20.7, 10, 1.6, 0, [
       { text: 'HOSPITAL BUKIT MUTIARA', size: 90, y: 82, color: BRAND.white },
-    ], false);
+    ], false, this.areas.townB);
   }
 
   // ---------- persona: the player, in hi-vis coverall and white helmet ----------
@@ -450,9 +478,9 @@ export class World {
 
     const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.9, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false }));
     shadow.rotation.x = -Math.PI / 2;
-    shadow.position.y = 0.14;
+    shadow.position.y = 0.2;
     p.add(shadow);
-    p.position.set(-24, 0, 3);
+    p.position.set(-26, 0, 0);
     p.rotation.y = Math.PI / 2;
     this.scene.add(p);
 
@@ -464,16 +492,19 @@ export class World {
     this.walkPhase = 0;
   }
 
+  // walk anywhere, but around buildings, equipment and fences — never through them
   walkTo(x, z) {
-    x = THREE.MathUtils.clamp(x, -115, 115);
-    z = THREE.MathUtils.clamp(z, -54, 100);
-    this.walk = { to: new THREE.Vector3(x, 0, z) };
-    this.marker.position.set(x, 0.16, z);
+    const p = this.persona.position;
+    const path = this.findPath(p.x, p.z, x, z);
+    if (!path.length) return;
+    this.walk = { path, i: 0 };
+    const end = path[path.length - 1];
+    this.marker.position.set(end.x, 0.2, end.z);
     this.marker.visible = true;
   }
   walkToAsset(id) {
     const h = this.hubs[id];
-    if (h) this.walkTo(h.x, h.z + 1.5);
+    if (h) this.walkTo(h.x, h.z);
   }
   personaAnchor() { return this.persona.position.clone().setY(5.8); }
 
@@ -481,12 +512,14 @@ export class World {
     const p = this.persona;
     let moving = false;
     if (this.walk) {
-      const d = this.walk.to.clone().sub(p.position);
+      const d = this.walk.path[this.walk.i].clone().sub(p.position);
       d.y = 0;
       const dist = d.length();
       if (dist < 0.05) {
-        this.walk = null;
-        this.marker.visible = false;
+        if (++this.walk.i >= this.walk.path.length) {
+          this.walk = null;
+          this.marker.visible = false;
+        }
       } else {
         moving = true;
         const step = Math.min(dist, 13 * dt);
@@ -517,6 +550,9 @@ export class World {
   group(id) {
     const g = new THREE.Group();
     g.userData.asset = id;
+    const off = OFFSETS[id];
+    if (off) g.position.set(off[0], 0, off[1]);
+    this.areas[id] = g;
     this.scene.add(g);
     this.pickables.push(g);
     return g;
@@ -531,14 +567,14 @@ export class World {
     s.add(ground);
 
     this.waterMat = new THREE.MeshStandardMaterial({ color: COL.water, roughness: 0.35, metalness: 0.1 });
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(700, 300), this.waterMat);
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(800, 300), this.waterMat);
     water.rotation.x = -Math.PI / 2;
-    water.position.set(0, 0.06, -56 - 150);
+    water.position.set(0, 0.06, -75 - 150);
     water.receiveShadow = true;
     s.add(water);
-    const shore = new THREE.Mesh(new THREE.PlaneGeometry(700, 3), mat(COL.shore));
+    const shore = new THREE.Mesh(new THREE.PlaneGeometry(800, 3), mat(COL.shore));
     shore.rotation.x = -Math.PI / 2;
-    shore.position.set(0, 0.05, -55);
+    shore.position.set(0, 0.05, -74.5);
     s.add(shore);
 
     const flat = (w, d, color, x, z, y = 0.04) => {
@@ -549,28 +585,29 @@ export class World {
       s.add(m);
       return m;
     };
-    flat(26, 18, COL.grass, 68, 34);   // hospital park
-    flat(18, 14, COL.grass, -34, 34);  // control-center lawn
-    flat(30, 10, 0x8a9096, -48, -12, 0.05); // HQ parking
+    flat(26, 18, COL.grass, 113, 34);   // hospital park
+    flat(18, 14, COL.grass, -60, 34);   // control-center lawn
+    flat(30, 10, 0x8a9096, -68, -12, 0.05); // HQ parking
 
     // roads
-    flat(70, 5, COL.road, -55, 0, 0.07);
-    flat(78, 5, COL.road, 57, 0, 0.07);
-    flat(4, 127, COL.road, -30, 28.5, 0.08);
-    flat(4, 82, COL.road, 60, 0, 0.08);
-    flat(4, 26, COL.road, 60, 53, 0.08);
-    flat(4, 82, COL.road, 78, 0, 0.08);
-    for (let x = -88; x < 95; x += 6) if (x < -22 || x > 22) flat(2.2, 0.25, 0xf1ead8, x, 0, 0.09);
+    this.roadSegs = [[-125, 0, -20, 0], [20, 0, 150, 0], [-50, -50, -50, 125], [105, -41, 105, 91], [123, -41, 123, 41]];
+    flat(105, 5, COL.road, -72.5, 0, 0.07);
+    flat(130, 5, COL.road, 85, 0, 0.07);
+    flat(4, 175, COL.road, -50, 37.5, 0.08);
+    flat(4, 132, COL.road, 105, 25, 0.08);
+    flat(4, 82, COL.road, 123, 0, 0.08);
+    for (let x = -122; x < 148; x += 6) if (x < -22 || x > 22) flat(2.2, 0.25, 0xf1ead8, x, 0, 0.09);
 
-    // parked cars
+    // parked cars at HQ
     const rand = rng(7);
     const carCols = [0xd9534f, 0x3d6fb6, 0xf0f0f0, 0x2f3438, 0xf2b33d, 0x6aa86a];
     for (let i = 0; i < 9; i++) {
       const g = new THREE.Group();
       box(g, 1.6, 0.8, 3, carCols[i % carCols.length], 0, 0.2, 0);
       box(g, 1.4, 0.6, 1.6, 0x34404a, 0, 1.0, -0.2);
-      g.position.set(-61 + i * 3.2, 0, -12 + (rand() - 0.5));
+      g.position.set(-81 + i * 3.2, 0, -12 + (rand() - 0.5));
       s.add(g);
+      this.blockers.push(g);
     }
   }
 
@@ -586,11 +623,11 @@ export class World {
       m.rotation.y = rot;
       g.add(m);
     };
-    panel(40, 0, -14, 0); panel(40, 0, 14, 0);
-    panel(28, 20, 0, Math.PI / 2);
+    panel(40, 0, -14, 0); panel(18, -11, 14, 0); panel(18, 11, 14, 0);
+    panel(11.5, 20, -8.25, Math.PI / 2); panel(11.5, 20, 8.25, Math.PI / 2);
     panel(11, -20, -8.5, Math.PI / 2); panel(11, -20, 8.5, Math.PI / 2);
-    for (let x = -20; x <= 20; x += 4) { cyl(g, 0.08, 2.4, COL.steelDark, x, 0, -14); cyl(g, 0.08, 2.4, COL.steelDark, x, 0, 14); }
-    for (let z = -14; z <= 14; z += 4) { cyl(g, 0.08, 2.4, COL.steelDark, 20, 0, z); if (Math.abs(z) > 3) cyl(g, 0.08, 2.4, COL.steelDark, -20, 0, z); }
+    for (let x = -20; x <= 20; x += 4) { cyl(g, 0.08, 2.4, COL.steelDark, x, 0, -14); if (Math.abs(x) > 3) cyl(g, 0.08, 2.4, COL.steelDark, x, 0, 14); }
+    for (let z = -14; z <= 14; z += 4) if (Math.abs(z) > 3) { cyl(g, 0.08, 2.4, COL.steelDark, 20, 0, z); cyl(g, 0.08, 2.4, COL.steelDark, -20, 0, z); }
 
     // power transformers
     for (const x of [-4, 4, 12]) {
@@ -635,7 +672,7 @@ export class World {
       this.lamps[f] = lamp;
     }
     // lightning masts
-    for (const [x, z] of [[-18, -12], [18, 12], [-18, 12]]) cyl(g, 0.12, 15, COL.steelDark, x, 0, z);
+    for (const [x, z] of [[-19.6, -13.6], [19.6, 13.6], [-19.6, 13.6]]) cyl(g, 0.12, 15, COL.steelDark, x, 0, z);
   }
 
   buildControlHouse() {
@@ -658,6 +695,24 @@ export class World {
     this.modem.position.set(-10.6, 2.2, 11.15);
     g.add(this.modem);
   }
+
+  // OT honeypot: a decoy RTU cabinet in the switchyard (shown once bought)
+  buildHoneypot() {
+    const g = (this.honeypot = new THREE.Group());
+    box(g, 1.3, 1.9, 0.8, 0xc9cfd2, 0, 0, 0);
+    box(g, 0.9, 0.5, 0.04, 0x2f3438, 0, 1.05, 0.42);
+    cyl(g, 0.05, 1.2, 0x222222, 0.45, 1.9, 0);
+    this.hpLight = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), new THREE.MeshBasicMaterial({ color: 0xf2b33d }));
+    this.hpLight.position.set(-0.35, 2.05, 0);
+    g.add(this.hpLight);
+    g.position.set(-8.6, 0.15, 9.8);
+    g.visible = false;
+    this.areas.yard.add(g);
+    this.hpAlarm = false;
+  }
+  setHoneypot(on) { this.honeypot.visible = on; }
+  setHoneypotAlarm(on) { this.hpAlarm = on; }
+  honeypotAnchor() { return new THREE.Vector3(-8.6, 3.4, 9.8); }
 
   buildCorporate() {
     const g = this.group('corp');
@@ -943,6 +998,7 @@ export class World {
     box(g, 4.3, 0.3, 2.9, 0x6b7378, 22.5, 3.12, -38.4);
     cyl(g, 0.05, 2, COL.steelDark, 23.9, 3.42, -38.9);
     tag('PLC-01', 22.5, 4.4, -38.4);
+    for (const it of this.instruments) it.pos.add(g.position);
   }
 
   buildWind() {
@@ -1007,7 +1063,7 @@ export class World {
     this.sign(54.5, 1.4, 46.5, 6, 1.8, 0, [
       { text: 'KOLEJ KOMUNITI', size: 112, y: 120, color: BRAND.amber },
       { text: 'BUKIT MUTIARA', size: 76, y: 230, color: BRAND.white, weight: 800 },
-    ]);
+    ], true, g);
   }
 
   // ONSA Power & Co. solar farm: tilted PV rows, string inverters and a step-up station on grid Line 3
@@ -1038,7 +1094,7 @@ export class World {
     this.sign(-84, 1.4, 90.5, 8, 2.2, 0, [
       { text: 'ONSA Power & Co.', size: 130, y: 110, color: BRAND.amber },
       { text: 'SOLAR FARM · GRID LINE 3', size: 58, y: 220, color: BRAND.white, weight: 800 },
-    ]);
+    ], true, g);
   }
 
   // Feeder D: Harbour Point shopping complex — mall, cinema, big wheel, parking
@@ -1095,7 +1151,7 @@ export class World {
     this.sign(-9, 1.4, 88.5, 7, 2, 0, [
       { text: 'HARBOUR POINT', size: 120, y: 110, color: BRAND.amber },
       { text: 'SHOPS · CINEMA · BIG WHEEL', size: 56, y: 220, color: BRAND.white, weight: 800 },
-    ]);
+    ], true, g);
   }
 
   // ONSA R&D Centre: Space-Based Solar Power (SBSP). A satellite captures solar power in space and
@@ -1120,7 +1176,8 @@ export class World {
     }
     rect.castShadow = rect.receiveShadow = true;
     g.add(rect);
-    this.rectenna = new THREE.Vector3(-48.4, 1, 67.8);
+    this.rectenna = new THREE.Vector3(-48.4, 1, 67.8).add(g.position);
+    this.satCenter = new THREE.Vector3(-46, 0, 70).add(g.position);
     this.rectGlow = new THREE.Mesh(new THREE.PlaneGeometry(16, 12), new THREE.MeshBasicMaterial({ color: 0x7fe3ff, transparent: true, opacity: 0.12, depthWrite: false }));
     this.rectGlow.rotation.x = -Math.PI / 2;
     this.rectGlow.position.set(-48.4, 1.2, 67.8);
@@ -1162,7 +1219,7 @@ export class World {
     this.sign(-58, 1.4, 88.5, 7.5, 2.2, 0, [
       { text: 'ONSA Power & Co.', size: 124, y: 105, color: BRAND.amber },
       { text: 'R&D CENTRE · SBSP RESEARCH', size: 54, y: 215, color: BRAND.white, weight: 800 },
-    ]);
+    ], true, g);
     this.buildResearcher();
   }
 
@@ -1189,11 +1246,11 @@ export class World {
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.14;
     r.add(shadow);
-    r.position.set(-47, 0, 73);
+    r.position.set(-47, 0, 73).add(this.areas.rnd.position);
     this.scene.add(r);
     this.pickables.push(r);
     // wanders between the rectenna, the ground-station dish and the lab door
-    this.rStops = [new THREE.Vector3(-47, 0, 73), new THREE.Vector3(-40.5, 0, 66.5), new THREE.Vector3(-44, 0, 77), new THREE.Vector3(-52, 0, 73)];
+    this.rStops = [new THREE.Vector3(-47, 0, 73), new THREE.Vector3(-40.5, 0, 66.5), new THREE.Vector3(-44, 0, 77), new THREE.Vector3(-52, 0, 73)].map(v => v.add(this.areas.rnd.position));
     this.rStop = 0;
     this.rWait = 3;
     this.rPhase = 0;
@@ -1203,7 +1260,7 @@ export class World {
   updateSouth(dt) {
     // satellite on a slow orbit above the R&D centre; beam and dish follow it
     this.satAngle += dt * 0.06;
-    const sp = new THREE.Vector3(-46 + Math.cos(this.satAngle) * 34, 56 + Math.sin(this.satAngle * 0.7) * 5, 70 + Math.sin(this.satAngle) * 22);
+    const sp = new THREE.Vector3(this.satCenter.x + Math.cos(this.satAngle) * 34, 56 + Math.sin(this.satAngle * 0.7) * 5, this.satCenter.z + Math.sin(this.satAngle) * 22);
     this.satellite.position.copy(sp);
     this.satellite.rotation.y = -this.satAngle;
     const tx = sp.clone().add(new THREE.Vector3(0, -3.2, 0));
@@ -1216,7 +1273,8 @@ export class World {
     this.beam.material.opacity = flicker;
     this.rectGlow.material.opacity = 0.08 + flicker * 0.5;
     this.dish.lookAt(sp);
-    const elev = Math.asin(THREE.MathUtils.clamp((sp.y - 3.6) / sp.distanceTo(this.dish.position), 0, 1));
+    const dp = this.dish.getWorldPosition(new THREE.Vector3());
+    const elev = Math.asin(THREE.MathUtils.clamp((sp.y - dp.y) / sp.distanceTo(dp), 0, 1));
     this.rndOutput = Math.round((110 * Math.sin(elev)) / 5) * 5;
 
     // researcher: walk to the next stop, pause and check the tablet
@@ -1281,6 +1339,7 @@ export class World {
     g.position.set(x, 0, z);
     g.rotation.y = rotY;
     this.scene.add(g);
+    this.towerFeet.push([x, z]);
     this.lattice(g, 0, 0, h, 1.5, 0.35);
     box(g, 7, 0.3, 0.3, COL.steelDark, 0, h - 0.6, 0);
     box(g, 5, 0.3, 0.3, COL.steelDark, 0, h - 3.2, 0);
@@ -1311,32 +1370,238 @@ export class World {
   }
 
   buildLines() {
-    this.chain([[24, -5], [32, -10], [40, -15], [46, -19]], 13);  // Feeder A
-    this.chain([[24, 5], [32, 10], [40, 15], [46, 19]], 13);      // Feeder B
-    this.chain([[16, 17], [28, 30], [40, 40], [50, 47]], 13);     // Feeder C
-    this.chain([[6, 17], [8, 31], [8, 46]], 13);                   // Feeder D
-    this.chain([[-62, 56], [-46, 50], [-26, 38], [-12, 27], [-6, 17]], 15); // grid Line 3 · solar
-    this.chain([[0, -16], [0, -26], [16, -33], [31, -36]], 15);   // grid Line 1 · G-501
-    this.chain([[22, -17], [31, -22], [40, -29], [45, -41], [53, -50]], 15); // grid Line 2 · G-502 + wind
-    this.lineTags = [
-      { text: '132 kV Line 1 · Genset G-501', pos: new THREE.Vector3(8, 17, -30) },
-      { text: '132 kV Line 2 · Genset G-502 + wind', pos: new THREE.Vector3(36, 17, -25.5) },
-      { text: '33 kV Feeder C · College', pos: new THREE.Vector3(34, 15, 35) },
-      { text: '33 kV Feeder D · Shopping complex', pos: new THREE.Vector3(8, 15, 38) },
-      { text: '132 kV Line 3 · Solar farm', pos: new THREE.Vector3(-36, 17, 44) },
+    const routes = [
+      { pts: [[24, -5], [40, -9], [56, -13], [72, -17], [88, -20]], h: 13, tag: '33 kV Feeder A · Homes' },
+      { pts: [[24, 5], [40, 9], [56, 13], [72, 17], [88, 20]], h: 13, tag: '33 kV Feeder B · Hospital' },
+      { pts: [[16, 17], [30, 32], [46, 46], [62, 58], [78, 67], [91, 73]], h: 13, tag: '33 kV Feeder C · College' },
+      { pts: [[6, 17], [7, 34], [7, 51], [7, 68], [8, 83]], h: 13, tag: '33 kV Feeder D · Shopping complex' },
+      { pts: [[-6, 17], [-18, 34], [-36, 48], [-60, 60], [-84, 70], [-104, 77]], h: 15, tag: '132 kV Line 3 · Solar farm' },
+      { pts: [[0, -16], [0, -28], [8, -40], [20, -50], [31, -55]], h: 15, tag: '132 kV Line 1 · Genset G-501' },
+      { pts: [[22, -17], [34, -28], [44, -40], [50, -54], [53, -67]], h: 15, tag: '132 kV Line 2 · Genset G-502 + wind' },
     ];
+    this.lineTags = [];
+    this.lineSegs = [];
+    for (const r of routes) {
+      this.chain(r.pts, r.h);
+      const [mx, mz] = r.pts[Math.floor(r.pts.length / 2)];
+      this.lineTags.push({ text: r.tag, pos: new THREE.Vector3(mx, r.h + 3, mz) });
+      for (let i = 0; i < r.pts.length - 1; i++) this.lineSegs.push([...r.pts[i], ...r.pts[i + 1]]);
+    }
+  }
+
+  // ---------- green safety walkpaths with yellow edges around the equipment ----------
+  buildWalkpaths() {
+    const segs = this.roadSegs.map(r => [...r]);
+    const walks = [];
+    const loop = (x1, z1, x2, z2, sides = 'nesw') => {
+      const out = [];
+      if (sides.includes('n')) out.push([x1, z1, x2, z1]);
+      if (sides.includes('e')) out.push([x2, z1, x2, z2]);
+      if (sides.includes('s')) out.push([x2, z2, x1, z2]);
+      if (sides.includes('w')) out.push([x1, z2, x1, z1]);
+      return out;
+    };
+    const keep = own => { this.linkUp([...segs, ...walks], own, walks); walks.push(...own); };
+    // substation: perimeter path inside the fence, aisle through the west/east gates, south gate
+    walks.push(...loop(-18.6, -11.6, 17.2, 12.6), [-20, 0, 20, 0], [0, 12.6, 0, 16]);
+    // a loop around every other area, linked to the nearest path or road
+    this.scene.updateMatrixWorld(true);
+    const b = new THREE.Box3();
+    for (const id of ['corp', 'dmz', 'scc', 'internet', 'townA', 'townB', 'townC', 'townD', 'biogas', 'rnd', 'solar']) {
+      b.setFromObject(this.areas[id]);
+      const pad = 2.2;
+      if (id === 'biogas') keep(loop(b.min.x - pad, -73.9, b.max.x + 1.6, b.max.z + pad, 'esw')); // open to the shore
+      else keep(loop(b.min.x - pad, b.min.z - pad, b.max.x + pad, b.max.z + pad));
+    }
+    keep([[50.6, -67.5, 61.5, -67.5]]); // wind landing station
+    keep([[0, 16, 0, 60]]);             // substation south gate towards the shopping complex
+    this.walkSegs = walks;
+    this.drawWalkpaths(walks);
+  }
+
+  // join a new run of path to the closest point of what already exists
+  linkUp(existing, own, out) {
+    let best = null;
+    for (const [ax, az, bx, bz] of own) {
+      for (let t = 0; t <= 1; t += 0.25) {
+        const px = ax + (bx - ax) * t, pz = az + (bz - az) * t;
+        for (const q of existing) {
+          const [qx, qz, d] = nearestOnSeg(px, pz, q);
+          if (!best || d < best.d) best = { d, seg: [px, pz, qx, qz] };
+        }
+      }
+    }
+    if (best && best.d > 0.3) out.push(best.seg);
+  }
+
+  drawWalkpaths(walks) {
+    const green = new THREE.MeshStandardMaterial({ color: 0x3f9a5a, roughness: 0.8 });
+    const yellow = new THREE.MeshBasicMaterial({ color: 0xf2c230 });
+    const W = 2;
+    for (const [ax, az, bx, bz] of walks) {
+      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+      if (len < 0.1) continue;
+      const g = new THREE.Group();
+      g.position.set((ax + bx) / 2, 0, (az + bz) / 2);
+      g.rotation.y = Math.atan2(dx, dz);
+      const strip = new THREE.Mesh(new THREE.PlaneGeometry(W, len + W), green);
+      strip.rotation.x = -Math.PI / 2;
+      strip.position.y = 0.17;
+      strip.receiveShadow = true;
+      g.add(strip);
+      for (const s of [-1, 1]) {
+        const edge = new THREE.Mesh(new THREE.PlaneGeometry(0.16, len + W), yellow);
+        edge.rotation.x = -Math.PI / 2;
+        edge.position.set(s * (W / 2 - 0.08), 0.18, 0);
+        g.add(edge);
+      }
+      this.scene.add(g);
+    }
+  }
+
+  // ---------- walking: a grid of everything solid, and A* around it ----------
+  buildNavGrid() {
+    const G = (this.grid = { x0: -172, z0: -76, cs: 1, w: 340, h: 210 });
+    G.block = new Uint8Array(G.w * G.h);
+    const R = 0.7; // half the persona's width
+    const mark = (x1, z1, x2, z2) => {
+      const i1 = Math.max(0, Math.floor((x1 - G.x0) / G.cs)), i2 = Math.min(G.w - 1, Math.floor((x2 - G.x0) / G.cs));
+      const j1 = Math.max(0, Math.floor((z1 - G.z0) / G.cs)), j2 = Math.min(G.h - 1, Math.floor((z2 - G.z0) / G.cs));
+      for (let j = j1; j <= j2; j++) for (let i = i1; i <= i2; i++) G.block[j * G.w + i] = 1;
+    };
+    this.scene.updateMatrixWorld(true);
+    const bb = new THREE.Box3(), m4 = new THREE.Matrix4();
+    // solid = reaches from the ground into walking height (pads, paths and overhead pipes don't count)
+    const solid = () => bb.max.y > 0.5 && bb.min.y < 2.6;
+    const scan = root => root.traverse(o => {
+      if (!o.isMesh) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      if (o.isInstancedMesh) {
+        for (let k = 0; k < o.count; k++) {
+          o.getMatrixAt(k, m4);
+          bb.copy(o.geometry.boundingBox).applyMatrix4(m4.premultiply(o.matrixWorld));
+          if (solid()) mark(bb.min.x - R, bb.min.z - R, bb.max.x + R, bb.max.z + R);
+        }
+        return;
+      }
+      bb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+      if (solid()) mark(bb.min.x - R, bb.min.z - R, bb.max.x + R, bb.max.z + R);
+    });
+    for (const g of Object.values(this.areas)) scan(g);
+    for (const g of this.blockers) scan(g);
+    for (const [x, z] of this.towerFeet) mark(x - 1.6 - R, z - 1.6 - R, x + 1.6 + R, z + 1.6 + R);
+    mark(G.x0, G.z0, G.x0 + G.w * G.cs, -74); // the sea
+    const N = G.w * G.h;
+    this._nav = { g: new Float32Array(N), came: new Int32Array(N), seen: new Uint32Array(N), shut: new Uint32Array(N), run: 0 };
+  }
+
+  findPath(sx, sz, tx, tz) {
+    const G = this.grid, W = G.w, H = G.h, B = G.block, S = this._nav;
+    const cellOf = (x, z) => [Math.floor((x - G.x0) / G.cs), Math.floor((z - G.z0) / G.cs)];
+    const open = (i, j) => i >= 0 && j >= 0 && i < W && j < H && !B[j * W + i];
+    const nearestOpen = (i, j) => {
+      if (open(i, j)) return [i, j];
+      for (let r = 1; r < 60; r++) {
+        let best = null;
+        for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) {
+          if (Math.max(Math.abs(di), Math.abs(dj)) !== r || !open(i + di, j + dj)) continue;
+          const d = di * di + dj * dj;
+          if (!best || d < best[2]) best = [i + di, j + dj, d];
+        }
+        if (best) return [best[0], best[1]];
+      }
+      return null;
+    };
+    const s = nearestOpen(...cellOf(sx, sz)), t = nearestOpen(...cellOf(tx, tz));
+    if (!s || !t) return [];
+    const run = ++S.run;
+    const sI = s[1] * W + s[0], tI = t[1] * W + t[0];
+    const hx = i => { const di = Math.abs((i % W) - t[0]), dj = Math.abs(((i / W) | 0) - t[1]); return Math.max(di, dj) + 0.414 * Math.min(di, dj); };
+    // binary heap of [f, index]
+    const heap = [];
+    const push = (f, i) => {
+      heap.push([f, i]);
+      for (let k = heap.length - 1; k > 0;) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; }
+    };
+    const pop = () => {
+      const top = heap[0], last = heap.pop();
+      if (heap.length) {
+        heap[0] = last;
+        for (let k = 0; ;) {
+          const l = 2 * k + 1, r = l + 1;
+          let m = k;
+          if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+          if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+          if (m === k) break;
+          [heap[m], heap[k]] = [heap[k], heap[m]];
+          k = m;
+        }
+      }
+      return top;
+    };
+    S.g[sI] = 0; S.seen[sI] = run; S.came[sI] = -1;
+    push(hx(sI), sI);
+    let found = false;
+    while (heap.length) {
+      const [, u] = pop();
+      if (S.shut[u] === run) continue;
+      S.shut[u] = run;
+      if (u === tI) { found = true; break; }
+      const ui = u % W, uj = (u / W) | 0;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        if (!di && !dj) continue;
+        const vi = ui + di, vj = uj + dj;
+        if (!open(vi, vj)) continue;
+        if (di && dj && (!open(ui + di, uj) || !open(ui, uj + dj))) continue; // no corner cutting
+        const v = vj * W + vi;
+        if (S.shut[v] === run) continue;
+        const ng = S.g[u] + (di && dj ? 1.414 : 1);
+        if (S.seen[v] !== run || ng < S.g[v]) {
+          S.seen[v] = run; S.g[v] = ng; S.came[v] = u;
+          push(ng + hx(v), v);
+        }
+      }
+    }
+    if (!found) return [];
+    const centre = i => new THREE.Vector3(G.x0 + ((i % W) + 0.5) * G.cs, 0, G.z0 + (((i / W) | 0) + 0.5) * G.cs);
+    const cells = [];
+    for (let i = tI; i >= 0; i = S.came[i]) cells.unshift(centre(i));
+    const [ti, tj] = cellOf(tx, tz);
+    if (open(ti, tj)) cells[cells.length - 1] = new THREE.Vector3(tx, 0, tz);
+    // straighten the zig-zag: skip ahead while the way is clear
+    const clear = (a, b) => {
+      const n = Math.ceil(a.distanceTo(b) / 0.35);
+      for (let k = 1; k < n; k++) {
+        const x = a.x + ((b.x - a.x) * k) / n, z = a.z + ((b.z - a.z) * k) / n;
+        if (!open(...cellOf(x, z))) return false;
+      }
+      return true;
+    };
+    const from = new THREE.Vector3(sx, 0, sz);
+    const pts = [open(...cellOf(sx, sz)) ? from : cells[0], ...cells.slice(1)];
+    const out = [];
+    let a = 0;
+    while (a < pts.length - 1) {
+      let b = a + 1;
+      while (b + 1 < pts.length && clear(pts[a], pts[b + 1])) b++;
+      out.push(pts[b]);
+      a = b;
+    }
+    if (pts[0] !== from) out.unshift(pts[0]);
+    return out;
   }
 
   buildTrees() {
     const rand = rng(99);
-    const blocked = [
-      [-24, -18, 24, 18], [-58, -42, -36, -14], [-31, -34, -16, -21], [-42, 13, -25, 30], [-71, 34, -58, 46],
-      [42, -42, 96, 42], [44, 42, 100, 84], [-108, 48, -58, 93], [-60, 58, -32, 93], [-12, 48, 40, 95], [-64, 14, -4, 58], [0, 14, 14, 50], [40, -58, 60, -34], [12, -36, 50, -14], [12, 14, 52, 50], [-95, -4, 96, 4], [-33, -48, -27, 94], [-5, -56, 5, -12], [-42, -58, 42, -35], [20, -24, 48, 24], [-66, -16, -30, -8],
-    ];
+    this.scene.updateMatrixWorld(true);
+    const boxes = Object.values(this.areas).filter(g => g.userData.asset !== 'wind').map(g => new THREE.Box3().setFromObject(g).expandByScalar(3));
+    const near = (x, z, list, r) => list.some(q => nearestOnSeg(x, z, q)[2] < r);
     const spots = [];
-    for (let i = 0; i < 900 && spots.length < 170; i++) {
-      const x = -120 + rand() * 240, z = -52 + rand() * 160;
-      if (blocked.some(([x1, z1, x2, z2]) => x > x1 && x < x2 && z > z1 && z < z2)) continue;
+    for (let i = 0; i < 3000 && spots.length < 280; i++) {
+      const x = -165 + rand() * 325, z = -71 + rand() * 200;
+      if (boxes.some(bx => x > bx.min.x && x < bx.max.x && z > bx.min.z && z < bx.max.z)) continue;
+      if (near(x, z, this.roadSegs, 5) || near(x, z, this.walkSegs, 3) || near(x, z, this.lineSegs, 4)) continue;
+      if (Math.abs(x) < 26 && Math.abs(z) < 20) continue; // substation yard
       spots.push([x, z, 0.7 + rand() * 0.7]);
     }
     const cone = new THREE.ConeGeometry(1.6, 4, 7);
@@ -1452,6 +1717,7 @@ export class World {
       }
     }
     this.updatePersona(dt);
+    if (this.honeypot.visible) this.hpLight.material.color.setHex(this.hpAlarm ? (Math.sin(this._t * 12) > 0 ? 0xff3b30 : 0x5a1410) : (Math.sin(this._t * 2) > 0.6 ? 0xf2b33d : 0x6b5216));
     this.updateSouth(dt);
     const flick = 1 + 0.22 * Math.sin(this._t * 13) + 0.12 * Math.sin(this._t * 29);
     this.flame.scale.set(1, flick, 1);
@@ -1482,7 +1748,7 @@ export class World {
 
     // keep the map in bounds
     const t = this.controls.target;
-    const cx = THREE.MathUtils.clamp(t.x, -110, 110), cz = THREE.MathUtils.clamp(t.z, -100, 90);
+    const cx = THREE.MathUtils.clamp(t.x, -170, 165), cz = THREE.MathUtils.clamp(t.z, -110, 130);
     if (cx !== t.x || cz !== t.z || t.y !== 0) {
       const d = new THREE.Vector3(cx - t.x, -t.y, cz - t.z);
       t.add(d);

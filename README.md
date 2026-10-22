@@ -18,6 +18,7 @@ A 3D, browser-based OT/ICS security training game. You are the OT security lead 
 ## How it plays
 
 - **Run the site.** Energized feeders earn revenue. Outages cost revenue, grid reliability and regulator fines. Controls have capex and daily opex.
+- **Deception.** The OT honeypot (decoy RTU-99) sits in the switchyard. Nobody legitimate touches it, so a real attack trips it: you get a high-confidence clue and 30 s more to decide. On a false alarm it stays quiet.
 - **Invest in controls.** Asset inventory, OT network monitoring, IT/OT firewall, MFA + jump host, station-bus port security, removable-media control, attack-surface review, config backups, IR playbook. Some prevent a scenario outright; visibility controls add context to the logs you read; the playbook annotates response cards.
 - **Triage incidents.** When an alert fires, the game clock holds and a decision timer starts. Open the magnifier pins on the map, read what each system logged, **tag the lines that are part of the attack** (noise costs points), then **play a response card**.
 - **Debrief.** Each incident is graded A–F (60% response quality, 30% clue accuracy, 10% speed). Treating an attack as a routine fault caps you at D; shutting the grid down yourself caps you at C. Every clue is explained with its MITRE ATT&CK for ICS technique.
