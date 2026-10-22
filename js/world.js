@@ -808,14 +808,14 @@ export class World {
     for (let i = 0; i <= 9; i++) flat(0.12, 4.8, 0xf1ead8, -82.6 + i * 3.2, -12, 0.06);
 
     // roads: trunk road through the substation gates, the IT spine road, town streets (Feeders A/B,
-    // continuing to the college on Feeder C), the southern road to the shopping complex (Feeder D),
+    // continuing to the college on Feeder C), the southern road to Mutiara Avenue Mall (Feeder D),
     // and the R&D centre access road
     this.roadSegs = [
       [-125, 0, -20, 0], [20, 0, 150, 0],          // trunk
       [-50, -57.2, -50, 125],                       // IT spine, down to the biogas plant
       [105, -41, 105, 91], [123, -41, 123, 41],     // town streets · Feeders A, B, C
       [-48, 64, 103, 64],                           // southern road · Feeder D
-      [-16, 66, -16, 112], [-14, 109, -8, 109],     // shopping complex access + car park entrance
+      [-16, 66, -16, 112], [-14, 109, -8, 109],     // mall access + car park entrance
       [-48, 87.5, -84, 87.5],                       // R&D centre access
     ];
     const road = (ax, az, bx, bz, w) => {
@@ -1614,7 +1614,7 @@ export class World {
     ], true, g);
   }
 
-  // Feeder D: Harbour Point shopping complex — mall, cinema, big wheel, parking
+  // Feeder D: Mutiara Avenue Mall — mall, cinema, big wheel, parking
   buildMall() {
     const g = this.group('townD');
     const mg = this.feederGlass.D;
@@ -1686,8 +1686,8 @@ export class World {
       g.add(c);
     }
     this.sign(-9, 1.4, 88.5, 7, 2, 0, [
-      { text: 'HARBOUR POINT', size: 120, y: 110, color: BRAND.amber },
-      { text: 'SHOPS · CINEMA · BIG WHEEL', size: 56, y: 220, color: BRAND.white, weight: 800 },
+      { text: 'MUTIARA AVENUE', size: 112, y: 110, color: BRAND.amber },
+      { text: 'MALL · SHOPS · CINEMA · BIG WHEEL', size: 52, y: 220, color: BRAND.white, weight: 800 },
     ], true, g);
   }
 
@@ -1905,7 +1905,7 @@ export class World {
       { pts: [[24, -5], [40, -9], [56, -13], [72, -17], [88, -20]], h: 13, tag: '33 kV Feeder A · Homes' },
       { pts: [[24, 5], [40, 9], [56, 13], [72, 17], [88, 20]], h: 13, tag: '33 kV Feeder B · Hospital' },
       { pts: [[16, 17], [30, 32], [46, 46], [62, 57], [78, 70], [91, 74]], h: 13, tag: '33 kV Feeder C · College' },
-      { pts: [[6, 17], [7, 34], [7, 51], [8, 74]], h: 13, tag: '33 kV Feeder D · Shopping complex' },
+      { pts: [[6, 17], [7, 34], [7, 51], [8, 74]], h: 13, tag: '33 kV Feeder D · Mutiara Avenue Mall' },
       { pts: [[-6, 17], [-18, 34], [-36, 48], [-60, 58], [-84, 71], [-100, 74]], h: 15, tag: '132 kV Line 3 · Solar farm' },
       { pts: [[0, -16], [0, -28], [8, -40], [20, -49], [32, -51.5]], h: 15, tag: '132 kV Line 1 · Genset G-501' },
       { pts: [[22, -17], [34, -28], [44, -40], [54, -51], [56, -65]], h: 15, tag: '132 kV Line 2 · Genset G-502 + wind' },

@@ -5,6 +5,7 @@ export const SITE = {
   game: 'Oh no! shutdown again?',
   utility: 'ONSA Power & Co.',
   station: 'PMU Bukit Mutiara 132/33 kV',
+  researcher: 'Dr. Nurul Aisyah',
 };
 
 export const ASSETS = {
@@ -64,8 +65,8 @@ export const ASSETS = {
     protocols: ['Satellite TT&C link', 'Microwave power beam (2.45 GHz)', 'HTTPS'],
   },
   townD: {
-    name: 'Feeder D · Shopping complex', short: 'Feeder D', level: 'Load · 33 kV', icon: 'bag',
-    desc: 'Harbour Point shopping complex: 140 shops, a food court, the cinema and the big wheel. Busiest in the evening.',
+    name: 'Feeder D · Mutiara Avenue Mall', short: 'Feeder D', level: 'Load · 33 kV', icon: 'bag',
+    desc: 'Mutiara Avenue Mall: 140 shops, a food court, the cinema and the big wheel. Busiest in the evening.',
     protocols: [],
   },
   townC: {

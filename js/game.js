@@ -144,7 +144,7 @@ meEl.className = 'me';
 meEl.dataset.act = 'rename';
 meEl.title = 'Change your name';
 const NAME_KEY = 'onsa.playerName';
-function renderMe() { meEl.innerHTML = `<b>${esc(S.player || 'You')}</b><small>OT security lead · ${esc(SITE.utility)}</small>`; }
+function renderMe() { meEl.innerHTML = `<b>${esc(S.player || 'You')}</b><small>OT Security Lead · ${esc(SITE.utility)}</small>`; }
 function setPlayerName(name) {
   S.player = name.trim().slice(0, 24);
   try { localStorage.setItem(NAME_KEY, S.player); } catch { /* storage unavailable */ }
@@ -157,7 +157,7 @@ labelsEl.appendChild(meEl);
 const npcEl = document.createElement('button');
 npcEl.className = 'me npc';
 npcEl.dataset.act = 'researcher';
-npcEl.innerHTML = `<b>Researcher</b><small>SBSP research · ONSA R&amp;D</small>`;
+npcEl.innerHTML = `<b>${esc(SITE.researcher)}</b><small>Researcher · SBSP · ONSA R&amp;D</small>`;
 labelsEl.appendChild(npcEl);
 
 const hpEl = document.createElement('div');
@@ -669,7 +669,7 @@ const PANELS = {
 
   researcher() {
     return {
-      eyebrow: 'ONSA R&D Centre · Researcher', title: 'Researcher',
+      eyebrow: 'ONSA R&D Centre · SBSP researcher', title: SITE.researcher,
       html: `<p>“I work on <b>Space-Based Solar Power</b>: satellites that capture solar power in space and wirelessly deliver 24/7, baseload energy to wherever on Earth. Up there the sun never sets, so the power doesn’t either.”</p>
         <p>“Our test satellite is overhead right now. Watch the beam — it lands on the rectenna field beside me, and the dish tracks the satellite across the sky.”</p>
         ${sbspHTML().replace(/<button[^]*$/, '')}
@@ -844,7 +844,7 @@ function sbspHTML() {
       <div class="row between" style="margin-top:6px"><small>Rectenna output</small><b>${world.rndOutput} kW · test scale</b></div></div>
     ${steps.map(([t, d], i) => `<div class="box row" style="align-items:flex-start;margin-bottom:5px"><span class="pill">${i + 1}</span><div class="grow"><b style="font-size:13px">${t}</b><div class="tiny muted" style="line-height:1.45">${d}</div></div></div>`).join('')}
     <div class="box"><small>Why OT security cares</small><p style="margin:5px 0 0">The beam is pointed by commands sent over the satellite control (TT&amp;C) link. Authenticating and encrypting that link matters as much as any substation conduit.</p></div>
-    <button class="btn block" data-act="researcher">${icon('satellite')} Talk to the researcher</button>`;
+    <button class="btn block" data-act="researcher">${icon('satellite')} Talk to ${esc(SITE.researcher)}</button>`;
 }
 
 function processHTML() {
