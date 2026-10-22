@@ -1,0 +1,5 @@
+# Files Cloudflare must not publish with the game (same format as .gitignore)
+.git
+.gitignore
+.assetsignore
+.claude
