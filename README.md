@@ -9,7 +9,7 @@ A 3D, browser-based OT/ICS security training game. You are the OT Security Lead 
 ## The site
 
 - **Substation** — 132/33 kV switchyard, control house, SCADA control center, OT DMZ and corporate HQ, with four 33 kV feeders.
-- **Generation (all operated by ONSA Power & Co.)** — three 132 kV grid lines into the substation: Line 1 from biogas genset G-501, Line 2 from biogas genset G-502 plus the offshore wind farm, Line 3 from the solar farm.
+- **Generation (all operated by ONSA Power & Co.)** — three 132 kV grid lines into the substation: Line 1 from biogas genset G-501, Line 2 from biogas genset G-502 plus the offshore wind turbines WTG-1–4, Line 3 from the solar farm.
 - **Consumers** — Feeder A homes, Feeder B hospital, Feeder C college, Feeder D Mutiara Avenue Mall (shops, cinema, big wheel).
 - **ONSA R&D Centre** — Space-Based Solar Power (SBSP) research: a test satellite captures solar power in orbit and beams it as microwaves to a rectenna field; a ground-station dish tracks it. Researcher Prof. Dr. Hanafiya works on site — click her to hear about SBSP.
 - **Biogas plant** — raw POME pond (pump, electromagnetic flowmeter) → mixing pit (mixer, level transmitter) → AD tank & covered lagoon → H₂S scrubber → genset, each gas stage with ultrasonic flowmeter, pressure and temperature transmitters on the pipeline, plus a gas analyzer sampling before and after the scrubber. Flowmeters and the gas analyzer talk Modbus; pressure, temperature and level transmitters are 4–20 mA. Flaring system with ultrasonic flowmeter and pilot/ignition system. All valves are motorized (MOV). Zoom in to see every tag; click one for what it measures, its signal to the PLC, and why an attacker cares.

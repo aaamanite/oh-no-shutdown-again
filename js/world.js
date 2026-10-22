@@ -1906,9 +1906,9 @@ export class World {
       { pts: [[24, 5], [40, 9], [56, 13], [72, 17], [88, 20]], h: 13, tag: '33 kV Feeder B · Hospital' },
       { pts: [[16, 17], [30, 32], [46, 46], [62, 57], [78, 70], [91, 74]], h: 13, tag: '33 kV Feeder C · College' },
       { pts: [[6, 17], [7, 34], [7, 51], [8, 74]], h: 13, tag: '33 kV Feeder D · Mutiara Avenue Mall' },
-      { pts: [[-6, 17], [-18, 34], [-36, 48], [-60, 58], [-84, 71], [-100, 74]], h: 15, tag: '132 kV Line 3 · Solar farm' },
-      { pts: [[0, -16], [0, -28], [8, -40], [20, -49], [32, -51.5]], h: 15, tag: '132 kV Line 1 · Genset G-501' },
-      { pts: [[22, -17], [34, -28], [44, -40], [54, -51], [56, -65]], h: 15, tag: '132 kV Line 2 · Genset G-502 + wind' },
+      { pts: [[-6, 17], [-18, 34], [-36, 48], [-60, 58], [-84, 71], [-100, 74]], h: 15, tag: '132 kV Line 3 · Solar farm PV inverters' },
+      { pts: [[0, -16], [0, -28], [8, -40], [20, -49], [32, -51.5]], h: 15, tag: '132 kV Line 1 · Biogas genset G-501' },
+      { pts: [[22, -17], [34, -28], [44, -40], [54, -51], [56, -65]], h: 15, tag: '132 kV Line 2 · Biogas genset G-502 + Wind turbines WTG-1–4' },
     ];
     this.lineTags = [];
     this.lineSegs = [];
