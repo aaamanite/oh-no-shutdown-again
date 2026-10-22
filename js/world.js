@@ -2334,8 +2334,9 @@ export class World {
     // keep the map in bounds
     const t = this.controls.target;
     const cx = THREE.MathUtils.clamp(t.x, -170, 165), cz = THREE.MathUtils.clamp(t.z, -110, 130);
-    if (cx !== t.x || cz !== t.z || t.y !== 0) {
-      const d = new THREE.Vector3(cx - t.x, -t.y, cz - t.z);
+    const cy = THREE.MathUtils.clamp(t.y, 0, 4);
+    if (cx !== t.x || cz !== t.z || cy !== t.y) {
+      const d = new THREE.Vector3(cx - t.x, cy - t.y, cz - t.z);
       t.add(d);
       this.camera.position.add(d);
     }

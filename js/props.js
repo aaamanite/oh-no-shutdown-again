@@ -5,6 +5,7 @@ import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometr
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { CDN, surface } from './look.js';
+import { buildWorkerBody } from './worker.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
@@ -271,110 +272,68 @@ export function car(color) {
 }
 
 // ---------- rigged, animated ONSA field workers ----------
-function vestTexture() {
-  const c = document.createElement('canvas');
-  c.width = 1024; c.height = 256;
-  const g = c.getContext('2d');
-  g.fillStyle = '#f2d22e'; g.fillRect(0, 0, 1024, 256);
-  g.fillStyle = '#f08a24';
-  g.fillRect(0, 0, 40, 256); g.fillRect(984, 0, 40, 256); g.fillRect(0, 226, 1024, 30);
-  g.fillStyle = 'rgba(0,0,0,0.06)';
-  for (let x = 0; x < 1024; x += 6) g.fillRect(x, 0, 1, 256); // mesh weave
-  g.fillStyle = '#1b2a4a';
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.font = '900 78px Nunito, Arial, sans-serif'; g.fillText('ONSA', 512, 92);
-  g.font = '800 30px Nunito, Arial, sans-serif'; g.fillText('POWER & CO.', 512, 150);
-  g.font = '900 30px Nunito, Arial, sans-serif'; g.fillText('ONSA', 118, 70);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  document.fonts?.ready.then(() => {
-    g.fillStyle = '#f2d22e'; g.fillRect(60, 40, 120, 60); g.fillRect(300, 40, 424, 140);
-    g.fillStyle = '#1b2a4a';
-    g.font = '900 78px Nunito, Arial, sans-serif'; g.fillText('ONSA', 512, 92);
-    g.font = '800 30px Nunito, Arial, sans-serif'; g.fillText('POWER & CO.', 512, 150);
-    g.font = '900 30px Nunito, Arial, sans-serif'; g.fillText('ONSA', 118, 70);
-    t.needsUpdate = true;
-  });
-  return t;
-}
-
-// colours the mannequin by its bind-pose shape: navy coverall, reflective bands, boots, skin
-function workwear(name, woman) {
-  const m = new THREE.MeshStandardMaterial({ roughness: 0.78, metalness: 0 });
-  if (name === 'Beta_Joints') { m.color.setHex(0x16233f); return m; }
-  const skin = woman ? 'vec3(0.62, 0.42, 0.31)' : 'vec3(0.55, 0.37, 0.26)';
-  m.onBeforeCompile = sh => {
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vBind;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBind = position;');
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vBind;')
-      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', `
-        vec3 col = vec3(0.07, 0.12, 0.27);
-        float ax = abs(vBind.x), yy = vBind.y;
-        if (yy < 0.13) col = vec3(0.03);
-        if (ax < 0.3 && ((yy > 0.29 && yy < 0.32) || (yy > 0.35 && yy < 0.38))) col = vec3(0.75, 0.77, 0.8);
-        if (yy > 1.3 && ((ax > 0.28 && ax < 0.305) || (ax > 0.325 && ax < 0.35))) col = vec3(0.75, 0.77, 0.8);
-        if (yy > 1.545 || ax > 0.69) col = ${skin};
-        vec4 diffuseColor = vec4(col, opacity);`);
-  };
-  m.customProgramCacheKey = () => 'workwear' + (woman ? 'w' : 'm');
-  return m;
-}
-
+// Head gear and face, in metres relative to the head bone (which sits at 1.596 m, z −0.010).
+// Measured head: ±0.088 wide, −0.121…+0.128 deep, crown at 1.806 — everything below sits just outside it.
 function gearForHead(woman) {
   const g = new THREE.Group();
-  const white = new THREE.MeshPhysicalMaterial({ color: 0xf7f7f2, roughness: 0.3, clearcoat: 0.8 });
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(0.135, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), white);
-  dome.scale.set(1, 0.88, 1.12);
-  dome.position.set(0, 0.095, 0.012);
-  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.148, 0.152, 0.01, 40), white);
-  brim.scale.set(1, 1, 1.14);
-  brim.position.set(0, 0.095, 0.016);
-  const peak = new THREE.Mesh(new THREE.SphereGeometry(0.1, 24, 8, 0, Math.PI * 2, 0, 0.35), white);
-  peak.scale.set(0.95, 0.25, 1);
-  peak.position.set(0, 0.07, 0.12);
-  const ridge = new THREE.Mesh(new THREE.CapsuleGeometry(0.012, 0.2, 4, 8), white);
-  ridge.rotation.x = Math.PI / 2;
-  ridge.position.set(0, 0.21, 0.01);
-  const stickerC = document.createElement('canvas');
-  stickerC.width = 256; stickerC.height = 80;
-  const sg = stickerC.getContext('2d');
+  const white = new THREE.MeshPhysicalMaterial({ color: 0xf7f7f2, roughness: 0.28, clearcoat: 0.9, clearcoatRoughness: 0.15 });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2), white);
+  dome.scale.set(0.104, 0.106, 0.142);
+  dome.position.set(0, 0.12, 0.014);
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.008, 48), white);
+  brim.scale.set(0.118, 1, 0.162);
+  brim.position.set(0, 0.121, 0.024);
+  // crown ridge following the dome from brim to brim
+  const ridge = new THREE.Mesh(new THREE.TorusGeometry(1, 0.09, 8, 40, Math.PI).rotateY(Math.PI / 2), white);
+  ridge.scale.set(0.13, 0.112, 0.146);
+  ridge.position.set(0, 0.12, 0.014);
+  const sc = document.createElement('canvas');
+  sc.width = 256; sc.height = 80;
+  const sg = sc.getContext('2d');
   sg.fillStyle = '#2f6fb5'; sg.fillRect(0, 0, 256, 80);
   sg.fillStyle = '#fff'; sg.font = '900 54px Nunito, Arial, sans-serif'; sg.textAlign = 'center'; sg.textBaseline = 'middle'; sg.fillText('ONSA', 128, 42);
-  const st = new THREE.CanvasTexture(stickerC); st.colorSpace = THREE.SRGBColorSpace;
-  const sticker = new THREE.Mesh(new THREE.PlaneGeometry(0.075, 0.024), new THREE.MeshStandardMaterial({ map: st, roughness: 0.4 }));
-  sticker.position.set(0, 0.155, 0.143);
-  sticker.rotation.x = -0.55;
-  const lens = new THREE.Mesh(new THREE.CapsuleGeometry(0.022, 0.13, 4, 12), new THREE.MeshPhysicalMaterial({ color: 0xd8ecff, roughness: 0.05, transmission: 0.6, transparent: true, opacity: 0.55 }));
-  lens.rotation.z = Math.PI / 2;
-  lens.scale.set(1, 1, 0.3);
-  lens.position.set(0, 0.075, 0.108);
-  g.add(dome, brim, peak, ridge, sticker, lens);
+  const st = new THREE.CanvasTexture(sc);
+  st.colorSpace = THREE.SRGBColorSpace;
+  const sticker = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.022), new THREE.MeshStandardMaterial({ map: st, roughness: 0.4 }));
+  sticker.position.set(0, 0.188, 0.124);
+  sticker.rotation.x = -0.75;
+  g.add(dome, brim, ridge, sticker);
+
+  // wraparound clear safety glasses with a dark top frame and temple arms to the ears
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.042, 40, 1, true, -1.0, 2.0),
+    new THREE.MeshPhysicalMaterial({ color: 0xe2f1ff, roughness: 0.04, metalness: 0, transmission: 0.85, transparent: true, opacity: 0.45, side: THREE.DoubleSide }));
+  lens.position.set(0, 0.065, 0.014);
+  const frame = new THREE.Mesh(new THREE.TorusGeometry(0.131, 0.0035, 6, 40, 2.0), new THREE.MeshStandardMaterial({ color: 0x3a4148, roughness: 0.4 }));
+  frame.rotation.set(Math.PI / 2, 0, Math.PI / 2 - 1.0);
+  frame.position.set(0, 0.086, 0.014);
+  g.add(lens, frame);
+  for (const sx of [-1, 1]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.006, 0.085), frame.material);
+    arm.position.set(sx * 0.1, 0.08, 0.05);
+    arm.rotation.y = sx * 0.28;
+    g.add(arm);
+  }
+
   if (woman) {
-    const hair = new THREE.MeshStandardMaterial({ color: 0x2a1a12, roughness: 0.6 });
-    const back = new THREE.Mesh(new THREE.SphereGeometry(0.118, 24, 12, Math.PI, Math.PI, 0.5, 1.6), hair);
-    back.position.set(0, 0.07, -0.005);
-    const tail = new THREE.Mesh(new THREE.CapsuleGeometry(0.032, 0.17, 6, 10), hair);
-    tail.position.set(0, -0.02, -0.13);
-    tail.rotation.x = 0.35;
-    const tie = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.009, 8, 16), new THREE.MeshStandardMaterial({ color: 0x2f6fb5 }));
-    tie.position.set(0, 0.075, -0.12);
-    tie.rotation.x = 1.2;
-    g.add(back, tail, tie);
+    // hair: a cap over the back and sides under the helmet, and a ponytail with a blue tie
+    const hairM = new THREE.MeshStandardMaterial({ color: 0x24160f, roughness: 0.55 });
+    const back = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16, Math.PI * 0.92, Math.PI * 1.16, 0, Math.PI * 0.62), hairM);
+    back.scale.set(0.094, 0.118, 0.13);
+    back.position.set(0, 0.099, 0.014);
+    // ponytail: gathered at the tie, fuller below it, tapering to a soft tip
+    const pony = new THREE.Group();
+    pony.position.set(0, 0.092, -0.126);
+    pony.rotation.x = 0.22;
+    const prof = [[0.001, 0.012], [0.016, 0.004], [0.019, -0.02], [0.03, -0.05], [0.032, -0.09], [0.026, -0.14], [0.016, -0.18], [0.003, -0.21]];
+    const tail = new THREE.Mesh(new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 18), hairM);
+    tail.scale.z = 0.8;
+    const tie = new THREE.Mesh(new THREE.TorusGeometry(0.02, 0.006, 8, 18), new THREE.MeshStandardMaterial({ color: 0x2f6fb5 }));
+    tie.position.y = -0.012;
+    tie.rotation.x = Math.PI / 2;
+    pony.add(tail, tie);
+    g.add(back, pony);
   }
   return g;
-}
-
-function gearForChest() {
-  const vest = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.168, 0.162, 0.44, 40, 1, true, 0.28, Math.PI * 2 - 0.56),
-    new THREE.MeshStandardMaterial({ map: vestTexture(), roughness: 0.7, side: THREE.DoubleSide }),
-  );
-  vest.scale.set(1.1, 1, 0.82);
-  vest.position.set(0, -0.03, 0.005);
-  return vest;
 }
 
 let gltfPromise = null;
@@ -387,18 +346,15 @@ export function loadWorkers() {
 export function makeWorker(gltf, holder, { woman = false, scale = 2.3, tablet = false } = {}) {
   const model = SkeletonUtils.clone(gltf.scene);
   model.scale.setScalar(scale);
-  model.traverse(o => {
-    if (o.isMesh) {
-      o.castShadow = true;
-      o.receiveShadow = true;
-      o.frustumCulled = false;
-      o.material = workwear(o.name, woman);
-    }
-  });
+  let ref = null;
+  model.traverse(o => { if (o.isSkinnedMesh && o.name === 'Beta_Surface') ref = o; });
+  const mannequin = [];
+  model.traverse(o => { if (o.isSkinnedMesh) mannequin.push(o); });
+  buildWorkerBody(ref, { woman });
+  for (const o of mannequin) o.visible = false;
   const bone = n => model.getObjectByName('mixamorig' + n);
   const attach = (b, obj) => { obj.scale.multiplyScalar(100); b.add(obj); };
   attach(bone('Head'), gearForHead(woman));
-  attach(bone('Spine2'), gearForChest());
   if (tablet) {
     const tab = new THREE.Group();
     const slab = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.24, 0.012), new THREE.MeshStandardMaterial({ color: 0x1f2a33, roughness: 0.3 }));
