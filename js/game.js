@@ -2,6 +2,7 @@
 import { World } from './world.js';
 import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, FEEDERS, PURDUE, SITE, PROCESS, INSTRUMENTS, instrumentRisk, HONEYPOT } from './data.js';
 import { icon, hydrateIcons } from './icons.js';
+import { FALSE_ALARMS, NOISE, PLANT_EVENTS } from './events.js';
 
 // ---------- helpers ----------
 const $ = (s, r = document) => r.querySelector(s);
@@ -29,12 +30,21 @@ const REV_PER_MIN = 230;      // $ per game minute at full load
 const BASE_DECIDE = 150;      // seconds to decide on an incident
 const INST = Object.fromEntries(INSTRUMENTS.map(i => [i.tag, i]));
 const FEEDER_OF = Object.fromEntries(Object.entries(FEEDERS).map(([f, F]) => [F.asset, f]));
+const ALL_SCENARIOS = [...SCENARIOS, ...FALSE_ALARMS];
+const scnById = id => ALL_SCENARIOS.find(sc => sc.id === id);
+// repair bill when a missed attack damages equipment (by asset); others use DAMAGE_DEFAULT
+const REPAIR = { yard: 150000, biogas: 180000, wind: 200000, solar: 120000, ctrl: 90000, scc: 80000, dmz: 60000, corp: 50000 };
+const DAMAGE_ORDER = ['yard', 'biogas', 'wind', 'solar', 'ctrl', 'scc', 'dmz', 'corp'];
+const DAMAGE_DEFAULT = 60000;
 
 // ---------- state ----------
 const S = {
   started: false, over: false,
   T: 7 * 60, speed: 1,
-  funds: 500000, reliability: 80, xp: 0,
+  funds: 1000000, reliability: 80, xp: 0, streak: 0,
+  damaged: {},                       // asset id -> { cost } until repaired
+  boost: { mult: 1, until: 0 },      // temporary demand change from plant events
+  nextEventAt: 11 * 60 + Math.floor(Math.random() * 180),
   owned: new Set(),
   feeders: Object.fromEntries(Object.keys(FEEDERS).map(f => [f, { on: true, until: 0 }])),
   incident: null,
@@ -94,7 +104,10 @@ const lightHour = () => {
   return h;
 };
 const isBlocked = scn => !!scn.blockedBy && S.owned.has(scn.blockedBy);
-const decideTime = () => BASE_DECIDE + (S.owned.has('ids') ? 60 : 0) + (S.owned.has('honeypot') ? 30 : 0);
+// later days give less time to decide (down to 60% of the base) and mix in more background noise
+const dayPressure = () => Math.max(0.6, 1 - 0.08 * (dayOf(S.T) - 1));
+const decideTime = () => Math.round(BASE_DECIDE * dayPressure()) + (S.owned.has('ids') ? 60 : 0) + (S.owned.has('honeypot') ? 30 : 0);
+const noiseLines = () => Math.min(4, 1 + Math.floor((dayOf(S.T) - 1) / 2)) + (Math.random() < 0.5 ? 1 : 0);
 
 function conduitState(c) {
   if (c.exposedUntil) return S.owned.has(c.exposedUntil) ? 'hidden' : 'exposed';
@@ -113,6 +126,7 @@ function refreshConduits() {
 function assetStatus(id) {
   const inc = S.incident;
   if (inc && inc.scn.targets.includes(id)) return { text: 'Alert under investigation', cls: 'alert' };
+  if (S.damaged[id]) return { text: `Damaged · repair ${money(S.damaged[id].cost)}`, cls: 'off' };
   const f = FEEDER_OF[id];
   if (f) {
     const st = S.feeders[f];
@@ -275,7 +289,7 @@ function renderHUD() {
   const lvl = Math.floor(S.xp / 250) + 1;
   $('#op-name').textContent = S.player || 'Operator';
   $('#op-level').textContent = lvl;
-  $('#op-rank').textContent = RANKS[Math.min(lvl - 1, RANKS.length - 1)];
+  $('#op-rank').textContent = RANKS[Math.min(lvl - 1, RANKS.length - 1)] + (S.streak > 1 ? ` · streak ×${S.streak}` : '');
   $('#op-xp').style.width = `${((S.xp % 250) / 250) * 100}%`;
   $('#chip-hold').hidden = !S.incident;
   $('#soc-dot').hidden = !S.incident;
@@ -386,7 +400,9 @@ function advance(gm) {
   S.T += gm;
   const h = hourOf(S.T);
   const served = Object.entries(FEEDERS).reduce((sum, [f, F]) => sum + (S.feeders[f].on ? F.share : 0), 0);
-  const rev = REV_PER_MIN * demand(h) * served * gm;
+  const damagedCount = Object.keys(S.damaged).length;
+  const boost = S.T < S.boost.until ? S.boost.mult : 1;
+  const rev = REV_PER_MIN * demand(h) * served * gm * boost * Math.max(0.7, 1 - 0.08 * damagedCount);
   S.funds += rev;
   S.stats.revenue += rev;
 
@@ -404,7 +420,8 @@ function advance(gm) {
       alertLog(`Feeder ${f} re-energized after restoration.`, 'good');
     }
   }
-  if (allOn) S.reliability = clamp(S.reliability + 0.004 * gm, 0, 100);
+  if (damagedCount) S.reliability = clamp(S.reliability - 0.006 * damagedCount * gm, 0, 100);
+  else if (allOn) S.reliability = clamp(S.reliability + 0.004 * gm, 0, 100);
 
   if (dayOf(S.T) > prevDay) {
     const opex = CONTROLS.filter(c => S.owned.has(c.id)).reduce((s, c) => s + c.opex, 0);
@@ -415,6 +432,7 @@ function advance(gm) {
     questEvent('day2');
   }
   if (S.T >= S.nextIncidentAt) triggerScheduled(false);
+  if (!S.incident && S.T >= S.nextEventAt) plantEvent();
   if (S.funds < -250000 && !S.over) gameOver();
 }
 
@@ -426,10 +444,11 @@ function shuffle(arr) {
 }
 function pickScenario(first) {
   if (!S.deck.length) {
-    S.deck = shuffle(SCENARIOS.map(sc => sc.id));
+    const alarms = shuffle(FALSE_ALARMS.map(sc => sc.id)).slice(0, 5);
+    S.deck = shuffle([...SCENARIOS.map(sc => sc.id), ...alarms]);
     if (S.deck[0] === S.recent[0]) S.deck.push(S.deck.shift()); // no back-to-back repeat across rounds
   }
-  const byId = id => SCENARIOS.find(sc => sc.id === id);
+  const byId = scnById;
   let id = S.deck[0];
   if (first) id = S.deck.find(d => !byId(d).benign && !isBlocked(byId(d))) || id; // open with a real, unprevented attack
   S.deck.splice(S.deck.indexOf(id), 1);
@@ -478,11 +497,18 @@ function withHoneypot(scn) {
   return { ...scn, clues: [...scn.clues, clue] };
 }
 
+// everyday log lines that have nothing to do with the case, so no two incidents read the same way
+function withNoise(scn) {
+  const picks = shuffle([...NOISE]).slice(0, noiseLines());
+  const lines = picks.map(nz => ({ ...nz, at: -Math.round(rand(20, 1800)), attack: false, chips: [] }));
+  return { ...scn, clues: [...scn.clues, ...lines] };
+}
+
 function startIncident(base, drill) {
   if (S.incident) return;
-  const scn = withHoneypot(base);
+  const scn = withNoise(withHoneypot(base));
   const tripped = scn.clues.some(c => c.src.startsWith('Honeypot') && c.attack);
-  if (tripped) { S.stats.hpTrips = (S.stats.hpTrips || 0) + 1; world.setHoneypotAlarm(true); toast('Honeypot RTU-99 tripped — something is exploring the OT network', 'bad', 'target'); }
+  if (tripped) { if (!drill) S.stats.hpTrips = (S.stats.hpTrips || 0) + 1; world.setHoneypotAlarm(true); toast('Honeypot RTU-99 tripped — something is exploring the OT network', 'bad', 'target'); }
   const total = decideTime();
   S.incident = { scn, drill, tags: new Set(), fps: new Set(), left: total, total, startT: S.T, filter: 'all', clueOrder: shuffle(scn.clues.map((_, i) => i)) };
   world.setAttacked(scn.targets);
@@ -596,12 +622,29 @@ function resolve(resp) {
     }
     if (fine) alertLog(`Regulatory penalty: ${money(fine)}.`, 'bad');
   }
-  S.xp += score;
+  // a missed or dismissed attack damages equipment until it is repaired
+  let damage = null;
+  if (!scn.benign && !inc.drill && (q === 'ignore' || q === 'timeout' || q === 'weak' || miss > 0)) {
+    const asset = DAMAGE_ORDER.find(a => scn.targets.includes(a)) || scn.targets[scn.targets.length - 1];
+    const full = q === 'ignore' || q === 'timeout';
+    const repair = Math.round(((REPAIR[asset] ?? DAMAGE_DEFAULT) * (full ? 1 : 0.5)) / 1000) * 1000;
+    damage = { asset, cost: repair };
+    S.damaged[asset] = { cost: Math.max(repair, S.damaged[asset]?.cost || 0) };
+    world.setDamaged(asset, true);
+    S.reliability = clamp(S.reliability - (full ? 8 : 4), 0, 100);
+    alertLog(`EQUIPMENT DAMAGED: ${ASSETS[asset].name} · repair ${money(repair)}`, 'bad');
+    toast(`${esc(ASSETS[asset].name)} damaged — repair ${money(repair)} from its panel`, 'bad', 'alert');
+  }
+  // streak: consecutive B-or-better real incidents add up to +50% XP
+  if (!inc.drill) S.streak = grade === 'A' || grade === 'B' ? S.streak + 1 : 0;
+  const xp = Math.round(score * (1 + 0.1 * Math.min(inc.drill ? 0 : S.streak, 5)));
+  S.xp += xp;
+  saveBest();
 
   const record = {
     scnId: scn.id, title: scn.title, drill: inc.drill, grade, score, q,
     respId: resp?.id || null, hit, n, fp, used: Math.round(inc.total - inc.left),
-    feeders, hours, fine, cost, rel: Math.round(rel), note,
+    feeders, hours, fine, cost, rel: Math.round(rel), note, damage, xp, streak: S.streak,
     tags: [...inc.tags], fps: [...inc.fps], fpOk, miss, m, clues: scn.clues, day: dayOf(S.T), clock: clockOf(S.T), startT: inc.startT,
   };
   S.history.push(record);
@@ -613,7 +656,7 @@ function resolve(resp) {
   buildPins();
   closeModal();
   renderBanner();
-  S.nextIncidentAt = S.T + rand(150, 260);
+  if (!inc.drill) S.nextIncidentAt = S.T + rand(150, 260);
   (grade === 'A' || grade === 'B') ? Snd.good() : Snd.bad();
   toast(`${inc.drill ? 'Drill' : 'Incident'} closed · grade ${grade}`, grade <= 'B' ? 'good' : 'bad', 'shield');
   alertLog(`${inc.drill ? 'Drill' : 'Incident'} closed: ${scn.title} · grade ${grade}`, grade <= 'B' ? 'good' : 'bad');
@@ -623,6 +666,40 @@ function resolve(resp) {
   if (scn.benign && q === 'best') questEvent('benign');
   renderAction();
   renderHUD();
+}
+
+// ---------- plant events ----------
+function plantEvent() {
+  const ev = PLANT_EVENTS[Math.floor(Math.random() * PLANT_EVENTS.length)];
+  S.nextEventAt = S.T + rand(300, 540);
+  let text = ev.text, kind = ev.kind;
+  if (ev.funds) { S.funds += ev.funds; if (ev.funds < 0) S.stats.spent -= ev.funds; }
+  if (ev.rel) S.reliability = clamp(S.reliability + ev.rel, 0, 100);
+  if (ev.demand) S.boost = { mult: ev.demand.mult, until: S.T + ev.demand.hours * 60 };
+  if (ev.outage) for (const f of ev.outage.feeders) {
+    const st = S.feeders[f];
+    st.on = false; st.until = Math.max(st.until, S.T + ev.outage.hours * 60);
+    world.setFeeder(f, false);
+  }
+  if (ev.audit) {
+    const lvl = securityLevel();
+    if (lvl >= 3) { S.funds += 50000; text += ` Security level ${lvl}: passed with a $50K efficiency bonus.`; kind = 'good'; }
+    else if (lvl === 2) { text += ' Security level 2: passed with recommendations.'; }
+    else { S.funds -= 75000; S.stats.fines += 75000; text += ' Security level 1: non-compliant, $75K fine.'; kind = 'bad'; }
+  }
+  toast(`${esc(ev.title)} — ${esc(text)}`, kind === 'good' ? 'good' : kind === 'bad' ? 'bad' : 'warn', ev.icon);
+  alertLog(`${ev.title}: ${text}`, kind === 'good' ? 'good' : kind === 'bad' ? 'bad' : 'info');
+  renderHUD();
+}
+
+// personal best XP, kept in this browser
+let bestXP = 0, bestToasted = false;
+try { bestXP = +localStorage.getItem('onsa.bestXP') || 0; } catch { /* storage unavailable */ }
+function saveBest() {
+  if (S.xp <= bestXP) return;
+  if (bestXP > 0 && !bestToasted) { toast(`New personal best: ${S.xp} XP`, 'good', 'trophy'); bestToasted = true; }
+  bestXP = S.xp;
+  try { localStorage.setItem('onsa.bestXP', String(bestXP)); } catch { /* storage unavailable */ }
 }
 
 // ---------- panels ----------
@@ -649,6 +726,8 @@ const PANELS = {
       eyebrow: a.level, title: a.name,
       html: `
         ${clueCount ? `<button class="btn danger block" data-act="clues:${id}" style="margin-bottom:10px">${icon('search')} ${clueCount} detections logged here</button>` : ''}
+        ${S.damaged[id] ? `<div class="box" style="box-shadow:inset 0 0 0 1px var(--red)"><b>Equipment damaged</b><p style="margin:4px 0 8px">A missed attack damaged this asset. Until it is repaired it drags revenue down and reliability cannot recover.</p>
+          <button class="btn danger block" data-act="repair:${id}" ${S.funds < S.damaged[id].cost ? 'disabled' : ''}>${icon('zap')} Repair for ${money(S.damaged[id].cost)}</button></div>` : ''}
         <p>${esc(a.desc)}</p>
         <div class="box"><div class="row between"><small>Status</small><span class="pill ${st.cls === 'ok' ? 'ok' : st.cls ? 'bad' : ''}">${esc(st.text)}</span></div>
         ${f ? `<div class="row between" style="margin-top:8px"><small>Load share</small><b>${Math.round(FEEDERS[f].share * 100)}% of revenue</b></div>` : ''}</div>
@@ -742,7 +821,8 @@ const PANELS = {
           <div class="kpi"><small>Attacks prevented</small><b>${S.stats.prevented}</b></div>
           <div class="kpi"><small>Honeypot trips</small><b>${S.owned.has('honeypot') ? S.stats.hpTrips || 0 : '—'}</b></div>
           <div class="kpi"><small>Average grade</small><b>${avg === null ? '—' : letterOf(avg)}</b></div>
-          <div class="kpi"><small>XP</small><b>${S.xp}</b></div>
+          <div class="kpi"><small>XP · best</small><b>${S.xp} · ${Math.max(bestXP, S.xp)}</b></div>
+          <div class="kpi"><small>Streak · damaged assets</small><b>${S.streak} · ${Object.keys(S.damaged).length}</b></div>
         </div>
         <div class="box"><small>Grid reliability</small><p style="margin:4px 0 0">${Math.round(S.reliability)}/100 — drops during outages and bad calls, recovers while every feeder is energized.</p></div>
         ${historyHTML()}`,
@@ -789,7 +869,7 @@ const PANELS = {
 
   debrief(idx) {
     const r = S.history[idx];
-    const scn = SCENARIOS.find(s => s.id === r.scnId);
+    const scn = scnById(r.scnId);
     const resp = scn.responses.find(x => x.id === r.respId);
     const best = scn.responses.find(x => x.q === 'best');
     const outage = r.hours > 0 ? `Feeder ${r.feeders.join(' + ')} · ${dur(r.hours * 60)}` : 'None';
@@ -805,7 +885,8 @@ const PANELS = {
           <span>Outage</span><span class="${r.hours ? 'bad' : 'good'}">${outage}</span>
           <span>Response cost + fines</span><span class="${r.fine ? 'bad' : ''}">${money(r.cost + r.fine)}</span>
           <span>Reliability</span><span class="${r.rel < 0 ? 'bad' : 'good'}">${r.rel > 0 ? '+' : ''}${r.rel}</span>
-          <span>XP</span><span class="good">+${r.score}</span>
+          <span>Equipment damage</span><span class="${r.damage ? 'bad' : 'good'}">${r.damage ? `${esc(ASSETS[r.damage.asset].short)} · repair ${money(r.damage.cost)}` : 'None'}</span>
+          <span>XP${r.streak > 1 ? ` · streak ×${r.streak}` : ''}</span><span class="good">+${r.xp ?? r.score}</span>
         </div>
         ${r.note ? `<div class="capnote">${esc(r.note)}</div>` : ''}
         <div class="box"><small>What happened</small><p style="margin:5px 0 0">${resp ? `<b>${esc(resp.title)}.</b> ${esc(resp.result)}` : esc(scn.timeout)}</p></div>
@@ -962,7 +1043,8 @@ function openHelp() {
     <p>Run ${esc(SITE.station)} for ${esc(SITE.utility)}. Earn revenue while feeders are energized, invest in controls, and triage incidents correctly.</p>
     <div class="help-grid">
       <div class="box"><b>Camera</b><p>Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom. The map rotates a full 360° — the camera bar on the right rotates 45°, spins 360°, toggles top-down and resets the view. Tap your persona’s name tag to change your name. Keys: <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>Space</kbd> pause, <kbd>1</kbd>–<kbd>3</kbd> speed, <kbd>Esc</kbd> close.</p></div>
-      <div class="box"><b>Incidents</b><p>When an alert fires the game clock stops and a decision timer starts. Open the magnifier pins, read each log line, mark it True Positive (part of the attack) or False Positive (benign), then respond or remediate.</p></div>
+      <div class="box"><b>Incidents</b><p>When an alert fires the game clock stops and a decision timer starts. Open the magnifier pins, read each log line, mark it True Positive (part of the attack) or False Positive (benign), then respond or remediate. Most alarms are faults, weather or authorised work; real attacks hide among them.</p></div>
+      <div class="box"><b>Consequences</b><p>Miss an attack, dismiss one of its lines as a False Positive or respond weakly, and equipment is damaged: smoke on the map, lower revenue and no reliability recovery until you repair it from its panel. Each day gets harder: less time to decide and more noise in the logs. B-or-better streaks add up to +50% XP.</p></div>
       <div class="box"><b>Grading</b><p>60% response quality, 30% detection accuracy (right True/False Positive calls earn points, wrong calls cost them), 10% speed. Treating an attack as a routine fault caps you at D; shutting the grid down yourself caps you at C.</p></div>
       <div class="box"><b>Controls</b><p>Some controls prevent a scenario outright. Visibility controls (inventory, monitoring, backups) add context chips to logs. The playbook annotates response options. Opex is charged daily.</p></div>
       <div class="box"><b>Network overlay</b><p>Blue conduits are protected or baseline, amber need a control, orange is internet-exposed. Red pulses are an attack path in progress.</p></div>
@@ -1043,7 +1125,19 @@ const ACTS = {
   fp: i => markClue(+i, 'fp'),
   respond: () => openRespond(),
   play: id => { const r = S.incident?.scn.responses.find(x => x.id === id); if (r) resolve(r); },
-  drill: id => { const s = SCENARIOS.find(x => x.id === id); if (s) startIncident(s, true); },
+  drill: id => { const s = scnById(id); if (s) startIncident(s, true); },
+  repair: id => {
+    const d = S.damaged[id];
+    if (!d) return;
+    if (S.funds < d.cost) { toast(`Not enough funds to repair ${esc(ASSETS[id].short)}`, 'bad'); return; }
+    S.funds -= d.cost;
+    S.stats.response += d.cost;
+    delete S.damaged[id];
+    world.setDamaged(id, false);
+    toast(`${esc(ASSETS[id].name)} repaired`, 'good', 'check');
+    alertLog(`${ASSETS[id].name} repaired for ${money(d.cost)}.`, 'good');
+    renderPanel(); renderHUD();
+  },
   skip: () => { if (!S.incident) { S.nextIncidentAt = S.T; triggerScheduled(false); } },
   debrief: i => openPanel('debrief', +i),
   close: () => closePanel(),
@@ -1159,4 +1253,4 @@ renderAction();
 requestAnimationFrame(frame);
 
 // exposed for debugging / trainer tooling in the console
-window.sentinel = { S, world, startIncident: id => startIncident(SCENARIOS.find(s => s.id === id), true) };
+window.sentinel = { S, world, startIncident: id => startIncident(scnById(id), true) };
