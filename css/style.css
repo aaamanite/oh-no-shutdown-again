@@ -78,6 +78,7 @@ small { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color
 .rail button:hover { transform: translateY(-1px); background: var(--panel-3); }
 .rail button.on { background: var(--mint); color: var(--mint-ink); }
 .rail .sep { height: 4px; }
+.rail button.txt { font-size: 11px; font-weight: 900; }
 
 /* ---------- dock ---------- */
 .dock { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; gap: 2px; background: var(--panel); border-radius: var(--radius); padding: 6px; box-shadow: var(--shadow); }
@@ -117,7 +118,7 @@ small { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color
 #sheet:not([hidden]) ~ .brand { display: none; }
 
 /* persona + instrument tags */
-.me { position: absolute; left: 0; top: 0; pointer-events: none; text-align: center; background: var(--mint); color: var(--mint-ink); border-radius: 9px; padding: 2px 8px 3px; box-shadow: 0 4px 12px rgba(0,0,0,.25); will-change: transform; }
+.me { position: absolute; left: 0; top: 0; pointer-events: auto; cursor: pointer; text-align: center; background: var(--mint); color: var(--mint-ink); border-radius: 9px; padding: 2px 8px 3px; box-shadow: 0 4px 12px rgba(0,0,0,.25); will-change: transform; }
 .me b { display: block; font-size: 11px; font-weight: 900; line-height: 1.1; }
 .me small { display: block; font-size: 8.5px; color: var(--mint-ink); opacity: .75; letter-spacing: .04em; }
 .me::after { content: ''; position: absolute; left: 50%; bottom: -4px; transform: translateX(-50%); border: 4px solid transparent; border-top-color: var(--mint); border-bottom: 0; }
@@ -271,6 +272,14 @@ small { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color
 .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .help-grid .box p { margin: 4px 0 0; font-size: 12.5px; color: #cfdad6; line-height: 1.45; }
 kbd { font-family: var(--mono); font-size: 11px; background: var(--panel-3); border-radius: 5px; padding: 1px 5px; }
+
+/* ---------- name input ---------- */
+.name-field { display: block; margin: 0 0 16px; }
+.name-field small { display: block; margin-bottom: 5px; }
+.name-field input, .text-input { width: 100%; font: inherit; font-size: 16px; font-weight: 800; color: var(--text); background: var(--panel-2); border: 1.5px solid var(--line); border-radius: 11px; padding: 10px 12px; outline: none; }
+.name-field input:focus, .text-input:focus { border-color: var(--mint); }
+.name-field input.error { border-color: var(--red); animation: shake .3s; }
+@keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 
 /* ---------- intro ---------- */
 #intro { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; background: radial-gradient(ellipse at center, rgba(16, 28, 28, .55), rgba(16, 28, 28, .82)); backdrop-filter: blur(2px); }

@@ -44,7 +44,8 @@ const S = {
   alerts: [], unread: 0,
   stats: { revenue: 0, fines: 0, spent: 0, response: 0, outageMin: 0, prevented: 0, customerMin: 0 },
   questIdx: 0, seen: new Set(),
-  panel: null, light: 'auto', sound: true, netVisible: true,
+  panel: null, light: 'auto', sound: true, netVisible: true, spin: false,
+  player: '',
 };
 
 // ---------- sound ----------
@@ -72,7 +73,7 @@ const Snd = {
 const world = new World($('#scene'));
 world.buildNetwork(CONDUITS);
 world.onPick = id => openAsset(id);
-world.controls.addEventListener('start', () => { if (S.started) questEvent('camera'); });
+world.controls.addEventListener('start', () => { if (S.spin) setSpin(false); if (S.started) questEvent('camera'); });
 
 // ---------- derived values ----------
 const securityLevel = () => Math.min(4, 1 + Math.floor(S.owned.size / 3));
@@ -131,7 +132,17 @@ let pinEls = {};
 
 const meEl = document.createElement('div');
 meEl.className = 'me';
-meEl.innerHTML = `<b>You</b><small>OT security lead · ${esc(SITE.utility)}</small>`;
+meEl.dataset.act = 'rename';
+meEl.title = 'Change your name';
+const NAME_KEY = 'onsa.playerName';
+function renderMe() { meEl.innerHTML = `<b>${esc(S.player || 'You')}</b><small>OT security lead · ${esc(SITE.utility)}</small>`; }
+function setPlayerName(name) {
+  S.player = name.trim().slice(0, 24);
+  try { localStorage.setItem(NAME_KEY, S.player); } catch { /* storage unavailable */ }
+  renderMe();
+}
+try { S.player = localStorage.getItem(NAME_KEY) || ''; } catch { S.player = ''; }
+renderMe();
 labelsEl.appendChild(meEl);
 
 const instEls = world.instruments.map(({ tag, pos }) => {
@@ -826,7 +837,7 @@ function openHelp() {
   openModal(`<small>How to play</small><h3>${esc(SITE.game)}</h3>
     <p>Run ${esc(SITE.station)} for ${esc(SITE.utility)}. Earn revenue while feeders are energized, invest in controls, and triage incidents correctly.</p>
     <div class="help-grid">
-      <div class="box"><b>Camera</b><p>Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom. Rail buttons rotate 45°, toggle top-down and reset. Keys: <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>Space</kbd> pause, <kbd>1</kbd>–<kbd>3</kbd> speed, <kbd>Esc</kbd> close.</p></div>
+      <div class="box"><b>Camera</b><p>Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom. The map rotates a full 360° — rail buttons rotate 45°, spin 360°, toggle top-down and reset. Tap your persona’s name tag to change your name. Keys: <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>Space</kbd> pause, <kbd>1</kbd>–<kbd>3</kbd> speed, <kbd>Esc</kbd> close.</p></div>
       <div class="box"><b>Incidents</b><p>When an alert fires the game clock stops and a decision timer starts. Open the magnifier pins, read each log line, tag the ones that belong to the attack, then play one response card.</p></div>
       <div class="box"><b>Grading</b><p>60% response quality, 30% clue accuracy (noise tagged as attack costs points), 10% speed. Treating an attack as a routine fault caps you at D; shutting the grid down yourself caps you at C.</p></div>
       <div class="box"><b>Controls</b><p>Some controls prevent a scenario outright. Visibility controls (inventory, monitoring, backups) add context chips to logs. The playbook annotates response cards. Opex is charged daily.</p></div>
@@ -868,6 +879,22 @@ function setNetVisible(v) {
   $('#rb-layers').classList.toggle('on', v);
 }
 
+function setSpin(on) {
+  S.spin = on;
+  world.setSpin(on);
+  $('#rb-spin').classList.toggle('on', on);
+}
+
+function openRename() {
+  openModal(`<small>Persona</small><h3>Your name</h3><p>Shown above your persona on the map.</p>
+    <input id="rename-input" class="text-input" maxlength="24" value="${esc(S.player)}" autocomplete="off" spellcheck="false">
+    <div class="modal-foot"><button class="btn ghost" data-act="close-modal">Cancel</button><button class="btn primary" data-act="save-name">Save</button></div>`);
+  const inp = $('#rename-input');
+  inp.focus();
+  inp.select();
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') ACTS['save-name'](); });
+}
+
 const LIGHT_MODES = ['auto', 'day', 'night'];
 function renderRail() {
   $('#rb-light').innerHTML = icon(S.light === 'auto' ? 'auto' : S.light === 'day' ? 'sun' : 'moon');
@@ -897,6 +924,14 @@ const ACTS = {
   'close-modal': () => closeModal(),
   quest: () => questAction(),
   restart: () => location.reload(),
+  rename: () => openRename(),
+  'save-name': () => {
+    const v = $('#rename-input')?.value.trim();
+    if (!v) { $('#rename-input')?.focus(); return; }
+    setPlayerName(v);
+    closeModal();
+    toast(`Name set: ${esc(S.player)}`, 'good', 'check');
+  },
 };
 
 document.addEventListener('click', e => {
@@ -920,6 +955,7 @@ $('#rb-top').addEventListener('click', () => { world.toggleTop(); questEvent('ca
 $('#rb-zin').addEventListener('click', () => world.zoom(0.75));
 $('#rb-zout').addEventListener('click', () => world.zoom(1.33));
 $('#rb-reset').addEventListener('click', () => world.resetView());
+$('#rb-spin').addEventListener('click', () => { setSpin(!S.spin); questEvent('camera'); });
 $('#rb-help').addEventListener('click', openHelp);
 
 window.addEventListener('keydown', e => {
@@ -934,12 +970,19 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'e' || e.key === 'E') { world.rotate(45); questEvent('camera'); }
 });
 
+const nameInput = $('#player-name');
+nameInput.value = S.player;
+nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') $('#start').click(); });
+nameInput.addEventListener('input', () => nameInput.classList.remove('error'));
 $('#start').addEventListener('click', () => {
+  const name = nameInput.value.trim();
+  if (!name) { nameInput.classList.add('error'); nameInput.focus(); return; }
+  setPlayerName(name);
   Snd.init();
   $('#intro').remove();
   S.started = true;
   alertLog(`${SITE.utility}: shift started at ${SITE.station}.`);
-  toast('Welcome to Kestrel Point. Follow the quest card to get started.', 'good', 'zap');
+  toast(`Welcome to Kestrel Point, ${esc(S.player)}. Follow the quest card to get started.`, 'good', 'zap');
   renderAction();
   renderHUD();
 });

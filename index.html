@@ -56,6 +56,7 @@
     <span class="sep"></span>
     <button id="rb-rotl" data-icon="rotl" title="Rotate left (Q)"></button>
     <button id="rb-top" data-icon="compass" title="Top-down / perspective"></button>
+    <button id="rb-spin" class="txt" title="Spin the map 360°">360°</button>
     <button id="rb-rotr" data-icon="rotr" title="Rotate right (E)"></button>
     <span class="sep"></span>
     <button id="rb-zin" data-icon="plus" title="Zoom in"></button>
@@ -103,9 +104,12 @@
         <li><b>Invest in controls.</b> Asset inventory, monitoring, segmentation, MFA, backups — each one prevents or exposes real attack techniques.</li>
         <li><b>Triage incidents.</b> Read what each system logged, tag what is the attack, then play a response card. Overreacting is a failure too.</li>
       </ul>
+      <label class="name-field" for="player-name"><small>Your name</small>
+        <input id="player-name" maxlength="24" placeholder="Type your name" autocomplete="off" spellcheck="false">
+      </label>
       <div class="intro-actions">
         <button class="btn primary" id="start">Start shift</button>
-        <span class="hint">Drag to pan · right-drag to rotate · scroll to zoom</span>
+        <span class="hint">Drag to pan · right-drag to rotate 360° · scroll to zoom</span>
       </div>
     </div>
   </div>

@@ -224,6 +224,7 @@ export class World {
     const radius = THREE.MathUtils.clamp(s.radius * f, this.controls.minDistance, this.controls.maxDistance);
     this.animateTo(this.controls.target, { radius, phi: s.phi, theta: s.theta }, 0.35);
   }
+  setSpin(on) { this.controls.autoRotate = on; this.controls.autoRotateSpeed = 1.6; }
   resetView() { this.animateTo(this.home.target, this.home, 0.8); }
   toggleTop() {
     const s = this.spherical();
@@ -314,50 +315,99 @@ export class World {
     const p = (this.persona = new THREE.Group());
     const body = new THREE.Group();
     p.add(body);
-    const HIVIS = 0xf07c1e, STRIPE = 0xe6edf0, SKIN = 0xd6a47a, BOOT = 0x2b2b2b, HELMET = 0xf7f7f2;
+    const NAVY = 0x26417a, POCKET = 0x203766, SILVER = 0xd8dee2, VEST = 0xf2d22e, TRIM = 0xf08a24;
+    const SKIN = 0xd6a47a, BOOT = 0x222222, HELMET = 0xf7f7f2;
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
     const limb = (w, h, d) => { const geo = new THREE.BoxGeometry(w, h, d); geo.translate(0, -h / 2, 0); return geo; };
     const part = (parent, geo, color, x, y, z) => add(parent, geo, mat(color), x, y, z);
+    const slab = (parent, color, x, y, z, w, h, d) => { const m = part(parent, BOX, color, x, y, z); m.scale.set(w, h, d); return m; };
 
+    // navy work trousers: reflective bands below the knee, cargo pockets, black safety boots
     this.legs = [-0.17, 0.17].map(x => {
       const leg = new THREE.Group();
       leg.position.set(x, 0.95, 0);
-      part(leg, limb(0.3, 0.8, 0.32), HIVIS, 0, 0, 0);
-      part(leg, BOX, STRIPE, 0, -0.55, 0).scale.set(0.32, 0.07, 0.34);
-      part(leg, BOX, BOOT, 0, -0.86, 0.04).scale.set(0.32, 0.18, 0.42);
+      part(leg, limb(0.3, 0.82, 0.32), NAVY, 0, 0, 0);
+      for (const y of [-0.6, -0.68]) slab(leg, SILVER, 0, y, 0, 0.32, 0.04, 0.34);
+      slab(leg, POCKET, Math.sign(x) * 0.16, -0.36, 0, 0.04, 0.18, 0.2);
+      slab(leg, BOOT, 0, -0.87, 0.04, 0.32, 0.17, 0.42);
       body.add(leg);
       return leg;
     });
-    part(body, BOX, HIVIS, 0, 1.36, 0).scale.set(0.72, 0.84, 0.4);
-    for (const y of [1.18, 1.42]) part(body, BOX, STRIPE, 0, y, 0).scale.set(0.74, 0.07, 0.42);
-    for (const x of [-0.2, 0.2]) part(body, BOX, STRIPE, x, 1.62, 0).scale.set(0.07, 0.2, 0.42);
-    this.arms = [-0.47, 0.47].map(x => {
-      const arm = new THREE.Group();
-      arm.position.set(x, 1.74, 0);
-      part(arm, limb(0.2, 0.68, 0.22), HIVIS, 0, 0, 0);
-      part(arm, BOX, STRIPE, 0, -0.42, 0).scale.set(0.22, 0.06, 0.24);
-      part(arm, BOX, SKIN, 0, -0.76, 0).scale.set(0.16, 0.16, 0.16);
-      body.add(arm);
-      return arm;
+
+    // navy long-sleeve coverall top under an open-front hi-vis vest with orange trim
+    slab(body, NAVY, 0, 1.36, 0, 0.7, 0.84, 0.38);
+    slab(body, NAVY, 0, 1.79, 0, 0.3, 0.06, 0.3);
+    for (const s of [-1, 1]) {
+      slab(body, VEST, s * 0.215, 1.34, 0.2, 0.27, 0.8, 0.03);
+      slab(body, VEST, s * 0.358, 1.34, 0, 0.03, 0.8, 0.4);
+      slab(body, TRIM, s * 0.095, 1.34, 0.218, 0.05, 0.8, 0.012);
+      slab(body, TRIM, s * 0.33, 1.34, 0.218, 0.04, 0.8, 0.012);
+    }
+    slab(body, VEST, 0, 1.34, -0.2, 0.72, 0.8, 0.03);
+    slab(body, TRIM, 0, 0.97, 0, 0.74, 0.07, 0.44);
+
+    // two-segment arms: navy sleeves with reflective bands, skin hands
+    this.arms = [-0.45, 0.45].map(x => {
+      const sh = new THREE.Group();
+      sh.position.set(x, 1.72, 0);
+      part(sh, limb(0.2, 0.36, 0.22), NAVY, 0, 0, 0);
+      for (const y of [-0.12, -0.2]) slab(sh, SILVER, 0, y, 0, 0.215, 0.035, 0.235);
+      const el = new THREE.Group();
+      el.position.y = -0.36;
+      part(el, limb(0.18, 0.32, 0.2), NAVY, 0, 0, 0);
+      slab(el, SKIN, 0, -0.39, 0, 0.15, 0.15, 0.15);
+      sh.add(el);
+      body.add(sh);
+      return { sh, el };
     });
-    part(body, BOX, SKIN, 0, 1.83, 0).scale.set(0.16, 0.1, 0.16);
-    part(body, new THREE.SphereGeometry(0.21, 14, 10), SKIN, 0, 2.02, 0);
-    part(body, BOX, 0x1f2a33, 0, 2.05, 0.18).scale.set(0.3, 0.07, 0.06); // safety glasses
-    part(body, DOME, HELMET, 0, 2.1, 0).scale.set(0.25, 0.22, 0.27);
-    part(body, new THREE.CylinderGeometry(0.29, 0.29, 0.03, 18), HELMET, 0, 2.1, 0.03);
-    part(body, BOX, HELMET, 0, 2.1, 0.26).scale.set(0.24, 0.03, 0.14); // peak
-    // ONSA Power & Co. prints: chest, back and helmet
-    const print = (lines, w, h, pw, ph, x, y, z, ry = 0, rx = 0) => {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), new THREE.MeshStandardMaterial({ map: textTexture(lines, w, h), transparent: true, alphaTest: 0.2, roughness: 0.8 }));
+
+    // head, clear safety glasses, white helmet
+    slab(body, SKIN, 0, 1.86, 0, 0.16, 0.08, 0.16);
+    part(body, new THREE.SphereGeometry(0.25, 16, 12), SKIN, 0, 2.08, 0);
+    for (const s of [-1, 1]) part(body, new THREE.SphereGeometry(0.06, 8, 6), SKIN, s * 0.25, 2.06, -0.01);
+    const lens = new THREE.Mesh(BOX, new THREE.MeshStandardMaterial({ color: 0xcfe8ff, transparent: true, opacity: 0.35, roughness: 0.1 }));
+    lens.scale.set(0.38, 0.09, 0.03);
+    lens.position.set(0, 2.11, 0.235);
+    body.add(lens);
+    slab(body, 0x9aa3a8, 0, 2.16, 0.236, 0.4, 0.015, 0.035);
+    part(body, DOME, HELMET, 0, 2.17, 0).scale.set(0.29, 0.26, 0.31);
+    part(body, new THREE.CylinderGeometry(0.33, 0.33, 0.03, 20), HELMET, 0, 2.17, 0.02);
+    slab(body, HELMET, 0, 2.17, 0.3, 0.28, 0.03, 0.14);
+    slab(body, HELMET, 0, 2.38, 0, 0.06, 0.06, 0.5); // crown ridge
+
+    // ONSA Power & Co. prints: vest chest, vest back, helmet sticker
+    const print = (lines, w, h, pw, ph, x, y, z, ry = 0, rx = 0, bg = null) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), new THREE.MeshStandardMaterial({ map: textTexture(lines, w, h, bg), transparent: !bg, alphaTest: bg ? 0 : 0.2, roughness: 0.8 }));
       m.position.set(x, y, z);
       m.rotation.set(rx, ry, 0);
       body.add(m);
     };
-    const ONSA = (c, k = 1) => [{ text: 'ONSA', size: 118 * k, y: 72 * k, color: c }, { text: 'POWER & CO.', size: 44 * k, y: 158 * k, color: c, weight: 800 }];
-    print(ONSA(BRAND.navy), 512, 200, 0.52, 0.16, 0, 1.3, 0.203);
-    print(ONSA(BRAND.navy), 512, 200, 0.56, 0.17, 0, 1.3, -0.203, Math.PI);
-    print([{ text: 'ONSA', size: 150, y: 64, color: BRAND.navy }], 512, 128, 0.22, 0.07, 0, 2.2, 0.25, 0, -0.45);
+    const ONSA = c => [{ text: 'ONSA', size: 118, y: 72, color: c }, { text: 'POWER & CO.', size: 44, y: 158, color: c, weight: 800 }];
+    print(ONSA(BRAND.navy), 512, 200, 0.2, 0.08, 0.215, 1.56, 0.217);
+    print(ONSA(BRAND.navy), 512, 200, 0.6, 0.23, 0, 1.42, -0.217, Math.PI);
+    print([{ text: 'ONSA', size: 96, y: 64, color: BRAND.white }], 384, 128, 0.17, 0.055, 0, 2.27, 0.27, 0, -0.5, '#2f6fb5');
+    // coverall tags: sleeve patch on each arm, label on the front of the left trouser leg
+    const tagTex = textTexture([{ text: 'ONSA', size: 104, y: 70, color: BRAND.white }, { text: 'POWER & CO.', size: 40, y: 150, color: BRAND.white, weight: 800 }], 384, 200, BRAND.navy);
+    const tagMat = new THREE.MeshStandardMaterial({ map: tagTex, roughness: 0.8 });
+    this.arms.forEach(({ sh }, i) => {
+      const patch = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.08), tagMat);
+      const s = i ? 1 : -1;
+      patch.position.set(s * 0.102, -0.28, 0);
+      patch.rotation.y = s * Math.PI / 2;
+      sh.add(patch);
+    });
+    const legTag = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.09), tagMat);
+    legTag.position.set(0, -0.22, 0.162);
+    this.legs[1].add(legTag);
     body.scale.setScalar(1.8);
     this.body = body;
+
+    // poses as joint quaternions: idle "thinking" (hand to chin, other arm across) vs walking
+    const qDir = d => new THREE.Quaternion().setFromUnitVectors(V(0, -1, 0), d.normalize());
+    const pose = (upper, fore) => { const sh = qDir(upper); return { sh, el: sh.clone().invert().multiply(qDir(fore)) }; };
+    this.thinkPose = [pose(V(0.15, -0.29, 0.2), V(0.27, 0.36, 0.05)), pose(V(-0.07, -0.32, 0.18), V(-0.62, 0.02, 0.05))];
+    this._q = new THREE.Quaternion();
+    this._e = new THREE.Euler();
 
     const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.9, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false }));
     shadow.rotation.x = -Math.PI / 2;
@@ -386,7 +436,7 @@ export class World {
     const h = this.hubs[id];
     if (h) this.walkTo(h.x, h.z + 1.5);
   }
-  personaAnchor() { return this.persona.position.clone().setY(5.4); }
+  personaAnchor() { return this.persona.position.clone().setY(5.8); }
 
   updatePersona(dt) {
     const p = this.persona;
@@ -414,8 +464,13 @@ export class World {
     const k = Math.min(1, dt * 10);
     this.legs[0].rotation.x += (swing - this.legs[0].rotation.x) * k;
     this.legs[1].rotation.x += (-swing - this.legs[1].rotation.x) * k;
-    this.arms[0].rotation.x += (-swing * 0.8 - this.arms[0].rotation.x) * k;
-    this.arms[1].rotation.x += (swing * 0.8 - this.arms[1].rotation.x) * k;
+    this.arms.forEach((arm, i) => {
+      const target = moving
+        ? { sh: this._q.clone().setFromEuler(this._e.set((i ? swing : -swing) * 0.8, 0, i ? -0.06 : 0.06)), el: new THREE.Quaternion().setFromEuler(this._e.set(-0.35, 0, 0)) }
+        : this.thinkPose[i];
+      arm.sh.quaternion.slerp(target.sh, k);
+      arm.el.quaternion.slerp(target.el, k);
+    });
     this.body.position.y = moving ? Math.abs(Math.sin(this.walkPhase)) * 0.18 : 0;
     if (this.marker.visible) this.marker.scale.setScalar(1 + 0.15 * Math.sin(this._t * 6));
   }
