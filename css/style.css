@@ -290,8 +290,8 @@ kbd { font-family: var(--mono); font-size: 11px; background: var(--panel-3); bor
 @keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 
 /* ---------- intro ---------- */
-#intro { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; background: radial-gradient(ellipse at center, rgba(16, 28, 28, .55), rgba(16, 28, 28, .82)); backdrop-filter: blur(2px); }
-.intro-card { max-width: 560px; background: var(--panel); border-radius: 22px; padding: 28px; box-shadow: var(--shadow); }
+#intro { position: fixed; inset: 0; z-index: 40; display: flex; overflow-y: auto; padding: 16px; background: radial-gradient(ellipse at center, rgba(16, 28, 28, .55), rgba(16, 28, 28, .82)); backdrop-filter: blur(2px); }
+.intro-card { max-width: 560px; margin: auto; background: var(--panel); border-radius: 22px; padding: 28px; box-shadow: var(--shadow); }
 .intro-card .logo { width: 48px; height: 48px; border-radius: 14px; background: var(--mint); color: var(--mint-ink); display: grid; place-items: center; margin-bottom: 12px; }
 .intro-card .logo .ic { width: 26px; height: 26px; }
 .intro-card h1 { font-size: 34px; font-weight: 900; margin: 4px 0 10px; letter-spacing: -.01em; }
