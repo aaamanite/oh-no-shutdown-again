@@ -5,7 +5,7 @@ export const SITE = {
   game: 'Oh no! shutdown again?',
   utility: 'ONSA Power & Co.',
   station: 'PMU Bukit Mutiara 132/33 kV',
-  researcher: 'Dr. Nurul Aisyah',
+  researcher: 'Prof. Dr. Hanafiya',
 };
 
 export const ASSETS = {
