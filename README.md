@@ -9,7 +9,7 @@ A 3D, browser-based OT/ICS security training game. You are the OT security lead 
 ## The site
 
 - **Substation** — 132/33 kV switchyard, control house, SCADA control center, OT DMZ, corporate HQ, and the town it feeds (homes + hospital).
-- **POME biogas plant** — raw POME pond (pump, electromagnetic flowmeter) → mixing pit (mixer, level transmitter) → AD tank & covered lagoon → H₂S scrubber → genset, each gas stage with ultrasonic flowmeter, pressure and temperature transmitters on the pipeline, plus a gas analyzer at the genset inlet. Flaring system with ultrasonic flowmeter and pilot/ignition system. All valves are motorized (MOV). Zoom in to see every tag; click one for what it measures, its signal to the PLC, and why an attacker cares.
+- **POME biogas plant** — raw POME pond (pump, electromagnetic flowmeter) → mixing pit (mixer, level transmitter) → AD tank & covered lagoon → H₂S scrubber → genset, each gas stage with ultrasonic flowmeter, pressure and temperature transmitters on the pipeline, plus a gas analyzer sampling before and after the scrubber. Flowmeters and the gas analyzer talk Modbus; pressure, temperature and level transmitters are 4–20 mA. Flaring system with ultrasonic flowmeter and pilot/ignition system. All valves are motorized (MOV). Zoom in to see every tag; click one for what it measures, its signal to the PLC, and why an attacker cares.
 - **You** — a persona in hi-vis coverall and white helmet. Click anywhere on the map and they walk there; click an asset and they walk to it.
 
 ## How it plays

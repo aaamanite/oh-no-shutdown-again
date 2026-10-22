@@ -51,37 +51,40 @@ export const ASSETS = {
   biogas: {
     name: 'POME biogas plant', short: 'Biogas plant', level: 'Generation · 11/132 kV', icon: 'flame',
     desc: 'Palm oil mill effluent (POME) is pumped from the raw pond to the mixing pit, digested in the AD tank and covered lagoon, cleaned of H₂S in the scrubber and burned in the genset. Surplus gas goes to the flare. A PLC in the MCC room reads every transmitter on the pipelines and drives the motorized valves.',
-    protocols: ['4–20 mA HART', 'Modbus RTU', 'Modbus TCP', 'IEC 60870-5-104'],
+    protocols: ['4–20 mA', 'Modbus RTU', 'Modbus TCP', 'IEC 60870-5-104'],
   },
 };
 
 // Biogas plant instruments, in process order. Positions live in world.js (by tag).
 export const PROCESS = ['Raw POME pond', 'Mixing pit', 'AD tank & covered lagoon', 'Scrubber', 'Genset', 'Flaring system', 'Control'];
 const MOV = 'DO open/close · DI limit switches';
+const MB = 'Modbus RTU (RS-485)';
+const AI = '4–20 mA analog';
 export const INSTRUMENTS = [
   { tag: 'P-101', stage: 'Raw POME pond', name: 'POME feed pump', kind: 'Pump · VFD driven', signal: 'Modbus RTU (VFD)' },
   { tag: 'MOV-101', stage: 'Raw POME pond', name: 'Feed line motorized valve', kind: 'Motorized valve', signal: MOV },
-  { tag: 'FIT-101', stage: 'Raw POME pond', name: 'Electromagnetic flowmeter', kind: 'Flow · raw POME (m³/h)', signal: '4–20 mA HART' },
+  { tag: 'FIT-101', stage: 'Raw POME pond', name: 'Electromagnetic flowmeter', kind: 'Flow · raw POME (m³/h)', signal: MB },
   { tag: 'M-201', stage: 'Mixing pit', name: 'Mixer', kind: 'Agitator motor', signal: 'MCC starter · run/trip' },
-  { tag: 'LIT-201', stage: 'Mixing pit', name: 'Level transmitter', kind: 'Level · radar (m)', signal: '4–20 mA HART' },
+  { tag: 'LIT-201', stage: 'Mixing pit', name: 'Level transmitter', kind: 'Level · radar (m)', signal: AI },
   { tag: 'MOV-201', stage: 'Mixing pit', name: 'Digester feed motorized valve', kind: 'Motorized valve', signal: MOV },
   { tag: 'MOV-301', stage: 'AD tank & covered lagoon', name: 'Tank-to-lagoon motorized valve', kind: 'Motorized valve', signal: MOV },
-  { tag: 'FIT-301', stage: 'AD tank & covered lagoon', name: 'Ultrasonic flowmeter', kind: 'Flow · raw biogas (Nm³/h)', signal: 'Modbus RTU' },
-  { tag: 'PIT-301', stage: 'AD tank & covered lagoon', name: 'Pressure transmitter', kind: 'Pressure · gas header (mbar)', signal: '4–20 mA HART' },
-  { tag: 'TIT-301', stage: 'AD tank & covered lagoon', name: 'Temperature transmitter', kind: 'Temperature · gas header (°C)', signal: '4–20 mA HART' },
+  { tag: 'FIT-301', stage: 'AD tank & covered lagoon', name: 'Ultrasonic flowmeter', kind: 'Flow · raw biogas (Nm³/h)', signal: MB },
+  { tag: 'PIT-301', stage: 'AD tank & covered lagoon', name: 'Pressure transmitter', kind: 'Pressure · gas header (mbar)', signal: AI },
+  { tag: 'TIT-301', stage: 'AD tank & covered lagoon', name: 'Temperature transmitter', kind: 'Temperature · gas header (°C)', signal: AI },
   { tag: 'MOV-302', stage: 'Scrubber', name: 'Scrubber inlet motorized valve', kind: 'Motorized valve', signal: MOV },
+  { tag: 'AIT-301', stage: 'Scrubber', name: 'Gas analyzer · scrubber inlet', kind: 'CH₄ · CO₂ · H₂S · O₂ — raw biogas', signal: MB },
+  { tag: 'AIT-401', stage: 'Scrubber', name: 'Gas analyzer · scrubber outlet', kind: 'CH₄ · CO₂ · H₂S · O₂ — cleaned biogas', signal: MB },
   { tag: 'MOV-401', stage: 'Scrubber', name: 'Scrubber outlet motorized valve', kind: 'Motorized valve', signal: MOV },
-  { tag: 'FIT-401', stage: 'Scrubber', name: 'Ultrasonic flowmeter', kind: 'Flow · scrubbed biogas (Nm³/h)', signal: 'Modbus RTU' },
-  { tag: 'PIT-401', stage: 'Scrubber', name: 'Pressure transmitter', kind: 'Pressure · scrubber outlet (mbar)', signal: '4–20 mA HART' },
-  { tag: 'TIT-401', stage: 'Scrubber', name: 'Temperature transmitter', kind: 'Temperature · scrubber outlet (°C)', signal: '4–20 mA HART' },
+  { tag: 'FIT-401', stage: 'Scrubber', name: 'Ultrasonic flowmeter', kind: 'Flow · scrubbed biogas (Nm³/h)', signal: MB },
+  { tag: 'PIT-401', stage: 'Scrubber', name: 'Pressure transmitter', kind: 'Pressure · scrubber outlet (mbar)', signal: AI },
+  { tag: 'TIT-401', stage: 'Scrubber', name: 'Temperature transmitter', kind: 'Temperature · scrubber outlet (°C)', signal: AI },
   { tag: 'MOV-501', stage: 'Genset', name: 'Genset gas train motorized valve', kind: 'Motorized valve', signal: MOV },
-  { tag: 'FIT-501', stage: 'Genset', name: 'Ultrasonic flowmeter', kind: 'Flow · genset fuel gas (Nm³/h)', signal: 'Modbus RTU' },
-  { tag: 'PIT-501', stage: 'Genset', name: 'Pressure transmitter', kind: 'Pressure · genset inlet (mbar)', signal: '4–20 mA HART' },
-  { tag: 'TIT-501', stage: 'Genset', name: 'Temperature transmitter', kind: 'Temperature · genset inlet (°C)', signal: '4–20 mA HART' },
-  { tag: 'AIT-501', stage: 'Genset', name: 'Gas analyzer', kind: 'CH₄ · CO₂ · H₂S · O₂', signal: 'Modbus TCP' },
+  { tag: 'FIT-501', stage: 'Genset', name: 'Ultrasonic flowmeter', kind: 'Flow · genset fuel gas (Nm³/h)', signal: MB },
+  { tag: 'PIT-501', stage: 'Genset', name: 'Pressure transmitter', kind: 'Pressure · genset inlet (mbar)', signal: AI },
+  { tag: 'TIT-501', stage: 'Genset', name: 'Temperature transmitter', kind: 'Temperature · genset inlet (°C)', signal: AI },
   { tag: 'G-501', stage: 'Genset', name: 'Biogas genset', kind: 'Gas engine-generator', signal: 'Genset controller · Modbus TCP' },
   { tag: 'MOV-601', stage: 'Flaring system', name: 'Flare motorized valve', kind: 'Motorized valve', signal: MOV },
-  { tag: 'FIT-601', stage: 'Flaring system', name: 'Ultrasonic flowmeter', kind: 'Flow · flared biogas (Nm³/h)', signal: 'Modbus RTU' },
+  { tag: 'FIT-601', stage: 'Flaring system', name: 'Ultrasonic flowmeter', kind: 'Flow · flared biogas (Nm³/h)', signal: MB },
   { tag: 'MOV-602', stage: 'Flaring system', name: 'Pilot gas motorized valve', kind: 'Motorized valve', signal: MOV },
   { tag: 'BMS-601', stage: 'Flaring system', name: 'Pilot & ignition panel', kind: 'Pilot burner, igniter, flame detection', signal: 'Hardwired to PLC' },
   { tag: 'PLC-01', stage: 'Control', name: 'Plant PLC / MCC room', kind: 'PLC, motor control centre, Modbus gateway', signal: 'Modbus TCP · IEC 104 to SCADA' },
@@ -90,11 +93,11 @@ export const INSTRUMENTS = [
 // Why each instrument matters to an attacker.
 export function instrumentRisk(i) {
   if (i.tag.startsWith('MOV')) return 'One PLC output opens or closes this valve. Unauthorised commands can starve the genset, back up the digester or send biogas to the flare.';
-  if (i.tag === 'AIT-501') return 'If CH₄ or H₂S readings are spoofed, the genset runs on bad gas (engine damage) or trips for nothing.';
+  if (i.tag.startsWith('AIT')) return 'Inlet vs outlet readings tell operators whether the scrubber is working. Spoof them over Modbus and the genset runs on sour gas (engine damage) or trips for nothing.';
   if (i.tag === 'BMS-601') return 'Lose the pilot while the PLC still believes it is lit and raw methane vents unburned — a safety and emissions event.';
   if (i.tag === 'PLC-01') return 'The crown jewel: every reading and valve in the plant passes through here, and it is reachable from SCADA over IEC 104.';
-  if (i.signal.startsWith('Modbus RTU')) return 'Readings cross a serial gateway on Modbus RTU: no authentication, so any master on the bus can read or write registers.';
-  if (i.signal.includes('HART')) return 'Analog loop to the PLC. HART lets a handheld or asset-management tool change range and damping — a quiet way to falsify a reading.';
+  if (i.signal === MB) return 'Readings cross a serial gateway on Modbus RTU: no authentication, so any master on the bus can read or write registers.';
+  if (i.signal === AI) return 'Analog 4–20 mA loop into a PLC input card — no network on the wire itself. But whoever can change the PLC’s scaling or alarm limits changes what operators see.';
   return 'Started and stopped from the MCC by the PLC. A forced stop or run breaks the process upstream or downstream.';
 }
 

@@ -806,14 +806,21 @@ export class World {
     tt('TIT-401', 24.4, GY, -43);
 
     // 5 · genset inlet train, gas analyzer, genset, step-up transformer
+    // gas analyzer: one shelter beside the MCC, two sample points — scrubber inlet and outlet
+    const TUBE = 0x9aa5ab;
+    const probe = (t, x, z) => { stem(x, GY, z, 0.6); box(g, 0.3, 0.3, 0.3, 0x8e5bb5, x, GY + 0.55, z); tag(t, x, GY + 1.5, z); };
+    probe('AIT-301', 16.2, HZ);
+    run([V(16.2, GY + 0.7, HZ), V(16.2, GY + 0.7, -37.2), V(19, GY + 0.7, -37.2), V(19, 1.5, -37.2)], 0.07, TUBE);
+    probe('AIT-401', 25.2, -43);
+    run([V(25.2, GY + 0.7, -43), V(25.2, GY + 0.7, -40.2), V(19.8, GY + 0.7, -40.2), V(19.8, GY + 0.7, -37.6), V(19.8, 1.5, -37.6)], 0.07, TUBE);
+    box(g, 1.3, 1.9, 0.8, 0xd7d2c4, 19.6, 0.12, -37.2);
+    box(g, 1.6, 0.1, 1.1, 0x6b7378, 19.6, 2.05, -37.2);
+    box(g, 0.5, 0.35, 0.05, 0x2f3438, 19.6, 1.2, -36.78);
+
     mov('MOV-501', 26, GY, -43, 'x', RG);
     usfm('FIT-501', 27.5, GY, -43, 'x', RG);
     pt('PIT-501', 29.4, GY, -43);
     tt('TIT-501', 30.8, GY, -43);
-    run([V(28.4, GY, -42.7), V(28.4, GY, -41.2), V(28.4, 1.5, -41.2)], 0.07, 0x9aa5ab);
-    box(g, 1.2, 1.8, 0.7, 0xd7d2c4, 28.4, 0.12, -40.6);
-    box(g, 1.5, 0.1, 1.0, 0x6b7378, 28.4, 1.95, -40.6);
-    tag('AIT-501', 28.4, 2.9, -40.6);
     box(g, 7, 3.4, 2.6, 0x3f6e58, 35.5, 0.12, -43);
     box(g, 2.2, 0.6, 2.2, 0x9aa3a8, 37.6, 3.52, -43);
     cyl(g, 0.3, 3, 0x8a9399, 33.6, 3.52, -43.6);
