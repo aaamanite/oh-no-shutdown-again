@@ -2,7 +2,7 @@
 
 **ONSA Power & Co.** — OT security simulator
 
-A 3D, browser-based OT/ICS security training game. You are the OT security lead at **Kestrel Point**, a 132/33 kV substation run by ONSA Power & Co. Keep the lights on, invest in security controls, and triage incidents modelled on real grid attacks.
+A 3D, browser-based OT/ICS security training game. You are the OT security lead at **PMU Bukit Mutiara**, a 132/33 kV substation run by ONSA Power & Co. Keep the lights on, invest in security controls, and triage incidents modelled on real grid attacks.
 
 **Play:** open `index.html` through any static web server (or GitHub Pages). No build step, no install.
 
@@ -57,4 +57,4 @@ Run locally:
 python -m http.server 8000
 ```
 
-Kestrel Point, its people, IP addresses and logs are fictional.
+Bukit Mutiara, its people, IP addresses and logs are fictional.

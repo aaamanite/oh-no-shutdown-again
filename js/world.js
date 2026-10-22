@@ -83,7 +83,10 @@ function textTexture(lines, w, h, bg) {
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     for (const L of lines) {
-      g.font = `${L.weight || 900} ${L.size}px Nunito, Arial, sans-serif`;
+      let size = L.size;
+      g.font = `${L.weight || 900} ${size}px Nunito, Arial, sans-serif`;
+      const fit = (w * 0.92) / g.measureText(L.text).width;
+      if (fit < 1) { size = Math.floor(size * fit); g.font = `${L.weight || 900} ${size}px Nunito, Arial, sans-serif`; }
       g.fillStyle = L.color;
       g.fillText(L.text, w / 2, L.y);
     }
@@ -317,9 +320,12 @@ export class World {
       { text: big, size: 150 * k, y: 120 * k, color: BRAND.amber },
       { text: sub, size: 54 * k, y: 232 * k, color: BRAND.white, weight: 800 },
     ];
-    this.sign(-24.2, 1.6, -5.8, 7, 2.2, 0, title('ONSA Power & Co.', 'Kestrel Point 132/33 kV Substation'));
+    this.sign(-24.2, 1.6, -5.8, 7, 2.2, 0, title('ONSA Power & Co.', 'PMU BUKIT MUTIARA · 132/33 kV'));
     this.sign(-48, 26, -26.3, 10, 2.8, 0, title('ONSA', 'POWER & CO. · HEADQUARTERS'), false);
     this.sign(-35.5, 1.6, -37.2, 7, 2.2, 0, title('ONSA Power & Co.', 'POME Biogas Plant'));
+    this.sign(69, 5.4, 20.7, 10, 1.6, 0, [
+      { text: 'HOSPITAL BUKIT MUTIARA', size: 90, y: 82, color: BRAND.white },
+    ], false);
   }
 
   // ---------- persona: the player, in hi-vis coverall and white helmet ----------
@@ -737,7 +743,7 @@ export class World {
       if (rand() > 0.15) house(gB, 'B', x, z);
     }
 
-    // St. Brigid Hospital (Feeder B)
+    // Hospital Bukit Mutiara (Feeder B)
     const hosp = new THREE.Mesh(new THREE.BoxGeometry(13, 8, 11), facadeMaterials(13, 8, 11, '#f4f2ec', '#5f88a8', 0xcfd3d4, 51));
     hosp.position.set(69, 4, 15);
     hosp.castShadow = hosp.receiveShadow = true;
@@ -999,8 +1005,8 @@ export class World {
     for (const x of [60.8, 83.2]) box(g, 0.15, 2.2, 3.2, 0xf1ead8, x, 0, 73);
     // college sign
     this.sign(54.5, 1.4, 46.5, 6, 1.8, 0, [
-      { text: 'KESTREL POINT', size: 120, y: 120, color: BRAND.amber },
-      { text: 'COLLEGE', size: 80, y: 230, color: BRAND.white, weight: 800 },
+      { text: 'KOLEJ KOMUNITI', size: 112, y: 120, color: BRAND.amber },
+      { text: 'BUKIT MUTIARA', size: 76, y: 230, color: BRAND.white, weight: 800 },
     ]);
   }
 

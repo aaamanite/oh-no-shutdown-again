@@ -4,7 +4,7 @@
 export const SITE = {
   game: 'Oh no! shutdown again?',
   utility: 'ONSA Power & Co.',
-  station: 'Kestrel Point 132/33 kV',
+  station: 'PMU Bukit Mutiara 132/33 kV',
 };
 
 export const ASSETS = {
@@ -45,7 +45,7 @@ export const ASSETS = {
   },
   townB: {
     name: 'Feeder B · Hospital', short: 'Feeder B', level: 'Critical load · 33 kV', icon: 'hospital',
-    desc: 'St. Brigid Hospital, the water pumping station and 3,100 commercial customers.',
+    desc: 'Hospital Bukit Mutiara, the water pumping station and 3,100 commercial customers.',
     protocols: [],
   },
   wind: {
@@ -70,7 +70,7 @@ export const ASSETS = {
   },
   townC: {
     name: 'Feeder C · College', short: 'Feeder C', level: 'Load · 33 kV', icon: 'school',
-    desc: 'Kestrel Point College: lecture halls, labs, two hostels, a library and the sports ground — 4,800 students and staff on 33 kV Feeder C.',
+    desc: 'Kolej Komuniti Bukit Mutiara: lecture halls, labs, two hostels, a library and the sports ground — 4,800 students and staff on 33 kV Feeder C.',
     protocols: [],
   },
   biogas: {
@@ -337,7 +337,7 @@ export const SCENARIOS = [
       },
       {
         asset: 'yard', src: 'Relay 87T-1 (GOOSE)', at: -12, attack: true,
-        text: 'gcRef=KPT_87T1/LLN0$GO$TripT1 stNum 18 -> 19\nsrc MAC 00:0c:29:7a:11:e3 (expected 00:30:a7:12:4c:01)',
+        text: 'gcRef=BMT_87T1/LLN0$GO$TripT1 stNum 18 -> 19\nsrc MAC 00:0c:29:7a:11:e3 (expected 00:30:a7:12:4c:01)',
         chips: [{ t: 'Publisher MAC mismatch', need: 'ids' }],
         why: 'GOOSE has no authentication by default. Anyone on the bus can publish a “trip” frame with the right name. The source is not the relay.',
         ttp: 'T0855 Unauthorized Command Message',
@@ -351,7 +351,7 @@ export const SCENARIOS = [
       },
       {
         asset: 'scc', src: 'Lightning network', at: -20, attack: false,
-        text: 'STRIKE · 3.2 km SW of Kestrel Point · 18 kA',
+        text: 'STRIKE · 3.2 km SW of Bukit Mutiara · 18 kA',
         chips: [{ t: 'Nearby strike' }],
         why: 'A real strike, and a coincidence. Lightning faults leave fault current, a distance-to-fault and a recloser cycle. This trip has none.',
       },
@@ -766,7 +766,7 @@ export const SCENARIOS = [
   },
 ];
 
-export const CHAPTERS = ['First shift at Kestrel Point', 'Harden the station'];
+export const CHAPTERS = ['First shift at Bukit Mutiara', 'Harden the station'];
 
 export const QUESTS = [
   { ch: 0, event: 'camera', icon: 'compass', reward: 0, action: 'rotate', title: 'Look around the site', desc: 'Drag to pan. Right-drag or two fingers to rotate. Scroll or pinch to zoom.' },

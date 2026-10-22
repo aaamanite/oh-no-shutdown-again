@@ -1039,7 +1039,7 @@ $('#start').addEventListener('click', () => {
   $('#intro').remove();
   S.started = true;
   alertLog(`${SITE.utility}: shift started at ${SITE.station}.`);
-  toast(`Welcome to Kestrel Point, ${esc(S.player)}. Follow the quest card to get started.`, 'good', 'zap');
+  toast(`Welcome to Bukit Mutiara, ${esc(S.player)}. Follow the quest card to get started.`, 'good', 'zap');
   renderAction();
   renderHUD();
 });
