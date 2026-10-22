@@ -585,17 +585,29 @@ export class World {
       s.add(m);
       return m;
     };
-    flat(26, 18, COL.grass, 113, 34);   // hospital park
+    flat(24, 14, COL.grass, 114, 32);   // hospital park
     flat(18, 14, COL.grass, -60, 34);   // control-center lawn
     flat(30, 10, 0x8a9096, -68, -12, 0.05); // HQ parking
 
-    // roads
-    this.roadSegs = [[-125, 0, -20, 0], [20, 0, 150, 0], [-50, -50, -50, 125], [105, -41, 105, 91], [123, -41, 123, 41]];
-    flat(105, 5, COL.road, -72.5, 0, 0.07);
-    flat(130, 5, COL.road, 85, 0, 0.07);
-    flat(4, 175, COL.road, -50, 37.5, 0.08);
-    flat(4, 132, COL.road, 105, 25, 0.08);
-    flat(4, 82, COL.road, 123, 0, 0.08);
+    // roads: trunk road through the substation gates, the IT spine road, town streets (Feeders A/B,
+    // continuing to the college on Feeder C), the southern road to the shopping complex (Feeder D),
+    // and the R&D centre access road
+    this.roadSegs = [
+      [-125, 0, -20, 0], [20, 0, 150, 0],          // trunk
+      [-50, -57.2, -50, 125],                       // IT spine, down to the biogas plant
+      [105, -41, 105, 91], [123, -41, 123, 41],     // town streets · Feeders A, B, C
+      [-48, 64, 103, 64],                           // southern road · Feeder D
+      [-16, 66, -16, 112], [-14, 109, -8, 109],     // shopping complex access + car park entrance
+      [-48, 87.5, -84, 87.5],                       // R&D centre access
+    ];
+    const road = (ax, az, bx, bz, w) => {
+      const len = Math.hypot(bx - ax, bz - az);
+      const m = flat(ax === bx ? w : len, ax === bx ? len : w, COL.road, (ax + bx) / 2, (az + bz) / 2, 0.07);
+      return m;
+    };
+    road(-125, 0, -20, 0, 5);
+    road(20, 0, 150, 0, 5);
+    for (const q of this.roadSegs.slice(2)) road(...q, 4);
     for (let x = -122; x < 148; x += 6) if (x < -22 || x > 22) flat(2.2, 0.25, 0xf1ead8, x, 0, 0.09);
 
     // parked cars at HQ
@@ -646,7 +658,7 @@ export class World {
 
     // circuit breakers
     this.breakers = [];
-    for (let x = -12; x <= 16; x += 4) {
+    for (let x = -12; x <= 12; x += 4) {
       box(g, 0.35, 1.3, 0.35, COL.steel, x, 0.15, -3);
       const cab = box(g, 1.3, 1, 0.9, 0xb9c1c5, x, 1.4, -3);
       this.breakers.push(cab);
@@ -654,10 +666,10 @@ export class World {
     }
 
     // busbar gantry (north) and outgoing gantry (east)
-    for (const x of [-14, 1, 16]) box(g, 0.5, 9, 0.5, COL.steel, x, 0.15, -9);
-    box(g, 31, 0.5, 0.5, COL.steel, 1, 9, -9);
+    for (const x of [-14, 0.5, 15]) box(g, 0.5, 9, 0.5, COL.steel, x, 0.15, -9);
+    box(g, 29.5, 0.5, 0.5, COL.steel, 0.5, 9, -9);
     for (const z of [-9.6, -9, -8.4]) {
-      const bus = add(g, CYL, mat(0xb8c0c4), 1, 6.4, z, 0.09, 30, 0.09);
+      const bus = add(g, CYL, mat(0xb8c0c4), 0.5, 6.4, z, 0.09, 29, 0.09);
       bus.rotation.z = Math.PI / 2;
     }
     for (const z of [-7, 7]) box(g, 0.5, 10, 0.5, COL.steel, 18.5, 0.15, z);
@@ -672,7 +684,7 @@ export class World {
       this.lamps[f] = lamp;
     }
     // lightning masts
-    for (const [x, z] of [[-19.6, -13.6], [19.6, 13.6], [-19.6, 13.6]]) cyl(g, 0.12, 15, COL.steelDark, x, 0, z);
+    for (const [x, z] of [[-19.7, -13.7], [19.7, 13.7], [-19.7, 13.7]]) cyl(g, 0.12, 15, COL.steelDark, x, 0, z);
   }
 
   buildControlHouse() {
@@ -705,14 +717,14 @@ export class World {
     this.hpLight = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), new THREE.MeshBasicMaterial({ color: 0xf2b33d }));
     this.hpLight.position.set(-0.35, 2.05, 0);
     g.add(this.hpLight);
-    g.position.set(-8.6, 0.15, 9.8);
+    g.position.set(-7.2, 0.15, 10.6);
     g.visible = false;
     this.areas.yard.add(g);
     this.hpAlarm = false;
   }
   setHoneypot(on) { this.honeypot.visible = on; }
   setHoneypotAlarm(on) { this.hpAlarm = on; }
-  honeypotAnchor() { return new THREE.Vector3(-8.6, 3.4, 9.8); }
+  honeypotAnchor() { return new THREE.Vector3(-7.2, 3.4, 10.6); }
 
   buildCorporate() {
     const g = this.group('corp');
@@ -1373,11 +1385,11 @@ export class World {
     const routes = [
       { pts: [[24, -5], [40, -9], [56, -13], [72, -17], [88, -20]], h: 13, tag: '33 kV Feeder A · Homes' },
       { pts: [[24, 5], [40, 9], [56, 13], [72, 17], [88, 20]], h: 13, tag: '33 kV Feeder B · Hospital' },
-      { pts: [[16, 17], [30, 32], [46, 46], [62, 58], [78, 67], [91, 73]], h: 13, tag: '33 kV Feeder C · College' },
-      { pts: [[6, 17], [7, 34], [7, 51], [7, 68], [8, 83]], h: 13, tag: '33 kV Feeder D · Shopping complex' },
-      { pts: [[-6, 17], [-18, 34], [-36, 48], [-60, 60], [-84, 70], [-104, 77]], h: 15, tag: '132 kV Line 3 · Solar farm' },
-      { pts: [[0, -16], [0, -28], [8, -40], [20, -50], [31, -55]], h: 15, tag: '132 kV Line 1 · Genset G-501' },
-      { pts: [[22, -17], [34, -28], [44, -40], [50, -54], [53, -67]], h: 15, tag: '132 kV Line 2 · Genset G-502 + wind' },
+      { pts: [[16, 17], [30, 32], [46, 46], [62, 57], [78, 70], [91, 74]], h: 13, tag: '33 kV Feeder C · College' },
+      { pts: [[6, 17], [7, 34], [7, 51], [8, 74]], h: 13, tag: '33 kV Feeder D · Shopping complex' },
+      { pts: [[-6, 17], [-18, 34], [-36, 48], [-60, 58], [-84, 71], [-100, 74]], h: 15, tag: '132 kV Line 3 · Solar farm' },
+      { pts: [[0, -16], [0, -28], [8, -40], [20, -49], [32, -51.5]], h: 15, tag: '132 kV Line 1 · Genset G-501' },
+      { pts: [[22, -17], [34, -28], [44, -40], [54, -51], [56, -65]], h: 15, tag: '132 kV Line 2 · Genset G-502 + wind' },
     ];
     this.lineTags = [];
     this.lineSegs = [];
@@ -1390,72 +1402,71 @@ export class World {
   }
 
   // ---------- green safety walkpaths with yellow edges around the equipment ----------
+  // Laid by hand: 2 m wide, mitred corners, ≥0.8 m clear of equipment, and ending flush at road edges.
+  // Side paths start at the outer edge of the path they join, so edge lines stay unbroken.
   buildWalkpaths() {
-    const segs = this.roadSegs.map(r => [...r]);
-    const walks = [];
-    const loop = (x1, z1, x2, z2, sides = 'nesw') => {
-      const out = [];
-      if (sides.includes('n')) out.push([x1, z1, x2, z1]);
-      if (sides.includes('e')) out.push([x2, z1, x2, z2]);
-      if (sides.includes('s')) out.push([x2, z2, x1, z2]);
-      if (sides.includes('w')) out.push([x1, z2, x1, z1]);
-      return out;
-    };
-    const keep = own => { this.linkUp([...segs, ...walks], own, walks); walks.push(...own); };
-    // substation: perimeter path inside the fence, aisle through the west/east gates, south gate
-    walks.push(...loop(-18.6, -11.6, 17.2, 12.6), [-20, 0, 20, 0], [0, 12.6, 0, 16]);
-    // a loop around every other area, linked to the nearest path or road
-    this.scene.updateMatrixWorld(true);
-    const b = new THREE.Box3();
-    for (const id of ['dmz', 'scc', 'internet', 'biogas', 'solar']) {
-      b.setFromObject(this.areas[id]);
-      const pad = 2.2;
-      if (id === 'biogas') keep(loop(b.min.x - pad, -73.9, b.max.x + 1.6, b.max.z + pad, 'esw')); // open to the shore
-      else keep(loop(b.min.x - pad, b.min.z - pad, b.max.x + pad, b.max.z + pad));
-    }
-    keep([[50.6, -67.5, 61.5, -67.5]]); // wind landing station
-    this.walkSegs = walks;
-    this.drawWalkpaths(walks);
+    this.walkSegs = [];
+    this.walkGreen = new THREE.MeshStandardMaterial({ color: 0x3f9a5a, roughness: 0.85, side: THREE.DoubleSide });
+    this.walkYellow = new THREE.MeshBasicMaterial({ color: 0xf2c230, side: THREE.DoubleSide });
+    const P = (pts, closed = false) => this.walkpath(pts, closed);
+
+    // substation: loop inside the fence, past the control house door; stub out through the east gate
+    P([[-19, -11.6], [17.2, -11.6], [17.2, 12.6], [-19, 12.6]], true);
+    P([[18.2, 0], [20, 0]]);
+    // OT DMZ and SCADA control center: U-shaped, both ends meet the IT spine road
+    P([[-48, -33.3], [-30.2, -33.3], [-30.2, -22.7], [-48, -22.7]]);
+    P([[-52, 15.7], [-67.8, 15.7], [-67.8, 28.3], [-52, 28.3]]);
+    // internet node: loop, with a path east to the spine road
+    P([[-90.1, 36.7], [-79.5, 36.7], [-79.5, 43.3], [-90.1, 43.3]], true);
+    P([[-78.5, 42.2], [-52, 42.2]]);
+    // POME biogas plant: along the inland side and both ends, open to the shore; landing-station path
+    P([[-48, -55.2], [50.8, -55.2], [50.8, -73.6]]);
+    P([[-41.8, -56.2], [-41.8, -73.6]]);
+    P([[51.8, -68.6], [61.5, -68.6]]);
+    // solar farm: loop, with a path out to the southern road junction
+    P([[-153.8, 69.2], [-104.2, 69.2], [-104.2, 112.3], [-153.8, 112.3]], true);
+    P([[-110, 68.2], [-110, 64], [-52, 64]]);
   }
 
-  // join a new run of path to the closest point of what already exists
-  linkUp(existing, own, out) {
-    let best = null;
-    for (const [ax, az, bx, bz] of own) {
-      for (let t = 0; t <= 1; t += 0.25) {
-        const px = ax + (bx - ax) * t, pz = az + (bz - az) * t;
-        for (const q of existing) {
-          const [qx, qz, d] = nearestOnSeg(px, pz, q);
-          if (!best || d < best.d) best = { d, seg: [px, pz, qx, qz] };
-        }
-      }
-    }
-    if (best && best.d > 0.3) out.push(best.seg);
-  }
-
-  drawWalkpaths(walks) {
-    const green = new THREE.MeshStandardMaterial({ color: 0x3f9a5a, roughness: 0.8 });
-    const yellow = new THREE.MeshBasicMaterial({ color: 0xf2c230 });
+  walkpath(pts, closed) {
     const W = 2;
-    for (const [ax, az, bx, bz] of walks) {
-      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
-      if (len < 0.1) continue;
-      const g = new THREE.Group();
-      g.position.set((ax + bx) / 2, 0, (az + bz) / 2);
-      g.rotation.y = Math.atan2(dx, dz);
-      const strip = new THREE.Mesh(new THREE.PlaneGeometry(W, len + W), green);
-      strip.rotation.x = -Math.PI / 2;
-      strip.position.y = 0.17;
-      strip.receiveShadow = true;
-      g.add(strip);
-      for (const s of [-1, 1]) {
-        const edge = new THREE.Mesh(new THREE.PlaneGeometry(0.16, len + W), yellow);
-        edge.rotation.x = -Math.PI / 2;
-        edge.position.set(s * (W / 2 - 0.08), 0.18, 0);
-        g.add(edge);
-      }
-      this.scene.add(g);
+    const n = pts.length;
+    for (let i = 0; i < (closed ? n : n - 1); i++) this.walkSegs.push([...pts[i], ...pts[(i + 1) % n]]);
+    this.scene.add(this.ribbon(pts, closed, W, 0, this.walkGreen, 0.17));
+    for (const sd of [-1, 1]) this.scene.add(this.ribbon(pts, closed, 0.16, sd * (W / 2 - 0.08), this.walkYellow, 0.18));
+  }
+
+  // a flat strip of the given width following a polyline, offset sideways, with mitred joins
+  ribbon(pts, closed, width, offset, material, y) {
+    const n = pts.length;
+    const dir = i => {
+      const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % n];
+      const l = Math.hypot(bx - ax, bz - az);
+      return [(bx - ax) / l, (bz - az) / l];
+    };
+    const shift = (i, o) => {
+      const ds = [];
+      if (closed || i > 0) ds.push(dir((i - 1 + n) % n));
+      if (closed || i < n - 1) ds.push(dir(i));
+      let nx = 0, nz = 0;
+      for (const [dx, dz] of ds) { nx += -dz; nz += dx; }
+      const k = ds.length === 2 ? 1 + ds[0][0] * ds[1][0] + ds[0][1] * ds[1][1] : 1;
+      return [pts[i][0] + (nx / k) * o, pts[i][1] + (nz / k) * o];
+    };
+    const L = pts.map((_, i) => shift(i, offset + width / 2));
+    const R = pts.map((_, i) => shift(i, offset - width / 2));
+    const pos = [];
+    for (let i = 0; i < (closed ? n : n - 1); i++) {
+      const j = (i + 1) % n;
+      pos.push(L[i][0], y, L[i][1], R[i][0], y, R[i][1], L[j][0], y, L[j][1]);
+      pos.push(R[i][0], y, R[i][1], R[j][0], y, R[j][1], L[j][0], y, L[j][1]);
     }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.receiveShadow = true;
+    return mesh;
   }
 
   // ---------- walking: a grid of everything solid, and A* around it ----------
