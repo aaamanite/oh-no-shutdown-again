@@ -85,6 +85,14 @@ const daylight = () => {
   const h = hourOf(S.T);
   return smooth(5, 7.5, h) * (1 - smooth(18, 20.5, h));
 };
+// the hour the sun, sky and image lighting are drawn for: forced Day / Night override the game clock,
+// otherwise a "day" at 22:00 keeps a black sky and moonlight
+const lightHour = () => {
+  const h = hourOf(S.T);
+  if (S.light === 'day') return h >= 8 && h <= 16.5 ? h : 12;
+  if (S.light === 'night') return h >= 20.5 || h < 4.5 ? h : 22;
+  return h;
+};
 const isBlocked = scn => !!scn.blockedBy && S.owned.has(scn.blockedBy);
 const decideTime = () => BASE_DECIDE + (S.owned.has('ids') ? 60 : 0) + (S.owned.has('honeypot') ? 30 : 0);
 
@@ -283,7 +291,7 @@ function renderBanner() {
   b.innerHTML = `
     <div class="b-ic">${icon('alert')}</div>
     <div class="b-tx"><small>${inc.drill ? 'Drill · ' : ''}Security alert · triage now</small><b>${esc(inc.scn.title)}</b>
-      <span class="b-sub">${classified(inc)}/${inc.scn.clues.length} clues classified · game clock held${S.speed === 0 ? ' · paused' : ''}</span></div>
+      <span class="b-sub">${classified(inc)}/${inc.scn.clues.length} detections classified · game clock held${S.speed === 0 ? ' · paused' : ''}</span></div>
     <div class="decide"><small>Decide in</small><b>${pad(Math.floor(left / 60))}:${pad(left % 60)}</b></div>`;
 }
 
@@ -292,9 +300,9 @@ function renderAction() {
   if (S.incident) {
     const inc = S.incident;
     el.innerHTML = `<div class="card inc-card">
-      <p>Tap the magnifier pins to read what each system logged. Mark each line True Positive or False Positive, then play a response card.</p>
-      <div class="row"><button class="btn" data-act="clues">${icon('search')} Clues ${classified(inc)}/${inc.scn.clues.length}</button>
-      <button class="btn primary" data-act="respond">${icon('cards')} Respond</button></div></div>`;
+      <p>Tap the magnifier pins to read what each system logged. Mark each line True Positive or False Positive, then respond or remediate.</p>
+      <div class="row"><button class="btn" data-act="clues">${icon('search')} Detection ${classified(inc)}/${inc.scn.clues.length}</button>
+      <button class="btn primary" data-act="respond">${icon('cards')} Respond or Remediate</button></div></div>`;
     return;
   }
   const q = QUESTS[S.questIdx];
@@ -634,7 +642,7 @@ const PANELS = {
     return {
       eyebrow: a.level, title: a.name,
       html: `
-        ${clueCount ? `<button class="btn danger block" data-act="clues:${id}" style="margin-bottom:10px">${icon('search')} ${clueCount} clues logged here</button>` : ''}
+        ${clueCount ? `<button class="btn danger block" data-act="clues:${id}" style="margin-bottom:10px">${icon('search')} ${clueCount} detections logged here</button>` : ''}
         <p>${esc(a.desc)}</p>
         <div class="box"><div class="row between"><small>Status</small><span class="pill ${st.cls === 'ok' ? 'ok' : st.cls ? 'bad' : ''}">${esc(st.text)}</span></div>
         ${f ? `<div class="row between" style="margin-top:8px"><small>Load share</small><b>${Math.round(FEEDERS[f].share * 100)}% of revenue</b></div>` : ''}</div>
@@ -701,7 +709,7 @@ const PANELS = {
     return {
       eyebrow: 'Security operations', title: 'SOC',
       html: `${inc ? `<div class="box" style="border:1.5px solid var(--red)"><small style="color:#ffa79e">Open incident</small><b style="display:block;margin:4px 0 8px">${esc(inc.scn.title)}</b>
-          <div class="row"><button class="btn sm" data-act="clues">${icon('search')} Clues</button><button class="btn sm primary" data-act="respond">${icon('cards')} Respond</button></div></div>`
+          <div class="row"><button class="btn sm" data-act="clues">${icon('search')} Detection</button><button class="btn sm primary" data-act="respond">${icon('cards')} Respond or Remediate</button></div></div>`
         : `<div class="box"><small>Status</small><p style="margin:4px 0 8px">No open incidents. Monitoring ${OT_SOURCES()} log sources.${S.owned.has('honeypot') ? ` Honeypot RTU-99 armed · ${S.stats.hpTrips || 0} trips so far.` : ''}</p>
           <button class="btn sm" data-act="skip">${icon('clock')} Skip to next alert</button></div>`}
         <div class="sec"><small>Drills</small></div>
@@ -758,18 +766,18 @@ const PANELS = {
 
   clues(filter = 'all') {
     const inc = S.incident;
-    if (!inc) return { eyebrow: '', title: 'Clues', html: '<p>No open incident.</p>' };
+    if (!inc) return { eyebrow: '', title: 'Detection', html: '<p>No open incident.</p>' };
     inc.filter = filter;
     const assets = [...new Set(inc.scn.clues.map(c => c.asset))];
     const missing = ['inventory', 'ids', 'backups'].filter(id => !S.owned.has(id) && inc.scn.clues.some(c => c.chips.some(ch => ch.need === id)));
     return {
       danger: true,
-      eyebrow: cluesEyebrow(), title: 'Clues',
-      html: `<p>Classify every line: <b>True Positive</b> if it is part of the attack, <b>False Positive</b> if it is benign or routine. Right calls earn points, wrong calls cost them. Your calls and your response card decide the grade.</p>
+      eyebrow: cluesEyebrow(), title: 'Detection',
+      html: `<p>Classify every line: <b>True Positive</b> if it is part of the attack, <b>False Positive</b> if it is benign or routine. Right calls earn points, wrong calls cost them. Your calls and how you respond or remediate decide the grade.</p>
         <div class="filters"><button class="${filter === 'all' ? 'on' : ''}" data-act="clues:all">All</button>${assets.map(id => `<button class="${filter === id ? 'on' : ''}" data-act="clues:${id}">${esc(ASSETS[id].short)}</button>`).join('')}</div>
         ${inc.clueOrder.map(i => inc.scn.clues[i]).map((c, k) => (filter === 'all' || c.asset === filter ? clueHTML(c, inc.clueOrder[k]) : '')).join('')}
         ${missing.length ? `<div class="box tiny muted">${icon('lock')} Some context is hidden. ${missing.map(id => esc(CTRL[id].short)).join(', ')} would add more detail to these logs.</div>` : ''}
-        <div class="sticky-foot"><button class="btn primary block" data-act="respond">${icon('cards')} Play a response card</button></div>`,
+        <div class="sticky-foot"><button class="btn primary block" data-act="respond">${icon('cards')} Respond or Remediate</button></div>`,
     };
   },
 
@@ -796,7 +804,7 @@ const PANELS = {
         ${r.note ? `<div class="capnote">${esc(r.note)}</div>` : ''}
         <div class="box"><small>What happened</small><p style="margin:5px 0 0">${resp ? `<b>${esc(resp.title)}.</b> ${esc(resp.result)}` : esc(scn.timeout)}</p></div>
         ${resp?.q !== 'best' ? `<div class="box"><small>Best response</small><p style="margin:5px 0 0"><b>${esc(best.title)}.</b> ${esc(best.result)}</p></div>` : ''}
-        <div class="sec"><small>Every clue, explained</small></div>
+        <div class="sec"><small>Every detection, explained</small></div>
         <div class="box">${(r.clues || scn.clues).map((c, i) => {
           const call = r.tags.includes(i) ? 'tp' : (r.fps || []).includes(i) ? 'fp' : null;
           const right = call === (c.attack ? 'tp' : 'fp');
@@ -935,12 +943,12 @@ function openRespond() {
     return '';
   };
   openModal(`<small>${esc(inc.scn.short)} · ${inc.tags.size} True Positive · ${inc.fps.size} False Positive</small>
-    <h3>Play a response card</h3>
+    <h3>Respond or Remediate</h3>
     <p>Pick the response that fits the evidence. Under-reacting lets the attack land; over-reacting causes the outage yourself.${S.owned.has('backups') ? ' Config backups will halve any outage.' : ''}</p>
     <div class="rcards">${inc.order.map(r => `<button class="rcard" data-act="play:${r.id}">
       <div class="r-top"><span class="r-tag ${r.tag}">${esc(r.tag)}</span><span class="r-cost">${r.cost ? money(r.cost) : 'Free'}</span></div>
       <h4>${esc(r.title)}</h4><p>${esc(r.desc)}</p>${hint(r)}</button>`).join('')}</div>
-    <div class="modal-foot"><button class="btn ghost" data-act="close-modal">Back to clues</button></div>`);
+    <div class="modal-foot"><button class="btn ghost" data-act="close-modal">Back to Detection</button></div>`);
 }
 
 function openHelp() {
@@ -948,11 +956,11 @@ function openHelp() {
     <p>Run ${esc(SITE.station)} for ${esc(SITE.utility)}. Earn revenue while feeders are energized, invest in controls, and triage incidents correctly.</p>
     <div class="help-grid">
       <div class="box"><b>Camera</b><p>Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom. The map rotates a full 360° — rail buttons rotate 45°, spin 360°, toggle top-down and reset. Tap your persona’s name tag to change your name. Keys: <kbd>Q</kbd>/<kbd>E</kbd> rotate, <kbd>Space</kbd> pause, <kbd>1</kbd>–<kbd>3</kbd> speed, <kbd>Esc</kbd> close.</p></div>
-      <div class="box"><b>Incidents</b><p>When an alert fires the game clock stops and a decision timer starts. Open the magnifier pins, read each log line, mark it True Positive (part of the attack) or False Positive (benign), then play one response card.</p></div>
-      <div class="box"><b>Grading</b><p>60% response quality, 30% clue accuracy (right True/False Positive calls earn points, wrong calls cost them), 10% speed. Treating an attack as a routine fault caps you at D; shutting the grid down yourself caps you at C.</p></div>
-      <div class="box"><b>Controls</b><p>Some controls prevent a scenario outright. Visibility controls (inventory, monitoring, backups) add context chips to logs. The playbook annotates response cards. Opex is charged daily.</p></div>
+      <div class="box"><b>Incidents</b><p>When an alert fires the game clock stops and a decision timer starts. Open the magnifier pins, read each log line, mark it True Positive (part of the attack) or False Positive (benign), then respond or remediate.</p></div>
+      <div class="box"><b>Grading</b><p>60% response quality, 30% detection accuracy (right True/False Positive calls earn points, wrong calls cost them), 10% speed. Treating an attack as a routine fault caps you at D; shutting the grid down yourself caps you at C.</p></div>
+      <div class="box"><b>Controls</b><p>Some controls prevent a scenario outright. Visibility controls (inventory, monitoring, backups) add context chips to logs. The playbook annotates response options. Opex is charged daily.</p></div>
       <div class="box"><b>Network overlay</b><p>Blue conduits are protected or baseline, amber need a control, orange is internet-exposed. Red pulses are an attack path in progress.</p></div>
-      <div class="box"><b>For trainers</b><p>The SOC panel runs any scenario as a drill (graded, no costs). Every debrief explains each clue with its MITRE ATT&amp;CK for ICS technique.</p></div>
+      <div class="box"><b>For trainers</b><p>The SOC panel runs any scenario as a drill (graded, no costs). Every debrief explains each detection with its MITRE ATT&amp;CK for ICS technique.</p></div>
     </div>
     <div class="modal-foot"><button class="btn primary" data-act="close-modal">Got it</button></div>`);
 }
@@ -1006,7 +1014,7 @@ function openRename() {
   inp.addEventListener('keydown', e => { if (e.key === 'Enter') ACTS['save-name'](); });
 }
 
-const LIGHT_MODES = ['auto', 'day', 'night'];
+const LIGHT_MODES = ['auto', 'night', 'day'];
 function renderRail() {
   $('#rb-light').innerHTML = icon(S.light === 'auto' ? 'auto' : S.light === 'day' ? 'sun' : 'moon');
   $('#rb-light').title = `Lighting: ${S.light}`;
@@ -1132,7 +1140,7 @@ function frame(now) {
     renderHUD();
     if (S.panel && ['site', 'report', 'asset', 'researcher'].includes(S.panel.name)) renderPanel();
   }
-  world.update(dt, daylight(), hourOf(S.T));
+  world.update(dt, daylight(), lightHour());
   positionOverlays();
   requestAnimationFrame(frame);
 }

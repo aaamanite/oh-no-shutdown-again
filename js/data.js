@@ -166,12 +166,12 @@ export const CONTROLS = [
   {
     id: 'inventory', cat: 'Visibility', name: 'OT asset inventory', short: 'Asset inventory', cost: 40000, opex: 1000,
     desc: 'Passive discovery of every relay, RTU, HMI and switch. You can tell known devices from strangers.',
-    effect: 'Clues show "known asset" / "not in inventory" context.', ref: 'IEC 62443-2-1 · NERC CIP-002',
+    effect: 'Detections show "known asset" / "not in inventory" context.', ref: 'IEC 62443-2-1 · NERC CIP-002',
   },
   {
     id: 'ids', cat: 'Visibility', name: 'OT network monitoring', short: 'OT monitoring', cost: 140000, opex: 4000,
     desc: 'Passive deep-packet sensors on SPAN ports that understand IEC 61850, DNP3 and IEC 104.',
-    effect: 'Protocol-aware clue context and +60 s to decide on every incident.', ref: 'NERC CIP-015 (INSM)',
+    effect: 'Protocol-aware detection context and +60 s to decide on every incident.', ref: 'NERC CIP-015 (INSM)',
   },
   {
     id: 'itotfw', cat: 'Segmentation', name: 'IT/OT firewall & DMZ rules', short: 'IT/OT firewall', cost: 110000, opex: 3000,
@@ -201,17 +201,17 @@ export const CONTROLS = [
   {
     id: 'backups', cat: 'Recovery', name: 'Known-good config backups', short: 'Config backups', cost: 25000, opex: 500,
     desc: 'Versioned relay settings, HMI projects and RTU configs, verified and kept offline.',
-    effect: 'Halves outage time after any incident; settings checksums appear in clues.', ref: 'NERC CIP-009 · CIP-010',
+    effect: 'Halves outage time after any incident; settings checksums appear in detections.', ref: 'NERC CIP-009 · CIP-010',
   },
   {
     id: 'honeypot', cat: 'Deception', name: 'OT honeypot (decoy RTU-99)', short: 'Honeypot', cost: 45000, opex: 1000,
     desc: 'A decoy RTU with a fake HMI page, placed in the switchyard network. No legitimate user or system ever talks to it — so any connection is an attacker exploring.',
-    effect: 'Adds a high-confidence "honeypot tripped" clue to real attacks and +30 s to decide. Stays quiet on false alarms.', ref: 'MITRE D3FEND D3-DE Decoy Environment',
+    effect: 'Adds a high-confidence "honeypot tripped" detection to real attacks and +30 s to decide. Stays quiet on false alarms.', ref: 'MITRE D3FEND D3-DE Decoy Environment',
   },
   {
     id: 'playbook', cat: 'People', name: 'IR playbook & tabletop drills', short: 'IR playbook', cost: 35000, opex: 1000,
     desc: 'Operators, protection engineers and the SOC rehearse OT-specific responses together.',
-    effect: 'Response cards show playbook guidance.', ref: 'NERC CIP-008',
+    effect: 'Respond or Remediate options show playbook guidance.', ref: 'NERC CIP-008',
   },
 ];
 
@@ -787,7 +787,7 @@ export const QUESTS = [
   { ch: 0, event: 'inspect:ctrl', icon: 'cpu', reward: 10000, action: 'asset:ctrl', title: 'Inspect the control house', desc: 'Tap the Substation Control House. Breaker commands start there.' },
   { ch: 0, event: 'network', icon: 'share', reward: 10000, action: 'panel:network', title: 'Map your zones and conduits', desc: 'Open Network to see the Purdue levels and which conduits are unprotected.' },
   { ch: 0, event: 'buy', icon: 'bag', reward: 0, action: 'panel:shop', title: 'Buy your first security control', desc: 'Open the Shop. Visibility first: you can’t defend what you can’t see.' },
-  { ch: 0, event: 'incident', icon: 'shield', reward: 25000, action: 'incident', title: 'Handle your first incident', desc: 'When the alarm fires, read the clues, mark True or False Positive, then play a response card.' },
+  { ch: 0, event: 'incident', icon: 'shield', reward: 25000, action: 'incident', title: 'Handle your first incident', desc: 'When the alarm fires, read the detections, mark True or False Positive, then respond or remediate.' },
   { ch: 0, event: 'day2', icon: 'zap', reward: 30000, action: 'speed', title: 'Keep the lights on until midnight', desc: 'Finish Day 1. Fines and outages eat your budget.' },
   { ch: 1, event: 'sl3', icon: 'shield', reward: 40000, action: 'panel:shop', title: 'Reach Security Level 3', desc: 'Six controls installed. Mix visibility, segmentation, access and recovery.' },
   { ch: 1, event: 'prevent', icon: 'lock', reward: 30000, action: 'panel:network', title: 'Stop an attack before it starts', desc: 'Have the right control in place when an attack arrives.' },
