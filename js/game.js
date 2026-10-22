@@ -792,7 +792,7 @@ const PANELS = {
   soc() {
     const inc = S.incident;
     return {
-      eyebrow: 'Security operations', title: 'SOC',
+      eyebrow: 'Security Operations Center', title: 'SOC',
       html: `${inc ? `<div class="box" style="border:1.5px solid var(--red)"><small style="color:#ffa79e">Open incident</small><b style="display:block;margin:4px 0 8px">${esc(inc.scn.title)}</b>
           <div class="row"><button class="btn sm" data-act="clues">${icon('search')} Detection</button><button class="btn sm primary" data-act="respond">${icon('cards')} Respond or Remediate</button></div></div>`
         : `<div class="box"><small>Status</small><p style="margin:4px 0 8px">No open incidents. Monitoring ${OT_SOURCES()} log sources.${S.owned.has('honeypot') ? ` Honeypot RTU-99 armed · ${S.stats.hpTrips || 0} trips so far.` : ''}</p>

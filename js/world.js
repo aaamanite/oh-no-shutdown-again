@@ -302,6 +302,7 @@ export class World {
 
     this.buildStreetscape();
     this.buildSiteLights();
+    this.initDamageFx();
     this.batchStatic();
     this.setQuality(this.quality);
     // sky lighting fills shadows; keep it below the sun so shading has contrast
@@ -2307,59 +2308,76 @@ export class World {
   }
   setModem(present) { this.modem.visible = present; }
 
-  // damaged equipment: a flickering fire glow and a column of smoke over the asset until it is repaired
+  // damaged equipment: a flickering fire glow and a column of smoke over the asset until it is repaired.
+  // The effects and their lights are built once at load and reused: adding a light mid-game changes the
+  // light count, which makes every material recompile and freezes the game for a moment.
+  initDamageFx() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const cg = c.getContext('2d'), grd = cg.createRadialGradient(32, 32, 2, 32, 32, 30);
+    grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+    cg.fillStyle = grd; cg.fillRect(0, 0, 64, 64);
+    this._smokeTex = new THREE.CanvasTexture(c);
+    this.damageFx = {};
+    this.fxPool = [this.makeFireFx(true), this.makeFireFx(true)];
+  }
+
+  makeFireFx(withLight) {
+    const g = new THREE.Group();
+    const puffs = [], flames = [];
+    for (let k = 0; k < 14; k++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this._smokeTex, color: 0x3a3a3a, transparent: true, depthWrite: false, opacity: 0 }));
+      sp.userData.t = k / 14;
+      g.add(sp);
+      puffs.push(sp);
+    }
+    for (let k = 0; k < 5; k++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this._smokeTex, color: 0xff7a1a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+      sp.position.set((k - 2) * 1.2, 2, (k % 2) * 1.5 - 0.7);
+      sp.scale.setScalar(4);
+      g.add(sp);
+      flames.push(sp);
+    }
+    let light = null;
+    if (withLight) {
+      light = new THREE.PointLight(0xff6a1a, 0, 45, 2);
+      light.position.y = 4;
+      g.add(light);
+    }
+    this.scene.add(g);   // stays in the scene (invisible while idle) so nothing is compiled or relit at runtime
+    return { g, puffs, flames, light, active: false };
+  }
+
   setDamaged(id, on) {
-    this.damageFx = this.damageFx || {};
     const fx = this.damageFx[id];
     if (!on) {
-      if (fx) { this.scene.remove(fx.g); fx.g.traverse(o => o.material?.dispose?.()); delete this.damageFx[id]; }
+      if (!fx) return;
+      fx.active = false;
+      for (const sp of [...fx.puffs, ...fx.flames]) sp.material.opacity = 0;
+      if (fx.light) fx.light.intensity = 0;
+      delete this.damageFx[id];
+      this.fxPool.push(fx);
       return;
     }
     if (fx || !this.centers[id]) return;
-    if (!this._smokeTex) {
-      const c = document.createElement('canvas');
-      c.width = c.height = 64;
-      const g = c.getContext('2d'), grd = g.createRadialGradient(32, 32, 2, 32, 32, 30);
-      grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
-      g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
-      this._smokeTex = new THREE.CanvasTexture(c);
-    }
-    const g = new THREE.Group();
-    g.position.copy(this.centers[id]);
-    const puffs = [];
-    for (let k = 0; k < 14; k++) {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this._smokeTex, color: 0x3a3a3a, transparent: true, depthWrite: false, opacity: 0 }));
-      s.userData.t = k / 14;
-      g.add(s);
-      puffs.push(s);
-    }
-    const flames = [];
-    for (let k = 0; k < 5; k++) {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this._smokeTex, color: 0xff7a1a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.8 }));
-      s.position.set((k - 2) * 1.2, 2, (k % 2) * 1.5 - 0.7);
-      s.scale.setScalar(4);
-      g.add(s);
-      flames.push(s);
-    }
-    const light = new THREE.PointLight(0xff6a1a, 40, 45, 2);
-    light.position.y = 4;
-    g.add(light);
-    this.scene.add(g);
-    this.damageFx[id] = { g, puffs, flames, light };
+    const slot = this.fxPool.pop() || this.makeFireFx(false);   // a third damaged site gets smoke and flames without a light
+    slot.g.position.copy(this.centers[id]);
+    slot.active = true;
+    this.damageFx[id] = slot;
   }
 
   updateDamage(dt) {
-    for (const fx of Object.values(this.damageFx || {})) {
-      for (const s of fx.puffs) {
-        s.userData.t = (s.userData.t + dt * 0.12) % 1;
-        const t = s.userData.t;
-        s.position.set(Math.sin(t * 9 + s.id) * 2 * t, 3 + t * 26, Math.cos(t * 7 + s.id) * 2 * t);
-        s.scale.setScalar(3 + t * 12);
-        s.material.opacity = 0.55 * Math.sin(Math.PI * t);
+    for (const fx of Object.values(this.damageFx)) {
+      for (const sp of fx.puffs) {
+        sp.userData.t = (sp.userData.t + dt * 0.12) % 1;
+        const t = sp.userData.t;
+        sp.position.set(Math.sin(t * 9 + sp.id) * 2 * t, 3 + t * 26, Math.cos(t * 7 + sp.id) * 2 * t);
+        sp.scale.setScalar(3 + t * 12);
+        sp.material.opacity = 0.55 * Math.sin(Math.PI * t);
       }
       const f = 0.75 + 0.25 * Math.sin(this._t * 23) * Math.sin(this._t * 7);
-      for (const s of fx.flames) s.material.opacity = 0.55 + 0.35 * f;
-      fx.light.intensity = 30 + 25 * f;
+      for (const sp of fx.flames) sp.material.opacity = 0.55 + 0.35 * f;
+      if (fx.light) fx.light.intensity = 30 + 25 * f;
     }
   }
 
