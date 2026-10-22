@@ -102,6 +102,19 @@ function add(parent, geo, material, x, y, z, sx = 1, sy = 1, sz = 1) {
 }
 const asMat = c => (typeof c === 'number' ? mat(c) : c);
 // Boxes and cylinders sit on their base y.
+// hip roof over a w×d footprint: two trapezoids and two triangles meeting at a ridge
+function hipRoofGeometry(w, d, h) {
+  const swap = d > w;
+  const L = swap ? d : w, S = swap ? w : d, r = (L - S) / 2;
+  const A = [-L / 2, 0, -S / 2], B = [L / 2, 0, -S / 2], C = [L / 2, 0, S / 2], D = [-L / 2, 0, S / 2], R1 = [-r, h, 0], R2 = [r, h, 0];
+  const tri = [D, C, R2, D, R2, R1, B, A, R1, B, R1, R2, C, B, R2, A, D, R1].flat();
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(tri, 3));
+  if (swap) geo.rotateY(Math.PI / 2);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 const _rounded = new Map();
 function roundedBox(w, h, d) {
   const key = `${w.toFixed(2)},${h.toFixed(2)},${d.toFixed(2)}`;
@@ -257,6 +270,12 @@ export class World {
       D: new THREE.MeshStandardMaterial({ color: 0xf2f2f2, emissive: 0xffc861, emissiveIntensity: 0 }),
     };
     this.feederFacades = { A: [], B: [], C: [], D: [] };
+    const glazing = () => new THREE.MeshStandardMaterial({ color: 0x3d5a6c, roughness: 0.05, metalness: 0.85, emissive: 0xffd889, emissiveIntensity: 0 });
+    this.winGlass = glazing();
+    this.nightMats.push(this.winGlass);
+    this.feederGlass = { C: glazing(), D: glazing() };
+    this.feederFacades.C.push(this.feederGlass.C);
+    this.feederFacades.D.push(this.feederGlass.D);
     this.conduits = {};
     this.rings = {};
     this._n = -1;
@@ -829,14 +848,18 @@ export class World {
 
   buildControlHouse() {
     const g = this.group('ctrl');
-    box(g, 7, 4, 5, 0xd8cfbf, -14.5, 0.15, 8.5);
-    box(g, 7.6, 0.4, 5.6, 0x6b7378, -14.5, 4.15, 8.5);
-    box(g, 1.1, 2.2, 0.1, 0x55606a, -16, 0.15, 11.02);
-    for (const x of [-13.5, -11.8]) box(g, 1.2, 0.8, 0.1, 0x3c4a55, x, 2, 11.02);
-    box(g, 1.4, 0.9, 1.1, 0xa8b0b4, -12.2, 4.55, 7.5);
-    cyl(g, 0.05, 2.5, COL.steelDark, -17.2, 4.55, 6.8);
-    const gps = cyl(g, 0.3, 0.3, 0xf1f1f1, -16.6, 4.55, 9.8);
-    gps.scale.y = 0.3;
+    const top = this.structure(g, {
+      x: -14.5, z: 8.5, w: 7, d: 5, h: 3.5, wall: 0xe6dccb,
+      windows: [{ side: 's', y: 1.2, at: [1.2, 2.6], ww: 1.0, wh: 0.9 }, { side: 'e', y: 1.2, at: [0], ww: 1.0, wh: 0.9 }],
+      doors: [{ side: 's', at: -1.6 }],
+      louvres: [{ side: 'w', at: -1.2, y: 0.4, w: 0.8, h: 0.6 }, { side: 'w', at: 1.2, y: 0.4, w: 0.8, h: 0.6 }, { side: 'n', at: 2, y: 2.3, w: 0.7, h: 0.5 }],
+    });
+    this.roofUnit(g, -12.4, top + 0.05, 7.6, 1.3, 1.0);
+    box(g, 0.9, 0.6, 0.32, 0xe4e6e6, -15.8, 2.5, 5.75); // split AC on the north wall
+    cyl(g, 0.05, 2.8, COL.steelDark, -17.2, top, 6.8);  // comms mast
+    for (const y of [1.6, 2.4]) box(g, 0.6, 0.05, 0.05, COL.steelDark, -17.2, top + y, 6.8);
+    cyl(g, 0.15, 0.16, 0xf1f1f1, -16.6, top + 0.05, 9.8); // GPS antenna
+    box(g, 0.5, 0.12, 4.5, 0x8d9296, -10.8, 2.8, 8.5);  // cable tray out to the yard
     // the forgotten cellular modem bolted to the wall (removed by the attack-surface review)
     this.modem = new THREE.Group();
     box(this.modem, 0.6, 0.8, 0.3, 0xe0e0e0, 0, 0, 0);
@@ -866,6 +889,122 @@ export class World {
   setHoneypotAlarm(on) { this.hpAlarm = on; }
   honeypotAnchor() { return new THREE.Vector3(-7.2, 3.4, 10.6); }
 
+  // ---------- building kit: realistic low-rise construction ----------
+  // plinth, plaster walls or ribbed steel cladding, parapet with coping over a membrane roof (or a tiled
+  // hip roof), framed glazing with sills, steel doors with canopies and steps, louvres, downpipes.
+  // Faces: s = +z, n = −z, e = +x, w = −x. Returns the roof height.
+  structure(g, o) {
+    const { x, z, w, d, h } = o;
+    const glass = o.glass || this.winGlass;
+    const base = 0.3;
+    box(g, w + 0.5, base, d + 0.5, COL.concrete, x, 0, z);
+    const wallMat = o.cladding ? surface('metal', o.cladding, { metalness: 0.45, roughness: 0.5 }) : surface('plaster', o.wall || 0xe9e0d0);
+    box(g, w, h, d, wallMat, x, base, z);
+    const top = base + h;
+    // place something on a face: along = offset along the face (left→right seen from outside), out = local +z
+    const onFace = (side, along, fn) => {
+      const f = new THREE.Group();
+      const ow = 0.001;
+      if (side === 's') { f.position.set(x + along, 0, z + d / 2 + ow); }
+      else if (side === 'n') { f.position.set(x - along, 0, z - d / 2 - ow); f.rotation.y = Math.PI; }
+      else if (side === 'e') { f.position.set(x + w / 2 + ow, 0, z - along); f.rotation.y = Math.PI / 2; }
+      else { f.position.set(x - w / 2 - ow, 0, z + along); f.rotation.y = -Math.PI / 2; }
+      fn(f);
+      g.add(f);
+    };
+    const faceLen = side => (side === 's' || side === 'n' ? w : d);
+    if (o.cladding) {
+      for (const side of ['s', 'n', 'e', 'w']) {
+        const L = faceLen(side);
+        for (let a = -L / 2 + 0.3; a < L / 2 - 0.2; a += 0.55) onFace(side, a, f => box(f, 0.06, h - 0.1, 0.07, wallMat, 0, base + 0.05, 0.03));
+      }
+    }
+    if (o.roof === 'hip') {
+      const roof = new THREE.Mesh(hipRoofGeometry(w + 1.0, d + 1.0, o.roofH || Math.min(w, d) * 0.32), surface('roof', o.roofTint || 0xffffff));
+      roof.position.set(x, top, z);
+      roof.castShadow = roof.receiveShadow = true;
+      g.add(roof);
+      box(g, w + 1.0, 0.14, d + 1.0, 0xe8e4dc, x, top - 0.14, z); // fascia
+    } else {
+      const t = 0.22, ph = 0.6;
+      box(g, w, ph, t, wallMat, x, top, z + d / 2 - t / 2);
+      box(g, w, ph, t, wallMat, x, top, z - d / 2 + t / 2);
+      box(g, t, ph, d - 2 * t, wallMat, x + w / 2 - t / 2, top, z);
+      box(g, t, ph, d - 2 * t, wallMat, x - w / 2 + t / 2, top, z);
+      for (const [cw, cd, cx, cz] of [[w + 0.1, 0.32, x, z + d / 2 - 0.11], [w + 0.1, 0.32, x, z - d / 2 + 0.11], [0.32, d, x + w / 2 - 0.11, z], [0.32, d, x - w / 2 + 0.11, z]]) box(g, cw, 0.07, cd, 0x8d9296, cx, top + ph, cz);
+      box(g, w - 0.44, 0.05, d - 0.44, 0x5b6166, x, top, z);
+    }
+    for (const row of o.windows || []) {
+      const L = faceLen(row.side), n = row.count || Math.max(1, Math.floor((L - 1) / ((row.ww || 1.2) + 1.1)));
+      const at = row.at || Array.from({ length: n }, (_, i) => -L / 2 + (L / n) * (i + 0.5));
+      for (const ys of [].concat(row.y)) for (const a of at) onFace(row.side, a, f => {
+        const ww = row.ww || 1.2, wh = row.wh || 1.1, y = base + ys;
+        box(f, ww + 0.16, wh + 0.16, 0.09, 0x2e3338, 0, y - 0.08, 0.02);
+        box(f, ww, wh, 0.05, glass, 0, y, 0.06);
+        if (ww > 1.4) box(f, 0.05, wh, 0.07, 0x2e3338, 0, y, 0.07);
+        box(f, ww + 0.3, 0.07, 0.22, COL.concrete, 0, y - 0.15, 0.1);
+      });
+    }
+    for (const dr of o.doors || []) onFace(dr.side, dr.at, f => {
+      const dw = dr.w || 1.1, dh = dr.h || 2.2;
+      box(f, dw + 0.18, dh + 0.1, 0.08, 0x2e3338, 0, base, 0.02);
+      box(f, dw, dh, 0.06, dr.glass ? glass : dr.color || 0x5d666d, 0, base, 0.06);
+      if (!dr.glass) cyl(f, 0.03, 0.2, 0xc9cdd0, dw * 0.35, base + 1.0, 0.12);
+      if (dr.canopy !== false) box(f, dw + 0.8, 0.12, 1.1, 0x8d9296, 0, base + dh + 0.25, 0.55);
+      box(f, dw + 0.6, 0.15, 0.7, COL.concrete, 0, 0.15, 0.4);
+    });
+    for (const lv of o.louvres || []) onFace(lv.side, lv.at, f => {
+      const lw = lv.w || 0.9, lh = lv.h || 0.7, y = base + lv.y;
+      box(f, lw + 0.1, lh + 0.1, 0.06, 0x8d9296, 0, y - 0.05, 0.02);
+      for (let k = 0; k < 5; k++) { const sl = box(f, lw, 0.05, 0.12, 0x6d757b, 0, y + (k + 0.5) * (lh / 5) - 0.025, 0.07); sl.rotation.x = -0.5; }
+    });
+    for (const [px, pz] of [[x - w / 2 + 0.12, z + d / 2 + 0.06], [x + w / 2 - 0.12, z + d / 2 + 0.06], [x - w / 2 + 0.12, z - d / 2 - 0.06], [x + w / 2 - 0.12, z - d / 2 - 0.06]]) cyl(g, 0.06, h, 0x8a8f93, px, base, pz);
+    return top;
+  }
+
+  // rooftop condensing unit / chiller with a fan grille
+  roofUnit(g, x, y, z, w = 1.6, d = 1.2, spin = false) {
+    box(g, w, 0.9, d, 0xb5bcc0, x, y, z);
+    const fan = cyl(g, Math.min(w, d) * 0.36, 0.06, 0x2e3338, x, y + 0.9, z);
+    if (spin) this.spinners.push({ obj: fan, axis: 'y', speed: 4 });
+    for (const sx of [-1, 1]) box(g, 0.08, 0.25, d, 0x8d9296, x + sx * (w / 2 - 0.1), y - 0.25, z);
+  }
+
+  // containerised gas-engine genset: corrugated enclosure, doors, intake louvres, roof radiator, silencer and stack
+  genset(g, x, z) {
+    const L = 7, H = 2.9, D = 2.5, y0 = 0.37;
+    const body = surface('metal', 0x3f6e58, { metalness: 0.4, roughness: 0.5 });
+    box(g, L + 0.4, 0.25, D + 0.4, COL.concrete, x, 0.12, z);
+    box(g, L, H, D, body, x, y0, z);
+    for (let a = -L / 2 + 0.25; a < L / 2; a += 0.35) for (const sd of [-1, 1]) box(g, 0.08, H - 0.2, 0.05, body, x + a, y0 + 0.1, z + sd * (D / 2 + 0.02));
+    for (const dx of [-2.3, -1.0]) {
+      box(g, 1.1, 2.2, 0.06, 0x2f4a3d, x + dx, y0 + 0.15, z + D / 2 + 0.07);
+      cyl(g, 0.03, 0.25, 0xc9cdd0, x + dx + 0.4, y0 + 1.1, z + D / 2 + 0.12);
+    }
+    for (const dx of [1.1, 2.5]) {
+      box(g, 1.1, 1.2, 0.06, 0x2e3338, x + dx, y0 + 1.1, z + D / 2 + 0.07);
+      for (let k = 0; k < 6; k++) box(g, 1.0, 0.05, 0.1, 0x55606a, x + dx, y0 + 1.15 + k * 0.19, z + D / 2 + 0.11);
+    }
+    box(g, 2.4, 0.7, 2.2, 0x9aa3a8, x + 2.1, y0 + H, z);
+    for (const fx of [1.5, 2.7]) cyl(g, 0.48, 0.06, 0x2e3338, x + fx, y0 + H + 0.7, z);
+    const sil = add(g, CYL, mat(0x8a9399), x - 1.1, y0 + H + 0.55, z, 0.42, 2.8, 0.42);
+    sil.rotation.z = Math.PI / 2;
+    for (const sx of [-2.1, -0.1]) box(g, 0.12, 0.45, 0.7, COL.steelDark, x + sx, y0 + H, z);
+    cyl(g, 0.22, 1.9, 0x8a9399, x - 2.5, y0 + H + 0.55, z);
+    cyl(g, 0.32, 0.08, 0x50585e, x - 2.5, y0 + H + 2.45, z);
+  }
+
+  // pad-mounted step-up transformer with radiator fins and HV bushings
+  padTransformer(g, x, z, small = false) {
+    const w = small ? 1.8 : 2.2, d = small ? 1.3 : 1.5;
+    box(g, w + 0.4, 0.3, d + 0.5, COL.concrete, x, 0.12, z);
+    box(g, w, 1.9, d, COL.xfmr, x, 0.42, z);
+    box(g, w + 0.2, 0.1, d + 0.2, COL.xfmr, x, 2.32, z);
+    for (let k = -w / 2 + 0.15; k <= w / 2 - 0.15; k += 0.18) for (const sd of [-1, 1]) box(g, 0.035, 1.4, 0.42, 0x6f7c82, x + k, 0.6, z + sd * (d / 2 + 0.21));
+    for (const bx of [-0.55, 0, 0.55]) cyl(g, 0.12, 1, COL.porcelain, x + bx * (small ? 0.8 : 1), 2.42, z);
+    box(g, 0.5, 0.7, 0.3, 0x9aa3a8, x + w / 2 + 0.05, 0.6, z);
+  }
+
   buildCorporate() {
     const g = this.group('corp');
     const tower = new THREE.Mesh(new THREE.BoxGeometry(12, 26, 12), facadeMaterials(12, 26, 12, '#8fa3ad', '#2f4352', 0x5d676d, 11));
@@ -884,17 +1023,25 @@ export class World {
 
   buildDMZ() {
     const g = this.group('dmz');
-    const dc = new THREE.Mesh(new THREE.BoxGeometry(10, 4.5, 7), facadeMaterials(10, 4.5, 7, '#7d8a92', '#2d3a44', 0x5b6369, 21));
-    dc.position.set(-24, 2.25, -28);
-    dc.castShadow = dc.receiveShadow = true;
-    g.add(dc);
-    this.nightMats.push(...new Set(dc.material.filter(m => m.emissiveMap)));
-    for (const x of [-27, -24, -21]) {
-      box(g, 2, 0.9, 2, 0xb5bcc0, x, 4.5, -29);
-      const fan = cyl(g, 0.7, 0.1, 0x4b545a, x, 5.4, -29);
-      this.spinners.push({ obj: fan, axis: 'y', speed: 3 });
-    }
-    box(g, 4, 2.4, 3, 0xa1aab0, -17, 0, -30); // generator
+    // data hall: ribbed steel cladding, glazed entrance and office window, intake louvres, rooftop chillers
+    const top = this.structure(g, {
+      x: -24, z: -28, w: 10, d: 7, h: 4.2, cladding: 0x7d8a92,
+      windows: [{ side: 's', y: 1.4, at: [3.3], ww: 1.6, wh: 1.0 }],
+      doors: [{ side: 's', at: 1.2, w: 1.6, h: 2.3, glass: true }, { side: 'e', at: 0, w: 1.4, h: 2.3 }],
+      louvres: [-2.3, -0.8, 0.7, 2.2].map(at => ({ side: 'w', at, y: 0.7, w: 1.0, h: 1.2 })),
+    });
+    for (const x of [-27, -24, -21]) this.roofUnit(g, x, top + 0.05, -29.2, 2, 2, true);
+    box(g, 8.5, 0.1, 0.5, 0x8d9296, -24, top + 0.7, -26.4); // cable tray
+    // standby generator: canopy set with exhaust and day tank
+    const gen = surface('metal', 0x6d7a72, { metalness: 0.4, roughness: 0.5 });
+    box(g, 4.4, 0.25, 3, COL.concrete, -17, 0.15, -30);
+    box(g, 3.8, 2.1, 2.2, gen, -17, 0.4, -30);
+    for (let a = -1.6; a <= 1.6; a += 0.4) box(g, 0.08, 1.6, 0.05, 0x2e3338, -17 + a, 0.7, -28.86);
+    cyl(g, 0.12, 1.3, 0x50585e, -18.4, 2.5, -30.6);
+    const tank = add(g, CYL, mat(0x9aa3a8), -17, 0.75, -31.8, 0.45, 2.6, 0.45);
+    tank.rotation.z = Math.PI / 2;
+    // CCTV on the corner
+    box(g, 0.12, 0.12, 0.5, 0xe4e6e6, -19.2, top - 0.4, -24.3);
   }
 
   buildControlCenter() {
@@ -1124,10 +1271,7 @@ export class World {
     usfm('FIT-501', 27.5, GY, -43, 'x', RG);
     pt('PIT-501', 29.4, GY, -43);
     tt('TIT-501', 30.8, GY, -43);
-    box(g, 7, 3.4, 2.6, 0x3f6e58, 35.5, 0.12, -43);
-    box(g, 2.2, 0.6, 2.2, 0x9aa3a8, 37.6, 3.52, -43);
-    cyl(g, 0.3, 3, 0x8a9399, 33.6, 3.52, -43.6);
-    for (const x of [33.2, 35.5]) box(g, 1.2, 2.2, 0.06, 0x2f4a3d, x, 0.12, -41.68);
+    this.genset(g, 35.5, -43);
     tag('G-501', 35.5, 5.6, -43);
 
     // second genset G-502 on its own gas train, exporting on grid Line 2
@@ -1136,20 +1280,21 @@ export class World {
     usfm('FIT-502', 34.8, GY, -47, 'x', RG);
     pt('PIT-502', 36.6, GY, -47);
     tt('TIT-502', 38.1, GY, -47);
-    box(g, 7, 3.4, 2.6, 0x3f6e58, 43.5, 0.12, -47);
-    box(g, 2.2, 0.6, 2.2, 0x9aa3a8, 45.6, 3.52, -47);
-    cyl(g, 0.3, 3, 0x8a9399, 41.6, 3.52, -47.6);
-    for (const x of [41.2, 43.5]) box(g, 1.2, 2.2, 0.06, 0x2f4a3d, x, 0.12, -45.68);
+    this.genset(g, 43.5, -47);
     tag('G-502', 43.5, 5.6, -47);
-    box(g, 2.4, 2.2, 1.8, COL.xfmr, 43.5, 0.12, -51.6);
-    for (const x of [-0.6, 0, 0.6]) cyl(g, 0.12, 1, COL.porcelain, 43.5 + x, 2.32, -51.6);
-    box(g, 2.4, 2.2, 1.8, COL.xfmr, 35.5, 0.12, -39.4);
-    for (const x of [-0.6, 0, 0.6]) cyl(g, 0.12, 1, COL.porcelain, 35.5 + x, 2.32, -39.4);
+    this.padTransformer(g, 43.5, -51.6);
+    this.padTransformer(g, 35.5, -39.4);
 
     // PLC / MCC room — every transmitter and valve above is wired back here
-    box(g, 4, 3, 2.6, 0xd8cfbf, 22.5, 0.12, -38.4);
-    box(g, 4.3, 0.3, 2.9, 0x6b7378, 22.5, 3.12, -38.4);
-    cyl(g, 0.05, 2, COL.steelDark, 23.9, 3.42, -38.9);
+    const mtop = this.structure(g, {
+      x: 22.5, z: -38.4, w: 4, d: 2.6, h: 2.7, cladding: 0xd8d4cc,
+      doors: [{ side: 's', at: -0.8, w: 1.0, h: 2.1 }],
+      windows: [{ side: 's', y: 1.2, at: [0.9], ww: 0.8, wh: 0.7 }],
+      louvres: [{ side: 'e', at: 0, y: 0.5, w: 0.8, h: 0.6 }],
+    });
+    box(g, 0.8, 0.55, 0.3, 0xe4e6e6, 21.6, 1.9, -39.85);   // wall AC
+    box(g, 0.4, 0.1, 3.2, 0x8d9296, 23.6, mtop + 0.5, -40.4); // cable tray to the pipe rack
+    cyl(g, 0.05, 2, COL.steelDark, 23.9, mtop, -38.9);
     tag('PLC-01', 22.5, 4.4, -38.4);
     for (const it of this.instruments) it.pos.add(g.position);
   }
@@ -1185,42 +1330,80 @@ export class World {
       this.spinners.push({ obj: rotor, axis: 'z', speed: 1.1 + Math.random() * 0.3 });
     }
     // export-cable landing station on the shore, tied into grid Line 2
-    box(g, 5, 3, 3.6, 0xcfc8ba, 57, 0, -51.5);
-    box(g, 5.4, 0.3, 4, 0x6b7378, 57, 3, -51.5);
-    box(g, 2.2, 2, 1.6, COL.xfmr, 53.2, 0, -52.6);
+    this.structure(g, {
+      x: 57, z: -51.5, w: 5, d: 3.6, h: 2.9, wall: 0xdcd4c4,
+      doors: [{ side: 's', at: -1.2, w: 1.4, h: 2.3 }],
+      louvres: [{ side: 'e', at: 0, y: 0.5, w: 1.0, h: 0.8 }, { side: 'w', at: 0, y: 0.5, w: 1.0, h: 0.8 }, { side: 's', at: 1.2, y: 0.6, w: 1.2, h: 0.9 }],
+    });
+    this.sign(57, 2.45, -49.62, 3.4, 0.55, 0, [{ text: 'ONSA · OFFSHORE WIND LANDING', size: 70, y: 82, color: BRAND.white }], false, g);
+    this.padTransformer(g, 53.2, -52.6, true);
+    // cable sealing-end structure where the subsea export cable comes ashore
+    for (const lx of [-0.9, 0.9]) this.lattice(g, 60.9 + lx, -52.6, 3, 0.14, 0.12);
+    box(g, 2.2, 0.16, 0.4, COL.steel, 60.9, 3, -52.6);
+    for (const bx of [-0.7, 0, 0.7]) cyl(g, 0.14, 1.2, COL.porcelain, 60.9 + bx, 3.16, -52.6);
+    const duct = add(g, CYL, mat(0x2e3338), 60.9, 0.2, -54.2, 0.25, 3.2, 0.25);
+    duct.rotation.x = Math.PI / 2;
   }
 
   buildCollege() {
     const g = this.group('townC');
-    const facade = (w, h, d, x, z, base, seed) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), facadeMaterials(w, h, d, base, '#33506b', 0x6b7378, seed));
-      m.position.set(x, h / 2, z);
-      m.castShadow = m.receiveShadow = true;
-      g.add(m);
-      this.feederFacades.C.push(...new Set(m.material.filter(q => q.emissiveMap)));
-    };
-    // academic block with a clock tower, two hostels, a library
-    facade(18, 8, 10, 71, 56, '#d9c7a8', 61);
-    facade(4, 15, 4, 71, 50.5, '#cdb894', 62);
-    add(g, new THREE.ConeGeometry(3.1, 2.4, 4), mat(0x8c5a43), 71, 16.2, 50.5).rotation.y = Math.PI / 4;
-    const clock = new THREE.Mesh(new THREE.CircleGeometry(1.1, 24), new THREE.MeshBasicMaterial({ color: 0xf4f1e8 }));
-    clock.position.set(71, 12.5, 52.52);
-    g.add(clock);
-    facade(8, 10, 7, 89, 52, '#c9d2d6', 63);
-    facade(8, 10, 7, 89, 63, '#c9d2d6', 64);
-    facade(9, 5, 7, 52, 60, '#e2d6c2', 65);
+    const cg = this.feederGlass.C;
+    // academic block: two storeys, tiled hip roof, glazed entrance
+    this.structure(g, {
+      x: 71, z: 56, w: 18, d: 10, h: 7.4, wall: 0xe2d3b6, glass: cg, roof: 'hip', roofH: 2.6, roofTint: 0xe6c6b6,
+      windows: [{ side: 's', y: [1.0, 4.6], count: 7, ww: 1.4, wh: 1.6 }, { side: 'n', y: [1.0, 4.6], count: 7, ww: 1.4, wh: 1.6 },
+        { side: 'e', y: [1.0, 4.6], count: 3, ww: 1.4, wh: 1.6 }, { side: 'w', y: [1.0, 4.6], count: 3, ww: 1.4, wh: 1.6 }],
+      doors: [{ side: 's', at: 0, w: 2.4, h: 2.6, glass: true }],
+    });
+    // clock tower
+    const tt = this.structure(g, {
+      x: 71, z: 50.2, w: 4, d: 4, h: 13.5, wall: 0xd8c6a4, glass: cg, roof: 'hip', roofH: 2.8, roofTint: 0xd8a890,
+      windows: [{ side: 'n', y: [3, 6.5], count: 1, ww: 0.9, wh: 1.4 }, { side: 'e', y: [3, 6.5], count: 1, ww: 0.9, wh: 1.4 }, { side: 'w', y: [3, 6.5], count: 1, ww: 0.9, wh: 1.4 }],
+    });
+    for (const [cx, cz, ry] of [[71, 52.24, 0], [71, 48.16, Math.PI], [73.04, 50.2, Math.PI / 2], [68.96, 50.2, -Math.PI / 2]]) {
+      const face = new THREE.Group();
+      face.position.set(cx, tt - 1.6, cz);
+      face.rotation.y = ry;
+      const dial = new THREE.Mesh(new THREE.CircleGeometry(1.05, 40), new THREE.MeshStandardMaterial({ color: 0xf4f1e8, roughness: 0.4 }));
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.06, 8, 40), mat(0x2e3338));
+      const hourH = new THREE.Mesh(BOX, mat(0x1d1f22)); hourH.scale.set(0.07, 0.6, 0.02); hourH.position.set(0.12, 0.24, 0.03); hourH.rotation.z = -0.5;
+      const minH = new THREE.Mesh(BOX, mat(0x1d1f22)); minH.scale.set(0.05, 0.85, 0.02); minH.position.set(-0.2, 0.37, 0.04); minH.rotation.z = 0.5;
+      face.add(dial, rim, hourH, minH);
+      g.add(face);
+    }
+    // two hostel blocks: three storeys with balconies
+    for (const hz of [52, 63]) {
+      this.structure(g, {
+        x: 89, z: hz, w: 8, d: 7, h: 9.6, wall: 0xd5dde0, glass: cg,
+        windows: [{ side: 's', y: [0.9, 4.1, 7.3], count: 3, ww: 1.3, wh: 1.4 }, { side: 'n', y: [0.9, 4.1, 7.3], count: 3, ww: 1.3, wh: 1.4 }, { side: 'e', y: [0.9, 4.1, 7.3], count: 2, ww: 1.1, wh: 1.2 }],
+        doors: [{ side: 'w', at: 0 }],
+      });
+      for (const fy of [3.4, 6.6]) {
+        box(g, 7.6, 0.15, 1.1, COL.concrete, 89, fy, hz + 4.05);
+        box(g, 7.6, 0.9, 0.05, mat(0x9aa3a8, { metalness: 0.6, roughness: 0.4 }), 89, fy + 0.15, hz + 4.58);
+      }
+    }
+    // library: tall glazing
+    this.structure(g, {
+      x: 52, z: 60, w: 9, d: 7, h: 4.8, wall: 0xece4d4, glass: cg,
+      windows: [{ side: 's', y: 0.6, count: 3, ww: 2.2, wh: 3.2 }, { side: 'e', y: 0.6, count: 2, ww: 2.2, wh: 3.2 }],
+      doors: [{ side: 'w', at: 0, w: 1.6, h: 2.4, glass: true }],
+    });
+    // grandstand by the field
+    for (let k = 0; k < 3; k++) box(g, 16, 0.45, 1.1, COL.concrete, 72, k * 0.45, 81.8 + k * 1.0);
+    box(g, 16.4, 0.15, 3.6, 0x8d9296, 72, 3.4, 82.8);
+    for (const sx of [-7.8, 7.8]) cyl(g, 0.1, 3.4, 0x8d9296, 72 + sx, 0, 84.4);
+
     // sports field with track
-    const flatG = (w, d, color, x, z, y) => {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat(color));
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(x, y, z);
-      m.receiveShadow = true;
-      g.add(m);
-    };
-    flatG(28, 15, 0xb8664a, 72, 73, 0.05);
-    flatG(24, 11, 0x7fb069, 72, 73, 0.06);
-    flatG(0.25, 11, 0xf1ead8, 72, 73, 0.07);
-    for (const x of [60.8, 83.2]) box(g, 0.15, 2.2, 3.2, 0xf1ead8, x, 0, 73);
+    const flatM = (w, d, material, x, z, y) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), material); m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); m.receiveShadow = true; g.add(m); };
+    flatM(28, 15, surface('soil', 0xd07a5c, { roughness: 0.9 }), 72, 73, 0.05);   // running track
+    flatM(24, 11, surface('grass', 0xb8d49a), 72, 73, 0.06);                      // pitch
+    for (const [w, d, x, z] of [[0.15, 11, 72, 73], [24, 0.12, 72, 67.6], [24, 0.12, 72, 78.4], [0.12, 11, 60.1, 73], [0.12, 11, 83.9, 73]]) flatM(w, d, mat(0xf1ead8), x, z, 0.07);
+    const postM = mat(0xf4f4f0, { roughness: 0.4 });
+    for (const gx of [60.6, 83.4]) {                                                // goalposts
+      for (const pz of [71.6, 74.4]) cyl(g, 0.07, 2.2, postM, gx, 0, pz);
+      add(g, CYL, postM, gx, 2.2, 73, 0.07, 2.94, 0.07).rotation.x = Math.PI / 2;
+    }
     // college sign
     this.sign(54.5, 1.4, 46.5, 6, 1.8, 0, [
       { text: 'KOLEJ KOMUNITI', size: 112, y: 120, color: BRAND.amber },
@@ -1262,43 +1445,59 @@ export class World {
   // Feeder D: Harbour Point shopping complex — mall, cinema, big wheel, parking
   buildMall() {
     const g = this.group('townD');
-    const facade = (w, h, d, x, z, base, glass, seed) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), facadeMaterials(w, h, d, base, glass, 0x6b7378, seed));
-      mesh.position.set(x, h / 2, z);
-      mesh.castShadow = mesh.receiveShadow = true;
-      g.add(mesh);
-      this.feederFacades.D.push(...new Set(mesh.material.filter(q => q.emissiveMap)));
-    };
-    facade(30, 7, 16, 8, 70, '#e8e1d4', '#5a8db0', 71);
+    const mg = this.feederGlass.D;
+    // mall: plaster block with a glass curtain-wall frontage, entrance canopy, skylight, rooftop plant
+    const top = this.structure(g, {
+      x: 8, z: 70, w: 30, d: 16, h: 7, wall: 0xece6da, glass: mg,
+      windows: [{ side: 'e', y: [1.0, 4.2], count: 5, ww: 1.8, wh: 1.6 }, { side: 'w', y: [1.0, 4.2], count: 5, ww: 1.8, wh: 1.6 }],
+      doors: [{ side: 'n', at: -8, w: 2.4, h: 2.6 }, { side: 'n', at: 8, w: 2.4, h: 2.6 }],
+    });
+    box(g, 28.6, 5.6, 0.08, mg, 8, 0.6, 78.06);
+    for (let xx = -6.3; xx <= 22.31; xx += 2.2) box(g, 0.08, 5.6, 0.16, 0x2e3338, xx, 0.6, 78.1);
+    for (const yy of [0.6, 3.35, 6.16]) box(g, 28.6, 0.08, 0.16, 0x2e3338, 8, yy, 78.1);
+    box(g, 10, 0.25, 4, 0xd9dcdf, 8, 4.6, 80);
+    for (const cx of [3.6, 12.4]) cyl(g, 0.18, 4.6, 0xd9dcdf, cx, 0, 81.6);
+    const sky = add(g, new THREE.ConeGeometry(4, 1.8, 4, 1).rotateY(Math.PI / 4).toNonIndexed(), mg, 8, top + 0.9, 70);
+    sky.geometry.computeVertexNormals();
+    for (const [rx, rz] of [[-3, 66], [0, 74], [17, 66], [20, 74]]) this.roofUnit(g, rx, top + 0.05, rz, 1.8, 1.4, true);
     const shopCols = [0xd9534f, 0x2fa39a, 0xf2b33d, 0x6a5acd, 0x3d8fd1, 0xe07b39];
-    for (let k = 0; k < 6; k++) box(g, 4.2, 0.9, 0.2, shopCols[k], -9.5 + k * 7, 5.4, 78.12); // shop signs on the frontage
-    box(g, 6, 1.2, 0.25, 0x1d2928, 8, 7.2, 78.2);
-    facade(12, 9, 10, 31, 66, '#4a3b5e', '#2c2540', 73); // cinema
-    box(g, 9, 1.6, 0.4, 0xf2b33d, 31, 6.4, 71.2);
+    for (let k = 0; k < 6; k++) box(g, 3.8, 0.8, 0.2, shopCols[k], -4.5 + k * 5 + (k > 2 ? 1 : -1) * 0.6, 6.35, 78.2); // shop signs over the storefronts
+    box(g, 6, 1.2, 0.25, 0x1d2928, 8, 7.25, 78.2);
+    // cinema: dark block, glazed lobby, marquee, lit poster frames, vertical blade sign
+    this.structure(g, { x: 31, z: 66, w: 12, d: 10, h: 9, wall: 0x4a3b5e, glass: mg, doors: [{ side: 's', at: 0, w: 3, h: 2.6, glass: true }] });
+    box(g, 9, 1.6, 0.4, 0xf2b33d, 31, 3.4, 71.3);
+    for (const px of [-3.8, 3.8]) { box(g, 1.6, 2.4, 0.08, 0x2e3338, 31 + px, 5.4, 71.06); box(g, 1.4, 2.2, 0.06, mg, 31 + px, 5.5, 71.1); }
+    box(g, 0.3, 5, 1.2, 0xc0392b, 36.8, 3.2, 71.4);
     // big wheel (lights follow Feeder D)
     const wheel = new THREE.Group();
     wheel.position.set(31, 10, 84);
     const ringMat = this.feederMats.D;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(7, 0.22, 8, 40), ringMat);
-    wheel.add(ring);
-    for (let k = 0; k < 10; k++) {
-      const a = (k / 10) * Math.PI * 2;
-      const spoke = new THREE.Mesh(BOX, mat(0xe6e6e6));
-      spoke.scale.set(0.12, 7, 0.12);
-      spoke.position.set(Math.cos(a) * 3.5, Math.sin(a) * 3.5, 0);
-      spoke.rotation.z = a - Math.PI / 2;
-      wheel.add(spoke);
-      const cab = new THREE.Mesh(BOX, mat(shopCols[k % shopCols.length]));
-      cab.scale.set(1, 1, 1);
-      cab.position.set(Math.cos(a) * 7, Math.sin(a) * 7 - 0.6, 0);
-      wheel.add(cab);
+    const white = mat(0xeceff1, { metalness: 0.5, roughness: 0.35 });
+    for (const zz of [-0.45, 0.45]) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(7, 0.14, 10, 72), ringMat);
+      ring.position.z = zz;
+      wheel.add(ring);
+    }
+    add(wheel, CYL, white, 0, 0, 0, 0.45, 1.4, 0.45).rotation.x = Math.PI / 2;
+    const gondola = new THREE.CapsuleGeometry(0.62, 0.55, 6, 16);
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      for (const zz of [-0.45, 0.45]) {
+        const spoke = add(wheel, CYL, white, Math.cos(a) * 3.5, Math.sin(a) * 3.5, zz, 0.04, 7, 0.04);
+        spoke.rotation.z = a - Math.PI / 2;
+      }
+      if (k % 2) continue;
+      const cab = add(wheel, gondola, mat(shopCols[(k / 2) % shopCols.length], { metalness: 0.3, roughness: 0.4 }), Math.cos(a) * 7, Math.sin(a) * 7 - 0.75, 0);
+      cab.rotation.x = Math.PI / 2;
     }
     g.add(wheel);
     this.spinners.push({ obj: wheel, axis: 'z', speed: 0.25 });
-    for (const s of [-1, 1]) {
-      const leg = add(g, BOX, mat(0xbfc5c9), 31 + s * 2.4, 5, 84 - 0.8 * s, 0.3, 10.6, 0.3);
-      leg.rotation.z = s * 0.24;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const leg = add(g, CYL, mat(0xbfc5c9, { metalness: 0.6, roughness: 0.4 }), 31 + sx * 2.4, 5, 84 + sz * 1.1, 0.16, 10.6, 0.16);
+      leg.rotation.z = sx * 0.24;
+      leg.rotation.x = -sz * 0.1;
     }
+    box(g, 6.5, 0.4, 3.4, COL.concrete, 31, 0, 84); // boarding platform
     // parking
     const lot = new THREE.Mesh(new THREE.PlaneGeometry(28, 9), mat(0x6f767c));
     lot.rotation.x = -Math.PI / 2;
