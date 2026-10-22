@@ -34,7 +34,7 @@ const FEEDER_OF = Object.fromEntries(Object.entries(FEEDERS).map(([f, F]) => [F.
 const S = {
   started: false, over: false,
   T: 7 * 60, speed: 1,
-  funds: 350000, reliability: 80, xp: 0,
+  funds: 500000, reliability: 80, xp: 0,
   owned: new Set(),
   feeders: Object.fromEntries(Object.keys(FEEDERS).map(f => [f, { on: true, until: 0 }])),
   incident: null,
