@@ -787,7 +787,7 @@ export const QUESTS = [
   { ch: 0, event: 'camera', icon: 'compass', reward: 0, action: 'rotate', title: 'Look around the site', desc: 'Drag to pan. Right-drag or two fingers to rotate. Scroll or pinch to zoom.' },
   { ch: 0, event: 'inspect:ctrl', icon: 'cpu', reward: 10000, action: 'asset:ctrl', title: 'Inspect the control house', desc: 'Tap the Substation Control House. Breaker commands start there.' },
   { ch: 0, event: 'network', icon: 'share', reward: 10000, action: 'panel:network', title: 'Map your zones and conduits', desc: 'Open Network to see the Purdue levels and which conduits are unprotected.' },
-  { ch: 0, event: 'buy', icon: 'bag', reward: 0, action: 'panel:shop', title: 'Buy your first security control', desc: 'Open the Shop. Visibility first: you can’t defend what you can’t see.' },
+  { ch: 0, event: 'buy', icon: 'bag', reward: 0, action: 'panel:shop', title: 'Buy your first security control', desc: 'Open Controls. Visibility first: you can’t defend what you can’t see.' },
   { ch: 0, event: 'incident', icon: 'shield', reward: 25000, action: 'incident', title: 'Handle your first incident', desc: 'When the alarm fires, read the detections, mark True or False Positive, then respond or remediate.' },
   { ch: 0, event: 'day2', icon: 'zap', reward: 30000, action: 'speed', title: 'Keep the lights on until midnight', desc: 'Finish Day 1. Fines and outages eat your budget.' },
   { ch: 1, event: 'sl3', icon: 'shield', reward: 40000, action: 'panel:shop', title: 'Reach Security Level 3', desc: 'Six controls installed. Mix visibility, segmentation, access and recovery.' },
