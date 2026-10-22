@@ -267,7 +267,6 @@ function positionOverlays() {
 }
 
 // ---------- HUD ----------
-const RANKS = ['Trainee', 'Analyst', 'Responder', 'Defender', 'Guardian', 'Grid Sentinel'];
 function renderHUD() {
   $('#funds').textContent = money(S.funds);
   $('#funds').style.color = S.funds < 0 ? 'var(--red)' : '';
@@ -289,7 +288,8 @@ function renderHUD() {
   const lvl = Math.floor(S.xp / 250) + 1;
   $('#op-name').textContent = S.player || 'Operator';
   $('#op-level').textContent = lvl;
-  $('#op-rank').textContent = RANKS[Math.min(lvl - 1, RANKS.length - 1)] + (S.streak > 1 ? ` · streak ×${S.streak}` : '');
+  $('#op-rank').textContent = S.streak > 1 ? `Streak ×${S.streak}` : '';
+  $('#op-rank').hidden = S.streak < 2;
   $('#op-xp').style.width = `${((S.xp % 250) / 250) * 100}%`;
   $('#chip-hold').hidden = !S.incident;
   $('#soc-dot').hidden = !S.incident;
