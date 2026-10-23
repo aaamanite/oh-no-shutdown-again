@@ -213,7 +213,11 @@ export function buildWorkerBody(ref, { woman = false } = {}) {
     // hand: palm, four fingers, thumb (skin), wrist joins the cuff
     const hx = Math.abs(bp[side + 'Hand'].x), hw = one(side + 'Hand');
     put('skin', ellipsoid(V(sx * (hx + 0.045), ay - 0.006, az), 0.05, 0.019, 0.041, 20, 12), hw);
-    put('skin', loft([0, 0.02].map(d => ({ c: V(sx * (hx - 0.01 + d), ay, az), e1: V(0, 1, 0), e2: V(0, 0, 1), r1: 0.026, r2: 0.034 })), 16), hw);
+    // wrist: starts inside the cuff and runs into the palm, blending forearm → hand across the joint so the
+    // hand bends with the arm instead of floating free of the sleeve
+    const wristW = v => { const t = THREE.MathUtils.smoothstep(Math.abs(v.x), hx - 0.03, hx + 0.02); return [[B(side + 'ForeArm'), 1 - t], [B(side + 'Hand'), t]]; };
+    const WR = [[-0.06, 0.027, 0.031], [-0.03, 0.026, 0.031], [0, 0.024, 0.033], [0.025, 0.021, 0.036], [0.045, 0.019, 0.038]];
+    put('skin', loft(WR.map(([d, r1, r2]) => ({ c: V(sx * (hx + d), ay - 0.004, az), e1: V(0, 1, 0), e2: V(0, 0, 1), r1, r2 })), 18), wristW);
     [-0.027, -0.009, 0.009, 0.027].forEach((dz, i) => {
       const L = [0.05, 0.058, 0.055, 0.045][i];
       put('skin', capsuleAlong(V(sx * (hx + 0.085), ay - 0.006, az + dz), V(sx * (hx + 0.085 + L), ay - 0.012, az + dz * 1.1), 0.0095), hw);

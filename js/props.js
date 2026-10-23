@@ -361,9 +361,18 @@ export function makeWorker(gltf, holder, { woman = false, scale = 2.3, tablet = 
     const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.21), new THREE.MeshBasicMaterial({ color: 0x7fe3ff }));
     screen.position.z = 0.007;
     tab.add(slab, screen);
-    tab.position.set(0, 0.1, 0.05);
-    tab.rotation.x = -0.4;
-    attach(bone('RightHand'), tab);
+    // Held flat against the right palm, screen towards her body, long side along the fingers. The grip is
+    // laid out in the T-pose bind space where js/worker.js builds the hand (palm faces −y, fingers run
+    // along −x, thumb towards +z), then converted into the hand bone's frame so it follows every clip.
+    const sk = ref.skeleton;
+    const bi = n => sk.bones.findIndex(b => b.name === 'mixamorig' + n);
+    const bindPos = n => new THREE.Vector3().applyMatrix4(sk.boneInverses[bi(n)].clone().invert().premultiply(ref.bindMatrixInverse));
+    const hx = Math.abs(bindPos('RightHand').x), ay = bindPos('RightArm').y, az = bindPos('RightArm').z;
+    const grip = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, -1, 0))
+      .setPosition(-(hx + 0.11), ay - 0.006 - 0.019 - 0.007, az + 0.005);   // palm half-thickness 0.019, tablet half 0.006
+    const local = sk.boneInverses[bi('RightHand')].clone().multiply(ref.bindMatrix).multiply(grip);
+    local.decompose(tab.position, tab.quaternion, tab.scale);
+    bone('RightHand').add(tab);
   }
   model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   holder.add(model);
