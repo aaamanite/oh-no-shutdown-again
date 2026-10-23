@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { Look, surface, grassTextures, makeWater, chainLink, groundVariation } from './look.js';
+import { Look, surface, grassTextures, makeOcean, chainLink, groundVariation } from './look.js';
 import { buildSatellite, buildGroundDish } from './satellite.js';
 import { latticeGeometry, insulatorString, SHEDS, broadleaf, treeMaterials, trunkGeometry, palmCrown, palmMaterials, car, loadWorkers, makeWorker } from './props.js';
 
@@ -782,8 +782,6 @@ export class World {
     this.quality = q;
     try { localStorage.setItem('onsa.quality', q); } catch { /* storage unavailable */ }
     this.look.setQuality(q);
-    this.water.hi.visible = q === 'high';
-    this.water.lo.visible = q !== 'high';
     const size = q === 'high' ? 4096 : 2048;
     if (this.sun.shadow.mapSize.x !== size) {
       this.sun.shadow.mapSize.set(size, size);
@@ -856,15 +854,17 @@ export class World {
   buildGround() {
     const s = this.scene;
     const grass = grassTextures();
-    grass.map.repeat.set(70, 70);
-    grass.nrm.repeat.set(70, 70);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), groundVariation(new THREE.MeshStandardMaterial({ map: grass.map, normalMap: grass.nrm, normalScale: new THREE.Vector2(1, 1), color: 0x93a275, roughness: 0.97 })));
+    // land ends just under the beach; the sea has its own surface (its wave troughs dip below y = 0)
+    grass.map.repeat.set(70, 70 * 525.5 / 900);
+    grass.nrm.repeat.copy(grass.map.repeat);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(900, 525.5).translate(0, -187.25, 0), groundVariation(new THREE.MeshStandardMaterial({ map: grass.map, normalMap: grass.nrm, normalScale: new THREE.Vector2(1, 1), color: 0x93a275, roughness: 0.97 })));
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     s.add(ground);
 
-    this.water = makeWater(1000, 340, this.look.sunDir);
-    for (const w of [this.water.hi, this.water.lo]) { w.position.set(0, 0.03, -75 - 170); s.add(w); }
+    this.water = makeOcean(1000, 340, -75.6);
+    this.water.mesh.position.set(0, 0.03, -75 - 170);
+    s.add(this.water.mesh);
     const beach = new THREE.Mesh(new THREE.PlaneGeometry(1000, 9), surface('sand'));
     beach.rotation.x = -Math.PI / 2;
     beach.position.set(0, 0.045, -71);
@@ -2425,7 +2425,6 @@ export class World {
     this.sun.color.setHex(elev > 1 ? (elev < 14 ? 0xffc98f : 0xfff2df) : 0x9fb4ff);
     this.hemi.intensity = 0.55 - 0.05 * n;
     this.hemi.color.setHex(0xdbe8ff).lerp(new THREE.Color(0x6f86c4), 1 - n);
-    if (this.water.hi.visible) this.water.hi.material.uniforms.sunDirection.value.copy(dir);
     if (Math.abs(n - this._n) < 0.003) return;
     this._n = n;
     this.scene.fog.color.copy(this.fogDay).lerp(this.fogNight, 1 - n);
@@ -2454,8 +2453,7 @@ export class World {
       }
     }
     this.updatePersona(dt);
-    if (this.water.hi.visible) this.water.hi.material.uniforms.time.value += dt * 0.5;
-    else this.water.lowNormals.offset.x += dt * 0.01;
+    this.water.uniforms.uTime.value += dt;
     if (this.honeypot.visible) this.hpLight.material.color.setHex(this.hpAlarm ? (Math.sin(this._t * 12) > 0 ? 0xff3b30 : 0x5a1410) : (Math.sin(this._t * 2) > 0.6 ? 0xf2b33d : 0x6b5216));
     this.updateSouth(dt);
     const flick = 1 + 0.22 * Math.sin(this._t * 13) + 0.12 * Math.sin(this._t * 29);

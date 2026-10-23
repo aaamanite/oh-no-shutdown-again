@@ -2,7 +2,6 @@
 // post-processing, generated surface textures and world-space (triplanar) material mapping.
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
-import { Water } from 'three/addons/objects/Water.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
@@ -287,19 +286,68 @@ export class Look {
   render() { this.composer.render(); }
 }
 
-// realistic animated sea (planar reflections) for high quality; a cheaper normal-mapped surface otherwise
-export function makeWater(width, depth, sunDir) {
-  const normals = loader.load(CDN + 'textures/waternormals.jpg', t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; });
-  const geo = new THREE.PlaneGeometry(width, depth);
-  const hi = new Water(geo, {
-    textureWidth: 512, textureHeight: 512, waterNormals: normals, sunDirection: sunDir.clone(),
-    sunColor: 0xfff4e0, waterColor: 0x1b5868, distortionScale: 2.2, fog: true,
+// the sea: rolling Gerstner swell moved on the GPU, two layers of drifting ripples, sky reflection and sun glint
+// from the standard material, shallow turquoise water near the beach, surf at the shoreline and whitecaps on
+// the crests. shoreZ is the world z of the waterline; storm (0…1) raises the sea.
+export function makeOcean(width, depth, shoreZ) {
+  const normals = loader.load(CDN + 'textures/waternormals.jpg');
+  normals.wrapS = normals.wrapT = THREE.RepeatWrapping;
+  const geo = new THREE.PlaneGeometry(width, depth, 400, 140).rotateX(-Math.PI / 2);
+  const uniforms = { uTime: { value: 0 }, uShoreZ: { value: shoreZ }, uStorm: { value: 0 } };
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xffffff, roughness: 0.07, metalness: 0,
+    normalMap: normals, normalScale: new THREE.Vector2(0.32, 0.32), envMapIntensity: 0.95,
   });
-  hi.rotation.x = -Math.PI / 2;
-  const lowNormals = normals.clone();
-  lowNormals.repeat.set(40, 15);
-  const lo = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x2a6a78, roughness: 0.12, metalness: 0.1, normalMap: lowNormals, normalScale: new THREE.Vector2(0.6, 0.6) }));
-  lo.rotation.x = -Math.PI / 2;
-  lo.receiveShadow = true;
-  return { hi, lo, lowNormals };
+  material.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, uniforms);
+    const common = `#include <common>
+      uniform float uTime; uniform float uShoreZ; uniform float uStorm;
+      varying vec3 vSea; varying float vWave;`;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `${common}
+        // one Gerstner wave: adds its displacement and the surface tangents it bends
+        vec3 gerstner(vec2 p, vec2 dir, float steep, float wl, inout vec3 tg, inout vec3 bn) {
+          float k = 6.28318 / wl, c = sqrt(9.8 / k), a = steep / k;
+          vec2 d = normalize(dir);
+          float f = k * (dot(d, p) - c * uTime), s = sin(f), co = cos(f);
+          tg += vec3(-d.x * d.x * steep * s, d.x * steep * co, -d.x * d.y * steep * s);
+          bn += vec3(-d.x * d.y * steep * s, d.y * steep * co, -d.y * d.y * steep * s);
+          return vec3(d.x * a * co, a * s, d.y * a * co);
+        }`)
+      .replace('#include <beginnormal_vertex>', `
+        vec3 sea0 = (modelMatrix * vec4(position, 1.0)).xyz;
+        float amp = smoothstep(0.0, 28.0, uShoreZ - sea0.z) * (1.0 + 1.3 * uStorm);   // calm right at the beach
+        vec3 tg = vec3(1.0, 0.0, 0.0), bn = vec3(0.0, 0.0, 1.0), disp = vec3(0.0);
+        disp += gerstner(sea0.xz, vec2(0.25, 1.0), 0.08 * amp, 22.0, tg, bn);
+        disp += gerstner(sea0.xz, vec2(-0.55, 0.85), 0.07 * amp, 13.0, tg, bn);
+        disp += gerstner(sea0.xz, vec2(0.8, 0.6), 0.05 * amp, 9.0, tg, bn);
+        vec3 objectNormal = normalize(cross(bn, tg));`)
+      .replace('#include <begin_vertex>', `vec3 transformed = vec3(position) + disp;
+        vSea = sea0 + disp;
+        vWave = disp.y / (0.5 * max(amp, 0.05));                          // -1 trough … 1 crest`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', common)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float dS = uShoreZ - vSea.z;                                       // metres out from the waterline
+        vec3 shallow = vec3(0.07, 0.27, 0.27), deep = vec3(0.012, 0.075, 0.11), stormy = vec3(0.04, 0.07, 0.08);
+        diffuseColor.rgb = mix(mix(shallow, deep, smoothstep(2.0, 90.0, dS)), stormy, uStorm * 0.6);
+        diffuseColor.rgb += vec3(0.006, 0.025, 0.022) * smoothstep(0.3, 1.0, vWave);   // light through the crests
+        vec3 nz = texture2D(normalMap, vSea.xz * 0.06 + vec2(0.0, uTime * 0.015)).xyz;
+        float surf = (1.0 - smoothstep(0.0, 6.0, dS)) * smoothstep(0.42, 0.72, nz.x * 0.55 + 0.45 * (0.5 + 0.5 * sin(dS * 1.9 + uTime * 1.7)));
+        float caps = smoothstep(0.75, 1.0, vWave) * smoothstep(0.58, 0.8, nz.y) * (0.2 + 0.9 * uStorm);
+        float foam = clamp(surf + caps, 0.0, 1.0);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.9, 0.9), foam);`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor + 0.12 * uStorm, 0.75, foam);`)
+      .replace('#include <normal_fragment_maps>', `
+        vec3 nA = texture2D(normalMap, vSea.xz * 0.04 + vec2(uTime * 0.011, -uTime * 0.019)).xyz * 2.0 - 1.0;
+        vec3 nB = texture2D(normalMap, vSea.xz * 0.13 + vec2(-uTime * 0.017, -uTime * 0.012)).xyz * 2.0 - 1.0;
+        vec2 rip = (nA.xy + nB.xy) * normalScale * (1.0 + 0.8 * uStorm) * (1.0 - 0.7 * foam);
+        vec3 tx = normalize((viewMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz), tz = normalize((viewMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz);
+        normal = normalize(normal + tx * rip.x + tz * rip.y);`);
+  };
+  material.customProgramCacheKey = () => 'ocean-1';
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.receiveShadow = true;
+  return { mesh, normals, uniforms };
 }
