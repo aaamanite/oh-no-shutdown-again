@@ -3009,14 +3009,22 @@ export class World {
     // solar farm: loop, with a path out to the southern road junction
     P([[-153.8, 69.2], [-104.2, 69.2], [-104.2, 112.3], [-153.8, 112.3]], true);
     P([[-110, 68.2], [-110, 64], [-52, 64]]);
+    // chapter 3 sites (shown with them). Hydro: from the switchyard access road round the switchyard's west
+    // side to the powerhouse door, and along the switchyard's north side
+    const hydro = this.areas.hydro, factory = this.areas.factory;
+    this.walkpath([[-224, 22.5], [-234.5, 22.5], [-234.5, 58.6], [-250, 58.6]], false, hydro);
+    this.walkpath([[-233.5, 47.9], [-211, 47.9]], false, hydro);
+    // factory: along both sides of the plant from the trunk road down to the beach
+    this.walkpath([[-233, 2.5], [-233, -65]], false, factory);
+    this.walkpath([[-155, -2.5], [-155, -65]], false, factory);
   }
 
-  walkpath(pts, closed) {
+  walkpath(pts, closed, parent = this.scene) {
     const W = 2;
     const n = pts.length;
     for (let i = 0; i < (closed ? n : n - 1); i++) this.walkSegs.push([...pts[i], ...pts[(i + 1) % n]]);
-    this.scene.add(this.ribbon(pts, closed, W, 0, this.walkGreen, 0.17));
-    for (const sd of [-1, 1]) this.scene.add(this.ribbon(pts, closed, 0.16, sd * (W / 2 - 0.08), this.walkYellow, 0.18));
+    parent.add(this.ribbon(pts, closed, W, 0, this.walkGreen, 0.17));
+    for (const sd of [-1, 1]) parent.add(this.ribbon(pts, closed, 0.16, sd * (W / 2 - 0.08), this.walkYellow, 0.18));
   }
 
   // a flat strip of the given width following a polyline, offset sideways, with mitred joins
@@ -3206,7 +3214,7 @@ export class World {
     // an oil palm plantation in the west, rows 8 m apart
     for (let z = -66; z <= -22; z += 7) {
       for (let x = -160 + ((z / 7) % 2 ? 4 : 0); x <= -98; x += 8) {
-        if (near(x, z, this.roadSegs, 5) || near(x, z, this.lineSegs, 7)) continue;
+        if (near(x, z, this.roadSegs, 5) || near(x, z, this.lineSegs, 7) || near(x, z, this.walkSegs, 3.5)) continue;
         if (boxes.some(bx => x > bx.min.x && x < bx.max.x && z > bx.min.z && z < bx.max.z)) continue;
         spots.push([x, z, 0.9 + rand() * 0.25, true]);
       }
