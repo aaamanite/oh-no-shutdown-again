@@ -21,7 +21,7 @@ A 3D, browser-based OT/ICS security training game. You are the OT Security Lead 
 
 ## How it plays
 
-- **Six chapters.** First shift and hardening the station, then *Line 4: water and wheels* (the hydro station and car factory), *Monsoon season* (storms, rain, lightning, spillway in flood), *First power from space* (the SBSP beam at full power) and *Grid of the Year* — finish it for a certificate, then keep running the grid. Each chapter opens with a title card; later chapters show as locked teasers in Missions. (Reviewers can start at a chapter with `?chapter=3` … `?chapter=6`.)
+- **Six chapters.** First shift and hardening the station, then *Line 4: water and wheels* (the hydro station and car factory), *Monsoon season* (storms, rain, lightning, spillway in flood), *First power from space* (the SBSP beam at full power) and *Grid of the Year* — finish it for a certificate, then keep running the grid. Each chapter opens with a title card; later chapters show as locked teasers in Missions. Every player starts at chapter 1.
 - **Run the site.** Energized feeders earn revenue. Outages cost revenue, grid reliability and regulator fines. Controls have capex and daily opex.
 - **Deception.** The OT honeypot (decoy RTU-99) sits in the switchyard. Nobody legitimate touches it, so a real attack trips it: you get a high-confidence detection and 30 s more to decide. On a false alarm it stays quiet.
 - **Invest in controls.** Asset inventory, OT network monitoring, IT/OT firewall, MFA + jump host, station-bus port security, removable-media control, attack-surface review, config backups, IR playbook. Some prevent a scenario outright; visibility controls add context to the logs you read; the playbook annotates response options.

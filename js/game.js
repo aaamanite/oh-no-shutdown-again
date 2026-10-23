@@ -1405,14 +1405,6 @@ $('#start').addEventListener('click', () => {
   Snd.init();
   $('#intro').remove();
   S.started = true;
-  const jump = Math.floor(+new URLSearchParams(location.search).get('chapter') || 0) - 1;
-  if (jump >= 2 && jump < CHAPTERS.length) {
-    S.questIdx = QUESTS.findIndex(q => q.ch === jump);
-    S.funds = 1000000 + 250000 * (jump - 1);
-    for (const id of ['inventory', 'ids', 'itotfw', 'mfa', 'portsec', 'backups']) S.owned.add(id);
-    refreshConduits();
-    enterChapter(jump);
-  }
   alertLog(`${SITE.utility}: shift started at ${SITE.station}.`);
   toast(`Welcome to Bukit Mutiara, ${esc(S.player)}. Follow the quest card to get started.`, 'good', 'zap');
   renderAction();
