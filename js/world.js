@@ -204,16 +204,35 @@ const hillNoise = (x, z) => 0.5 * Math.sin(x * 0.045 + Math.sin(z * 0.03) * 2) *
 const DAM_X = -276;   // upstream face of the dam
 const RES_Y = 17.5;   // reservoir level
 const valleyZ = x => 36 + 5 * Math.sin((x - DAM_X) * 0.035);
-// ground height west of x = -254: hills rise from the plain; the valley floor drops below the reservoir level
-// behind the dam, sits near 0 below it, and climbs out again upstream so the reservoir is closed in
+// the Sungai Mutiara: down its valley, through the gorge, past the dam's powerhouse, then south to the sea
+const RIVER = (() => {
+  const ctrl = [];
+  for (let x = -352; x <= -262; x += 10) ctrl.push(new THREE.Vector3(x, 0, valleyZ(x)));
+  for (const [x, z] of [[-256, 36], [-249, 34.5], [-243.5, 30], [-240.5, 22], [-240, 8], [-240.5, -10], [-242, -30], [-244, -50], [-245.5, -66], [-246.5, -82]]) ctrl.push(new THREE.Vector3(x, 0, z));
+  return new THREE.CatmullRomCurve3(ctrl).getSpacedPoints(200).map(p => [p.x, p.z]);
+})();
+function riverDist(x, z) {
+  let best = Infinity;
+  for (let i = 0; i < RIVER.length - 1; i++) {
+    const [ax, az] = RIVER[i], [bx, bz] = RIVER[i + 1], dx = bx - ax, dz = bz - az;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+    best = Math.min(best, Math.hypot(x - ax - dx * t, z - az - dz * t));
+  }
+  return best;
+}
+// ground height in the west: hills rise from x = -236; the valley is carved around the river with a flat floor
+// (reservoir basin upstream, a gorge at the dam, a wide basin below it for the powerhouse, then a river channel)
 function westHeight(x, z) {
-  const ridge = smoothstep(-254, -276, x);
+  const ridge = smoothstep(-236, -258, x);
   if (ridge <= 0) return 0;
-  const sig = 16 + 18 * smoothstep(-282, -310, x) - 14 * smoothstep(-335, -362, x);
-  const v = Math.exp(-(((z - valleyZ(x)) / sig) ** 2));
-  const floor = 0.4 + 3.6 * smoothstep(-266, -276, x) + 20 * smoothstep(-342, -372, x);
+  const reservoir = 18 + 14 * smoothstep(-280, -300, x) - 24 * smoothstep(-335, -360, x);
+  let w = reservoir + (10 - reservoir) * smoothstep(-284, -276, x);
+  w += (7 + 17 * smoothstep(12, 26, z) - w) * smoothstep(-262, -254, x);
+  const valley = 1 - smoothstep(w, w + 12, riverDist(x, z));
+  if (valley >= 1 && x > -262) return 0;
+  const floor = x > -266 ? 0 : 4 * smoothstep(-266, -276, x) + 20 * smoothstep(-342, -372, x);
   const peak = 40 + 14 * hillNoise(x, z) + 12 * smoothstep(-300, -380, x);
-  return ridge * (peak * (1 - 0.94 * v) + floor * v);
+  return ridge * (peak * (1 - valley) + floor * valley);
 }
 
 export class World {
@@ -737,10 +756,16 @@ export class World {
     // kerbs: concrete edge strips along both edges of every road. Each kerb stops exactly at the edge of any road
     // that crosses or joins it, so corners close into clean L's; free ends run on to cover the corner square.
     // Walkpaths reaching a road open a gap in the kerb on their side only.
+    this.buildKerbs(this.roadSegs, this.roadSegs.map((_, j) => (j < 2 ? 2.5 : 2)), this.scene);
+    // the west roads (chapter 3): trunk extension, switchyard access, factory gate lane
+    this.buildKerbs([...this.westRoads, [-186, -2.5, -186, -8]], [2.5, 2, 3], this.line4);
+  }
+
+  buildKerbs(segs, halves, parent) {
     const kerbGeos = [], KO = 0.15, KW = 0.25;
-    const halfOf = j => (j < 2 ? 2.5 : 2);
+    const halfOf = j => halves[j];
     const frame = ([ax, az, bx, bz]) => { const len = Math.hypot(bx - ax, bz - az); return { ax, az, len, ux: (bx - ax) / len, uz: (bz - az) / len }; };
-    const F = this.roadSegs.map(frame);
+    const F = segs.map(frame);
     // t-range where the line P(t) = (px, pz) + (dx, dz)·t lies on road j's surface
     const onRoad = (j, px, pz, dx, dz) => {
       const { ax, az, len, ux, uz } = F[j], h = halfOf(j);
@@ -788,7 +813,7 @@ export class World {
     if (kerbGeos.length) {
       const kerbs = new THREE.Mesh(mergeGeometries(kerbGeos), surface('concrete', 0xd4d0c8));
       kerbs.receiveShadow = true;
-      this.scene.add(kerbs);
+      parent.add(kerbs);
     }
   }
 
@@ -2140,9 +2165,9 @@ export class World {
   }
 
   buildHills() {
-    const W = 200, D = 300, geo = new THREE.PlaneGeometry(W, D, 120, 180);
+    const W = 218, D = 300, geo = new THREE.PlaneGeometry(W, D, 145, 200);
     geo.rotateX(-Math.PI / 2);
-    geo.translate(-254 - W / 2, 0, 25);
+    geo.translate(-236 - W / 2, 0, 25);
     const pos = geo.attributes.position, col = new Float32Array(pos.count * 3);
     const c = new THREE.Color(), meadow = new THREE.Color(0xa6b97c), forest = new THREE.Color(0x5b7d44), rock = new THREE.Color(0x9d968a);
     for (let i = 0; i < pos.count; i++) {
@@ -2162,10 +2187,7 @@ export class World {
     this.riverNormals = this.water.lowNormals.clone();
     this.riverNormals.repeat.set(1, 1);
     this.riverMat = new THREE.MeshStandardMaterial({ color: 0x356f73, roughness: 0.1, metalness: 0.15, normalMap: this.riverNormals, normalScale: new THREE.Vector2(0.5, 0.5), side: THREE.DoubleSide });
-    const ctrl = [];
-    for (let x = -352; x <= -262; x += 10) ctrl.push(new THREE.Vector3(x, 0, valleyZ(x)));
-    for (const [x, z] of [[-256, 36], [-249, 34.5], [-243.5, 30], [-240.5, 22], [-240, 8], [-240.5, -10], [-242, -30], [-244, -50], [-245.5, -66], [-246.5, -82]]) ctrl.push(new THREE.Vector3(x, 0, z));
-    const river = new THREE.CatmullRomCurve3(ctrl).getSpacedPoints(160).map(p => [p.x, p.z]);
+    const river = RIVER;
     this.riverPts = river;
     const wAt = t => (t < 0.55 ? 5 : 5 + 4 * smoothstep(0.55, 0.62, t));
     const bank = this.strip(river, t => wAt(t) + 3, (x, z) => westHeight(x, z) + 0.09, surface('sand', 0xcbb894, { side: THREE.DoubleSide }));
@@ -2176,10 +2198,11 @@ export class World {
     const rand = rng(4242);
     this.hillTrees = [];
     for (let i = 0; i < 5000 && this.hillTrees.length < 280; i++) {
-      const x = -258 - rand() * 175, z = -70 + rand() * 235, y = westHeight(x, z);
+      const x = -240 - rand() * 190, z = -70 + rand() * 235, y = westHeight(x, z);
       if (y < 2.5) continue;
       if (x < DAM_X + 2 && x > -372 && y < RES_Y + 1.5) continue;
       if (x > -290 && Math.abs(z - 36) < 34) continue;
+      if (riverDist(x, z) < 9) continue;
       if (Math.hypot(westHeight(x + 1, z) - y, westHeight(x, z + 1) - y) > 1.2) continue;
       if (this.hillTrees.some(([sx, sz]) => (sx - x) ** 2 + (sz - z) ** 2 < 16)) continue;
       this.hillTrees.push([x, z, 1 + rand() * 0.6, false, y - 0.25]);
@@ -2231,13 +2254,15 @@ export class World {
       for (const zz of [-1.2, 1.2]) for (const a of [-0.42, 0.25]) this.pipe(gate, new THREE.Vector3(0, 0, zz), new THREE.Vector3(-6.3 * Math.cos(a), 6.3 * Math.sin(a), zz), 0.12, 0x2f6b8f);
       g.add(gate);
       this.gates.push(gate);
-      box(g, 2.2, 2.4, 2.6, 0xe9e0d0, -273.8, 21.8, z);                           // hoist house
+      box(g, 2.2, 2.2, 2.6, 0xe9e0d0, -273, 26.4, z);                             // hoist house, on the hoist bridge
     }
-    box(g, 6, 0.5, 13, conc, -273, 21.5, 36);                                         // crest road bridge
-    // crest road, parapets and lamps
-    box(g, 5.2, 0.08, 56, 0x6f767c, -273, 21.5, 36);
+    box(g, 6, 0.5, 13, conc, -273, 21.5, 36);                                         // crest road bridge over the gates
+    box(g, 5.6, 0.4, 13.4, conc, -273, 26, 36);                                       // hoist bridge, 4 m above the road
+    for (const z of [30, 34, 38, 42]) for (const x of [-275.6, -270.4]) cyl(g, 0.22, 4, conc, x, 22, z);
+    // crest road (ending at the control room), parapets and lamps
+    box(g, 5.2, 0.08, 48, 0x6f767c, -273, 21.5, 34);
     for (const x of [-275.85, -270.15]) box(g, 0.3, 1.1, 56, conc, x, 21.5, 36);
-    for (let z = 12; z <= 60; z += 12) { cyl(g, 0.08, 5, COL.steelDark, -275.6, 22.6, z); box(g, 0.9, 0.12, 0.3, 0xdfe3e6, -275.2, 27.5, z); }
+    for (const z of [12, 24, 48]) { cyl(g, 0.08, 5, COL.steelDark, -270.4, 22.6, z); box(g, 0.9, 0.12, 0.3, 0xdfe3e6, -270.8, 27.5, z); }
     // spillway chute: training walls, stilling basin; white water when the gates are open
     for (const z of [29.6, 42.4]) box(g, 18, 2.2, 0.6, conc, -263, 0, z);
     box(g, 10, 0.4, 13.4, conc, -251, -0.3, 36);
@@ -2270,7 +2295,8 @@ export class World {
 
     // intake hoists on the crest and three penstocks down the face into the powerhouse
     for (const z of [46, 50, 54]) {
-      box(g, 3.4, 3, 3, 0xe9e0d0, -273.6, 21.5, z);
+      box(g, 3.2, 22, 3.2, conc, -277.6, 0, z);                                     // intake tower against the upstream face
+      box(g, 2.8, 2.6, 2.8, 0xe9e0d0, -277.6, 22, z);                               // intake gate hoist
       const top = new THREE.Vector3(-268.6, 18.7, z), toe = new THREE.Vector3(-257.6, 3.4, z), inlet = new THREE.Vector3(-254.6, 3.4, z);
       this.pipe(g, top, toe, 1.05, 0x5a6a73);
       this.pipe(g, toe, inlet, 1.05, 0x5a6a73);
@@ -2286,9 +2312,9 @@ export class World {
     for (const x of [-253.5, -246.5]) box(g, 0.4, 0.5, 14, steel, x, phTop + 0.6, 50);
     box(g, 7.6, 0.8, 1.2, 0xf2b33d, -250, phTop + 1.1, 47);                            // crane bridge
     for (const z of [45.5, 50, 54.5]) box(g, 0.2, 1.6, 2.6, dark, -244.9, 0.2, z);    // draft-tube outlets
-    const tail = this.strip([[-246.5, 47], [-247, 42], [-248.5, 37]], 6, () => 0.17, this.riverMat);
+    const tail = this.strip([[-248, 42.9], [-248.2, 40], [-248.8, 37]], 6, () => 0.17, this.riverMat);
     g.add(tail);
-    for (const x of [-252.4, -244.1]) box(g, 0.5, 1, 7, conc, x, 0, 40.5);
+    for (const x of [-251.4, -244.9]) box(g, 0.5, 1, 4.8, conc, x, 0, 40.4);
 
     // dam control room on the north abutment
     const cr = new THREE.Group();
@@ -2299,13 +2325,13 @@ export class World {
     // switchyard on the east bank: three 11/132 kV step-up transformers, breakers, the Line 4 gantry
     box(g, 20, 0.15, 18, COL.gravel, -222, 0, 37);
     const fence = chainLink();
-    for (const [w, x, z, rot] of [[20, -222, 28, 0], [20, -222, 46, 0], [18, -232, 37, Math.PI / 2], [18, -212, 37, Math.PI / 2]]) {
+    for (const [w, x, z, rot] of [[8, -228, 28, 0], [8, -216, 28, 0], [20, -222, 46, 0], [18, -232, 37, Math.PI / 2], [18, -212, 37, Math.PI / 2]]) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 2.2), fence);
       m.position.set(x, 1.25, z);
       m.rotation.y = rot;
       g.add(m);
     }
-    for (let x = -232; x <= -212; x += 4) for (const z of [28, 46]) if (!(z === 28 && x === -224)) cyl(g, 0.08, 2.4, COL.steelDark, x, 0, z);
+    for (let x = -232; x <= -212; x += 4) for (const z of [28, 46]) cyl(g, 0.08, 2.4, COL.steelDark, x, 0, z);
     for (let z = 32; z <= 44; z += 4) for (const x of [-232, -212]) cyl(g, 0.08, 2.4, COL.steelDark, x, 0, z);
     const finGeo = new THREE.BoxGeometry(0.04, 2, 0.8);
     for (const x of [-227, -221, -215]) {
@@ -2455,10 +2481,10 @@ export class World {
     const attach = this.route({ pts, h: 15, tag: '132 kV Line 4 · Sungai Mutiara hydro · tap to Mutiara Motor Works', ch: 2 });
     this.span(this.hydroGantry, attach[0], 0.8);
     // tap: one tower south of the road, then down to the factory's intake gantry
-    const tap = this.tower(-165, -4.5, Math.atan2(-165 + 158, -4.5 - 10), 15);
+    const tap = this.tower(-165, -5.6, Math.atan2(-165 + 158, -5.6 - 10), 15);
     this.span(attach[3], tap);
     this.span(tap, this.intakeGantry, 0.6);
-    this.lineSegs.push([-158, 10, -165, -4.5]);
+    this.lineSegs.push([-158, 10, -165, -5.6]);
     this.finishLines(g);
 
     // the trunk road continues west to the factory gate and up to the hydro switchyard
@@ -2660,7 +2686,7 @@ export class World {
     for (const g of this.blockers) scan(g);
     for (const [x, z] of this.towerFeet) mark(x - 1.6 - R, z - 1.6 - R, x + 1.6 + R, z + 1.6 + R);
     mark(G.x0, G.z0, G.x0 + G.w * G.cs, -74); // the sea
-    for (let j = 0; j < G.h; j++) for (let i = 0; i < Math.min(G.w, 12); i++) if (westHeight(G.x0 + i + 0.5, G.z0 + j + 0.5) > 0.8) G.block[j * G.w + i] = 1; // hill slopes
+    for (let j = 0; j < G.h; j++) for (let i = 0; i < Math.min(G.w, 26); i++) if (westHeight(G.x0 + i + 0.5, G.z0 + j + 0.5) > 0.8) G.block[j * G.w + i] = 1; // hill slopes
     for (const [x, z] of this.riverPts) mark(x - 5, z - 5, x + 5, z + 5);
     const N = G.w * G.h;
     this._nav = { g: new Float32Array(N), came: new Int32Array(N), seen: new Uint32Array(N), shut: new Uint32Array(N), run: 0 };

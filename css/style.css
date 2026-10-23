@@ -329,6 +329,25 @@ body:has(#sheet:not([hidden])) #action { display: none; }
 .pb.ok { background: rgba(200, 238, 58, .14); color: var(--lime); }
 .pb.bad { background: rgba(255, 77, 106, .14); color: #ff9aac; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* chapter title card and the Grid of the Year certificate */
+.chapter-card, .certificate { text-align: center; max-width: 640px; margin: 0 auto; padding: 8px 4px 0; }
+.chapter-card small, .certificate small { color: var(--lime); }
+.chapter-card h3, .certificate h3 { font-size: clamp(26px, 4.4vw, 38px); text-transform: uppercase; letter-spacing: .02em; text-shadow: 0 0 24px rgba(200, 238, 58, .35); margin: 6px 0 10px; }
+.chapter-card > p, .certificate > p { color: #d6e5e0; font-size: 14.5px; line-height: 1.6; margin: 0 auto 16px; max-width: 58ch; }
+.cc-ic { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 20px; background: radial-gradient(circle at 30% 30%, #e9ff8a, var(--lime) 60%, #7da11a); color: var(--lime-ink); box-shadow: 0 0 30px rgba(200, 238, 58, .55); margin-bottom: 10px; animation: ccpop .6s cubic-bezier(.2, 1.6, .4, 1); }
+.cc-ic .ic { width: 32px; height: 32px; }
+@keyframes ccpop { from { transform: scale(.3) rotate(-20deg); opacity: 0; } }
+.cc-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.cc-list span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(255, 255, 255, .05); box-shadow: inset 0 0 0 1px var(--line); font-size: 12.5px; }
+.cc-list .ic { width: 14px; height: 14px; color: var(--lime); }
+.chapter-card .modal-foot, .certificate .modal-foot { justify-content: center; }
+.certificate { position: relative; padding: 18px 10px 4px; border-radius: 18px; box-shadow: inset 0 0 0 2px var(--edge), 0 0 40px rgba(200, 238, 58, .12); }
+.certificate img { display: block; height: 54px; margin: 0 auto 10px; }
+.certificate > small { display: block; }
+.certificate .kpis { grid-template-columns: repeat(3, 1fr); text-align: left; }
+.box.locked { opacity: .55; }
+@media (max-width: 640px) { .certificate .kpis { grid-template-columns: 1fr 1fr; } }
 .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .help-grid .box b { font-family: var(--head); font-size: 14px; }
 .help-grid .box p { margin: 4px 0 0; font-size: 12.5px; color: #d3e0dc; line-height: 1.5; }

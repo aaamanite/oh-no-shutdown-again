@@ -1,6 +1,6 @@
 // Game loop, economy, incidents and all HUD/panel UI.
 import { World } from './world.js';
-import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, FEEDERS, PURDUE, SITE, PROCESS, INSTRUMENTS, instrumentRisk, HONEYPOT } from './data.js';
+import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, CHAPTER_INTRO, UNLOCK, FEEDERS, PURDUE, SITE, PROCESS, INSTRUMENTS, instrumentRisk, HONEYPOT } from './data.js';
 import { icon, hydrateIcons } from './icons.js';
 import { FALSE_ALARMS, NOISE, PLANT_EVENTS } from './events.js';
 
@@ -33,7 +33,7 @@ const FEEDER_OF = Object.fromEntries(Object.entries(FEEDERS).map(([f, F]) => [F.
 const ALL_SCENARIOS = [...SCENARIOS, ...FALSE_ALARMS];
 const scnById = id => ALL_SCENARIOS.find(sc => sc.id === id);
 // repair bill when a missed attack damages equipment (by asset); others use DAMAGE_DEFAULT
-const REPAIR = { yard: 150000, biogas: 180000, wind: 200000, solar: 120000, ctrl: 90000, scc: 80000, dmz: 60000, corp: 50000 };
+const REPAIR = { yard: 150000, biogas: 180000, wind: 200000, solar: 120000, ctrl: 90000, scc: 80000, dmz: 60000, corp: 50000, hydro: 220000, factory: 160000 };
 const DAMAGE_ORDER = ['yard', 'biogas', 'wind', 'solar', 'ctrl', 'scc', 'dmz', 'corp'];
 const DAMAGE_DEFAULT = 60000;
 
@@ -54,10 +54,20 @@ const S = {
   history: [],
   alerts: [], unread: 0,
   stats: { revenue: 0, fines: 0, spent: 0, response: 0, outageMin: 0, prevented: 0, customerMin: 0 },
-  questIdx: 0, seen: new Set(),
+  questIdx: 0, seen: new Set(), fresh: new Set(),
+  chapter: 0,                        // highest chapter reached (0-based); unlocks sites, feeders, controls, events
+  eFrom: 0, eLost: false,            // Feeder E (the factory): when it came online, lost supply today?
+  night: null,                       // 20:00-06:00 watch: { ok } while it runs
+  storming: false, stormy: false, weatherAt: 0,
   panel: null, light: 'auto', sound: true, netVisible: true, spin: false,
   player: '',
 };
+
+// content unlocked by chapter: anything with ch (feeders, conduits, controls, false alarms, events) or listed in UNLOCK
+const live = x => !x.ch || S.chapter >= x.ch;
+const assetLive = id => !UNLOCK[id] || S.chapter >= UNLOCK[id];
+const liveFeeders = () => Object.keys(FEEDERS).filter(f => live(FEEDERS[f]));
+const liveControls = () => CONTROLS.filter(live);
 
 // ---------- sound ----------
 const Snd = {
@@ -78,16 +88,29 @@ const Snd = {
   click() { this.tone(560, 0.06, 'triangle', 0.05); },
   good() { [523, 659, 784].forEach((f, i) => this.tone(f, 0.28, 'sine', 0.05, i * 0.09)); },
   bad() { [330, 247].forEach((f, i) => this.tone(f, 0.4, 'sawtooth', 0.025, i * 0.18)); },
+  fanfare() { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.36, 'triangle', 0.05, i * 0.12)); },
+  // distant thunder: low-passed noise with a slow decay, a moment after the flash
+  thunder() {
+    if (!S.sound || !this.ctx) return;
+    const c = this.ctx, b = c.createBuffer(1, Math.floor(c.sampleRate * 2.4), c.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length) ** 2;
+    const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    f.type = 'lowpass'; f.frequency.value = 240; g.gain.value = 0.32;
+    src.buffer = b;
+    src.connect(f).connect(g).connect(c.destination);
+    src.start(c.currentTime + 0.3 + Math.random() * 1.2);
+  },
 };
 
 // ---------- world ----------
 const world = new World($('#scene'));
 world.buildNetwork(CONDUITS);
 world.onPick = id => (id === 'researcher' ? openResearcher() : openAsset(id));
+world.onThunder = () => Snd.thunder();
 world.controls.addEventListener('start', () => { if (S.spin) setSpin(false); if (S.started) questEvent('camera'); });
 
 // ---------- derived values ----------
-const securityLevel = () => Math.min(4, 1 + Math.floor(S.owned.size / 3));
+const securityLevel = () => Math.min(5, 1 + Math.floor(S.owned.size / 3));
 const demand = h => 0.58 + 0.22 * Math.exp(-((h - 9) ** 2) / 6) + 0.38 * Math.exp(-((h - 19) ** 2) / 5) - (h < 5 ? 0.16 : 0);
 const daylight = () => {
   if (S.light === 'day') return 1;
@@ -106,7 +129,7 @@ const lightHour = () => {
 const isBlocked = scn => !!scn.blockedBy && S.owned.has(scn.blockedBy);
 // later days give less time to decide (down to 60% of the base) and mix in more background noise
 const dayPressure = () => Math.max(0.6, 1 - 0.08 * (dayOf(S.T) - 1));
-const decideTime = () => Math.round(BASE_DECIDE * dayPressure()) + (S.owned.has('ids') ? 60 : 0) + (S.owned.has('honeypot') ? 30 : 0);
+const decideTime = () => Math.round(BASE_DECIDE * dayPressure()) + (S.owned.has('ids') ? 60 : 0) + (S.owned.has('honeypot') ? 30 : 0) + (S.owned.has('soc247') ? 30 : 0);
 const noiseLines = () => Math.min(4, 1 + Math.floor((dayOf(S.T) - 1) / 2)) + (Math.random() < 0.5 ? 1 : 0);
 
 function conduitState(c) {
@@ -117,6 +140,7 @@ function conduitState(c) {
 function refreshConduits() {
   const attack = S.incident ? S.incident.scn.conduits : [];
   for (const c of CONDUITS) {
+    if (!live(c)) { world.setConduit(c.id, 'hidden'); continue; }
     const st = conduitState(c);
     world.setConduit(c.id, st === 'hidden' ? 'hidden' : attack.includes(c.id) ? 'attack' : st);
   }
@@ -133,7 +157,7 @@ function assetStatus(id) {
     return st.on ? { text: `Energized · ${FEEDERS[f].label}`, cls: 'ok' } : { text: `De-energized · ${dur(st.until - S.T)} left`, cls: 'off' };
   }
   if (id === 'yard') {
-    const off = Object.keys(FEEDERS).filter(k => !S.feeders[k].on);
+    const off = liveFeeders().filter(k => !S.feeders[k].on);
     return off.length ? { text: `Feeder ${off.join(' + ')} breaker open`, cls: 'warn' } : { text: 'All breakers closed', cls: '' };
   }
   if (id === 'ctrl' && !S.owned.has('surface')) return { text: 'L2 · Station control', cls: '' };
@@ -179,12 +203,12 @@ hpEl.className = 'itag hp';
 hpEl.textContent = 'HONEYPOT · RTU-99 (decoy)';
 labelsEl.appendChild(hpEl);
 
-const lineEls = world.lineTags.map(({ text, pos }) => {
+const lineEls = world.lineTags.map(({ text, pos, ch }) => {
   const el = document.createElement('div');
   el.className = 'itag line';
   el.textContent = text;
   labelsEl.appendChild(el);
-  return { el, pos };
+  return { el, pos, ch };
 });
 
 const instEls = world.instruments.map(({ tag, pos }) => {
@@ -240,8 +264,8 @@ function positionOverlays() {
   hpEl.style.display = hpp && hpp.vis ? '' : 'none';
   if (hpp) hpEl.style.transform = `translate(${hpp.x}px, ${hpp.y}px) translate(-50%, -100%)`;
   const lineNear = world.camera.position.distanceTo(world.controls.target) < 260;
-  for (const { el, pos } of lineEls) {
-    const p = lineNear && world.project(pos);
+  for (const { el, pos, ch } of lineEls) {
+    const p = lineNear && !(ch && S.chapter < ch) && world.project(pos);
     if (!p || !p.vis) { el.style.display = 'none'; continue; }
     el.style.display = '';
     el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`;
@@ -254,7 +278,7 @@ function positionOverlays() {
   }
   for (const [id, el] of Object.entries(labelEls)) {
     const p = world.project(world.anchors[id]);
-    if (!p.vis) { el.style.display = 'none'; continue; }
+    if (!p.vis || !assetLive(id)) { el.style.display = 'none'; continue; }
     el.style.display = '';
     el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`;
   }
@@ -279,7 +303,7 @@ function renderHUD() {
   fg.style.stroke = rel >= 75 ? 'var(--lime)' : rel >= 50 ? 'var(--amber)' : 'var(--red)';
   const sl = securityLevel();
   $('#sl').textContent = sl;
-  $('#sec').title = `Security level ${sl} · ${S.owned.size}/${CONTROLS.length} controls`;
+  $('#sec').title = `Security level ${sl} · ${S.owned.size}/${liveControls().length} controls`;
   const soon = S.nextIncidentAt - S.T;
   const [level, text] = S.incident ? ['active', 'Active incident'] : soon < 60 ? ['high', 'High'] : soon < 120 ? ['elevated', 'Elevated'] : ['guarded', 'Guarded'];
   $('#threat').dataset.level = level;
@@ -328,8 +352,8 @@ function renderAction() {
   const q = QUESTS[S.questIdx];
   if (!q) {
     el.innerHTML = `<div class="card quest"><div class="q-top"><small>Sandbox · all chapters complete</small></div>
-      <div class="q-row" style="margin-top:8px"><span class="q-ic" style="background:var(--mint);color:var(--mint-ink)">${icon('check')}</span>
-      <div class="grow"><b>Station hardened</b><p>Keep running shifts, or run drills from the SOC panel to train your team.</p></div>
+      <div class="q-row" style="margin-top:8px"><span class="q-ic" style="background:var(--mint);color:var(--mint-ink)">${icon('trophy')}</span>
+      <div class="grow"><b>Grid of the Year</b><p>Keep running the grid, or run drills from the SOC panel to train your team.</p></div>
       <button class="q-go" data-act="panel:soc">${icon('arrow')}</button></div></div>`;
     return;
   }
@@ -358,24 +382,94 @@ function alertLog(text, kind = 'info') {
 }
 
 // ---------- quests ----------
+// events seen at any time count, except for quests marked fresh, which need the event while they are current;
+// some quests are states checked on the spot
+const QSTATE = {
+  sl3: () => securityLevel() >= 3, buy: () => S.owned.size > 0, sl5: () => securityLevel() >= 5,
+  rel90: () => S.reliability >= 90, funds15: () => S.funds >= 1500000, streak3: () => S.streak >= 3,
+};
+const questDone = q => (q.event.startsWith('buy:') ? S.owned.has(q.event.slice(4))
+  : QSTATE[q.event] ? QSTATE[q.event]() : (q.fresh ? S.fresh : S.seen).has(q.event));
 function questEvent(ev) {
   S.seen.add(ev);
+  S.fresh.add(ev);
   checkQuests();
 }
 function checkQuests() {
-  if (securityLevel() >= 3) S.seen.add('sl3');
-  if (S.owned.size) S.seen.add('buy');
   let changed = false;
-  while (QUESTS[S.questIdx] && S.seen.has(QUESTS[S.questIdx].event)) {
+  while (QUESTS[S.questIdx] && questDone(QUESTS[S.questIdx])) {
     const q = QUESTS[S.questIdx];
     S.questIdx++;
+    S.fresh = new Set();
     changed = true;
     if (q.reward) S.funds += q.reward;
     toast(`Quest complete: ${esc(q.title)}${q.reward ? ` · +${money(q.reward)}` : ''}`, 'good', 'flag');
     const next = QUESTS[S.questIdx];
-    if (next && next.ch !== q.ch) toast(`Chapter ${pad(next.ch + 1)} unlocked: ${esc(CHAPTERS[next.ch])}`, 'good', 'flag');
+    if (next && next.ch !== q.ch) { toast(`Chapter ${pad(next.ch + 1)} unlocked: ${esc(CHAPTERS[next.ch])}`, 'good', 'flag'); enterChapter(next.ch); }
+    if (!next) finale();
   }
   if (changed) { Snd.good(); renderAction(); renderHUD(); if (S.panel?.name === 'quests') renderPanel(); }
+}
+
+// ---------- chapters ----------
+function enterChapter(ch, card = true) {
+  S.chapter = Math.max(S.chapter, ch);
+  applyChapter(true);
+  if (card && CHAPTER_INTRO[ch]) showChapterCard(ch);
+}
+// bring the world in line with the chapter reached (new sites, Feeder E, weather, the beam)
+function applyChapter(reveal) {
+  if (S.chapter >= 2 && !world.westOn) {
+    if (reveal) world.reveal(); else world.setUnlocked(true);
+    S.eFrom = S.T;
+    S.eLost = false;
+    S.deck = [];                       // reshuffle so the new sites' alarms join the deck
+    S.feeders.E = { on: true, until: 0 };
+    world.setFeeder('E', true);
+    alertLog('Line 4 energized: Sungai Mutiara hydro online, Mutiara Motor Works on Feeder E.', 'good');
+  }
+  if (S.chapter === 3) S.weatherAt = Math.min(S.weatherAt || Infinity, S.T + 30);   // the first monsoon storm is close
+  world.setBeamFull(S.chapter >= 4);
+  refreshConduits();
+  refreshLabels();
+  renderHUD();
+}
+function showChapterCard(ch) {
+  const c = CHAPTER_INTRO[ch];
+  if (!S.card) S.cardSpeed = S.speed;
+  S.card = true;
+  setSpeed(0);
+  openModal(`<div class="chapter-card">
+    <span class="cc-ic">${icon(c.icon)}</span>
+    <small>Chapter ${pad(ch + 1)} unlocked</small>
+    <h3>${esc(CHAPTERS[ch])}</h3>
+    <p>${esc(c.text)}</p>
+    <div class="cc-list">${QUESTS.filter(q => q.ch === ch).map(q => `<span>${icon(q.icon)}${esc(q.title)}</span>`).join('')}</div>
+    <div class="modal-foot"><button class="btn primary big" data-act="chapter-go:${ch}">${icon('arrow')} Let’s go</button></div></div>`);
+  Snd.fanfare();
+}
+
+// the end of the campaign: a certificate, then the grid runs on as a sandbox
+function finale() {
+  setSpeed(0);
+  const real = S.history.filter(h => !h.drill);
+  const avg = real.length ? letterOf(real.reduce((t, h) => t + h.score, 0) / real.length) : '—';
+  saveBest();
+  openModal(`<div class="certificate">
+    <img src="img/onsa-logo-light.png" alt="ONSA Power &amp; Co.">
+    <small>ONSA Power &amp; Co. · Grid of the Year</small>
+    <h3>Awarded to ${esc(S.player || 'Operator')}</h3>
+    <p>OT Security Lead at ${esc(SITE.station)}, for keeping a growing grid secure, reliable and profitable through ${dayOf(S.T)} day${dayOf(S.T) === 1 ? '' : 's'}, a monsoon and the first power from space.</p>
+    <div class="kpis">
+      <div class="kpi"><small>Incidents handled</small><b>${real.length}</b></div>
+      <div class="kpi"><small>Average grade</small><b>${avg}</b></div>
+      <div class="kpi"><small>Attacks prevented</small><b>${S.stats.prevented}</b></div>
+      <div class="kpi"><small>Reliability</small><b>${Math.round(S.reliability)}</b></div>
+      <div class="kpi"><small>Security level</small><b>${securityLevel()}</b></div>
+      <div class="kpi"><small>XP</small><b>${S.xp}</b></div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" data-act="restart">Start a new career</button><button class="btn primary" data-act="sandbox">Keep running the grid</button></div></div>`);
+  Snd.fanfare();
 }
 function questAction() {
   const q = QUESTS[S.questIdx];
@@ -386,6 +480,7 @@ function questAction() {
   else if (a === 'panel') openPanel(arg);
   else if (a === 'incident') { if (!S.incident) triggerScheduled(true); }
   else if (a === 'speed') setSpeed(4);
+  else if (a === 'researcher') openResearcher();
 }
 
 // ---------- time & economy ----------
@@ -395,21 +490,27 @@ function setSpeed(v) {
   renderBanner();
 }
 
+// true when game time T passed hour x of some day since prevT
+const passed = (prevT, x) => Math.floor((S.T - x * 60) / 1440) > Math.floor((prevT - x * 60) / 1440);
+
 function advance(gm) {
-  const prevDay = dayOf(S.T);
+  const prevDay = dayOf(S.T), prevT = S.T;
   S.T += gm;
   const h = hourOf(S.T);
-  const served = Object.entries(FEEDERS).reduce((sum, [f, F]) => sum + (S.feeders[f].on ? F.share : 0), 0);
+  const served = liveFeeders().reduce((sum, f) => sum + (S.feeders[f].on ? FEEDERS[f].share : 0), 0);
   const damagedCount = Object.keys(S.damaged).length;
   const boost = S.T < S.boost.until ? S.boost.mult : 1;
-  const rev = REV_PER_MIN * demand(h) * served * gm * boost * Math.max(0.7, 1 - 0.08 * damagedCount);
+  const beam = S.chapter >= 4 && (h < 6 || h >= 19) ? 1.1 : 1;   // SBSP-1 sells power through the night
+  const rev = REV_PER_MIN * demand(h) * served * gm * boost * beam * Math.max(0.7, 1 - 0.08 * damagedCount);
   S.funds += rev;
   S.stats.revenue += rev;
 
   let allOn = true;
-  for (const [f, st] of Object.entries(S.feeders)) {
+  for (const f of liveFeeders()) {
+    const st = S.feeders[f];
     if (st.on) continue;
     allOn = false;
+    if (f === 'E') S.eLost = true;
     S.stats.outageMin += gm;
     S.stats.customerMin += gm * FEEDERS[f].customers;
     S.reliability = clamp(S.reliability - 0.01 * gm, 0, 100);
@@ -423,12 +524,31 @@ function advance(gm) {
   if (damagedCount) S.reliability = clamp(S.reliability - 0.006 * damagedCount * gm, 0, 100);
   else if (allOn) S.reliability = clamp(S.reliability + 0.004 * gm, 0, 100);
 
+  // night watch: 20:00 to 06:00 with every feeder on
+  if (S.night && !allOn) S.night.ok = false;
+  if (passed(prevT, 20)) S.night = { ok: allOn };
+  if (passed(prevT, 6) && S.night) { if (S.night.ok) questEvent('nightClean'); S.night = null; }
+
+  // monsoon (chapter 4): storms come and go; elsewhere a storm event lasts its while
+  if (S.T >= S.weatherAt && (S.chapter === 3 || S.storming)) {
+    S.storming = S.chapter === 3 ? !S.storming : false;
+    S.weatherAt = S.T + (S.storming ? rand(150, 260) : rand(110, 200));
+    world.setStorm(S.storming);
+    if (S.storming) { S.stormy = true; toast('A monsoon storm is rolling in off the sea', 'warn', 'cloud'); alertLog('Weather: monsoon storm over Bukit Mutiara.'); }
+  }
+
   if (dayOf(S.T) > prevDay) {
     const opex = CONTROLS.filter(c => S.owned.has(c.id)).reduce((s, c) => s + c.opex, 0);
     S.funds -= opex;
     S.stats.spent += opex;
     alertLog(`Day ${dayOf(S.T)} begins.${opex ? ` Security opex ${money(opex)}.` : ''}`);
     toast(`Day ${dayOf(S.T)} begins${opex ? ` · opex −${money(opex)}` : ''}`, 'warn', 'sun');
+    if (S.chapter >= 2) {
+      if (!S.eLost && S.eFrom <= (dayOf(S.T) - 2) * 1440) questEvent('factoryDay');
+      S.eLost = !S.feeders.E.on;
+    }
+    if (S.stormy && S.reliability >= 70) questEvent('stormDay');
+    S.stormy = S.storming;
     questEvent('day2');
   }
   if (S.T >= S.nextIncidentAt) triggerScheduled(false);
@@ -444,7 +564,7 @@ function shuffle(arr) {
 }
 function pickScenario(first) {
   if (!S.deck.length) {
-    const alarms = shuffle(FALSE_ALARMS.map(sc => sc.id)).slice(0, 5);
+    const alarms = shuffle(FALSE_ALARMS.filter(live).map(sc => sc.id)).slice(0, S.chapter >= 2 ? 7 : 5);
     S.deck = shuffle([...SCENARIOS.map(sc => sc.id), ...alarms]);
     if (S.deck[0] === S.recent[0]) S.deck.push(S.deck.shift()); // no back-to-back repeat across rounds
   }
@@ -499,8 +619,9 @@ function withHoneypot(scn) {
 
 // everyday log lines that have nothing to do with the case, so no two incidents read the same way
 function withNoise(scn) {
-  const picks = shuffle([...NOISE]).slice(0, noiseLines());
-  const lines = picks.map(nz => ({ ...nz, at: -Math.round(rand(20, 1800)), attack: false, chips: [] }));
+  const picks = shuffle(NOISE.filter(live)).slice(0, noiseLines());
+  const chips = S.owned.has('siem') ? [{ t: 'Routine · matches baseline', tone: 'ok' }] : [];
+  const lines = picks.map(nz => ({ ...nz, at: -Math.round(rand(20, 1800)), attack: false, chips }));
   return { ...scn, clues: [...scn.clues, ...lines] };
 }
 
@@ -601,6 +722,8 @@ function resolve(resp) {
     hours = Math.max(hours, resp.outage.hours);
     rel += resp.rel ?? -10;
   }
+  // a station-wide outage takes the factory with it once Line 4 is in
+  if (S.chapter >= 2 && ['A', 'B', 'C', 'D'].every(f => feeders.includes(f)) && !feeders.includes('E')) feeders = [...feeders, 'E'];
   if (q === 'best') rel += 4;
   if (S.owned.has('backups')) hours *= 0.5;
   hours = Math.round(hours * 2) / 2;
@@ -615,7 +738,7 @@ function resolve(resp) {
       for (const f of feeders) {
         const st = S.feeders[f];
         st.on = false;
-        st.until = Math.max(st.until, S.T + hours * 60);
+        st.until = Math.max(st.until, S.T + (f === 'E' && S.owned.has('diode') ? hours / 2 : hours) * 60);
         world.setFeeder(f, false);
       }
       alertLog(`Feeder ${feeders.join(' + ')} de-energized for ${dur(hours * 60)}.`, 'bad');
@@ -627,7 +750,7 @@ function resolve(resp) {
   if (!scn.benign && !inc.drill && (q === 'ignore' || q === 'timeout' || q === 'weak' || miss > 0)) {
     const asset = DAMAGE_ORDER.find(a => scn.targets.includes(a)) || scn.targets[scn.targets.length - 1];
     const full = q === 'ignore' || q === 'timeout';
-    const repair = Math.round(((REPAIR[asset] ?? DAMAGE_DEFAULT) * (full ? 1 : 0.5)) / 1000) * 1000;
+    const repair = Math.round(((REPAIR[asset] ?? DAMAGE_DEFAULT) * (full ? 1 : 0.5) * (S.owned.has('spares') ? 0.5 : 1)) / 1000) * 1000;
     damage = { asset, cost: repair };
     S.damaged[asset] = { cost: Math.max(repair, S.damaged[asset]?.cost || 0) };
     world.setDamaged(asset, true);
@@ -663,6 +786,8 @@ function resolve(resp) {
   openPanel('debrief', S.history.length - 1);
   questEvent('incident');
   if (grade === 'A' || grade === 'B') questEvent('gradeB');
+  if (grade === 'A' && !inc.drill) questEvent('gradeA');
+  if ((grade === 'A' || grade === 'B') && !inc.drill) questEvent('finale');
   if (scn.benign && q === 'best') questEvent('benign');
   renderAction();
   renderHUD();
@@ -670,7 +795,9 @@ function resolve(resp) {
 
 // ---------- plant events ----------
 function plantEvent() {
-  const ev = PLANT_EVENTS[Math.floor(Math.random() * PLANT_EVENTS.length)];
+  const pool = PLANT_EVENTS.filter(live), wet = pool.filter(e => e.storm);
+  const from = S.chapter === 3 && Math.random() < 0.55 ? wet : pool;   // the monsoon brings more weather
+  const ev = from[Math.floor(Math.random() * from.length)];
   S.nextEventAt = S.T + rand(300, 540);
   let text = ev.text, kind = ev.kind;
   if (ev.funds) { S.funds += ev.funds; if (ev.funds < 0) S.stats.spent -= ev.funds; }
@@ -680,6 +807,11 @@ function plantEvent() {
     const st = S.feeders[f];
     st.on = false; st.until = Math.max(st.until, S.T + ev.outage.hours * 60);
     world.setFeeder(f, false);
+  }
+  if (ev.storm) {
+    S.storming = S.stormy = true;
+    S.weatherAt = Math.max(S.weatherAt, S.T + 90);
+    world.setStorm(true);
   }
   if (ev.audit) {
     const lvl = securityLevel();
@@ -708,7 +840,7 @@ const PANELS = {
     return {
       eyebrow: SITE.utility, title: SITE.station,
       html: `<p>Everything on the map. Tap an asset to inspect it, or tap its label in the 3D view.</p>
-        <div class="alist">${Object.entries(ASSETS).map(([id, a]) => {
+        <div class="alist">${Object.entries(ASSETS).filter(([id]) => assetLive(id)).map(([id, a]) => {
           const st = assetStatus(id);
           return `<button data-act="asset:${id}"><span class="a-ic">${icon(a.icon)}</span><span class="grow"><b>${esc(a.name)}</b><span class="st ${st.cls}">${esc(st.text)}</span></span>${icon('arrow')}</button>`;
         }).join('')}</div>`,
@@ -718,7 +850,7 @@ const PANELS = {
   asset(id) {
     const a = ASSETS[id];
     const st = assetStatus(id);
-    const links = CONDUITS.filter(c => (c.a === id || c.b === id) && conduitState(c) !== 'hidden');
+    const links = CONDUITS.filter(c => (c.a === id || c.b === id) && live(c) && conduitState(c) !== 'hidden');
     const f = FEEDER_OF[id];
     const inc = S.incident;
     const clueCount = inc ? inc.scn.clues.filter(c => c.asset === id).length : 0;
@@ -734,6 +866,7 @@ const PANELS = {
         ${a.protocols.length ? `<div class="sec"><small>Protocols</small></div><div class="row" style="flex-wrap:wrap;gap:5px">${a.protocols.map(p => `<span class="pill">${esc(p)}</span>`).join('')}</div>` : ''}
         ${id === 'biogas' ? processHTML() : ''}
         ${id === 'rnd' ? sbspHTML() : ''}
+        ${id === 'hydro' || id === 'factory' ? westHTML(id) : ''}
         ${links.length ? `<div class="sec"><small>Conduits</small></div>${links.map(conduitRow).join('')}` : ''}
         <div class="row" style="margin-top:12px"><button class="btn" data-act="focus:${id}">${icon('target')} Focus camera</button></div>`,
     };
@@ -766,19 +899,19 @@ const PANELS = {
     return {
       eyebrow: 'Zones & conduits · IEC 62443', title: 'Network',
       html: `<p>The Purdue model splits the site into zones. Conduits are the paths between them — every unprotected conduit is a route an attacker can take.</p>
-        <div class="purdue">${PURDUE.map(l => `<div class="lvl"><small>${esc(l.level)}</small><div class="zone">${l.ids.map(id => `<button data-act="asset:${id}">${icon(ASSETS[id].icon)} ${esc(ASSETS[id].short)}</button>`).join('')}</div></div>`).join('')}</div>
+        <div class="purdue">${PURDUE.map(l => `<div class="lvl"><small>${esc(l.level)}</small><div class="zone">${l.ids.filter(assetLive).map(id => `<button data-act="asset:${id}">${icon(ASSETS[id].icon)} ${esc(ASSETS[id].short)}</button>`).join('')}</div></div>`).join('')}</div>
         <div class="sec"><small>Conduits</small></div>
-        ${CONDUITS.map(conduitRow).join('')}
+        ${CONDUITS.filter(live).map(conduitRow).join('')}
         <div class="row tiny muted" style="gap:12px;margin-top:8px"><span><span class="pill ok">protected</span></span><span><span class="pill warn">unprotected</span></span><span><span class="pill bad">exposed</span></span></div>`,
     };
   },
 
   shop() {
-    const cats = [...new Set(CONTROLS.map(c => c.cat))];
+    const avail = liveControls(), cats = [...new Set(avail.map(c => c.cat))];
     return {
-      eyebrow: `Security level ${securityLevel()} · ${S.owned.size}/${CONTROLS.length} installed`, title: 'Security upgrades',
+      eyebrow: `Security level ${securityLevel()} · ${S.owned.size}/${avail.length} installed`, title: 'Security upgrades',
       html: `<p>Controls cost capex now and opex every day. Each one prevents an attack technique, gives you better evidence, or speeds recovery.</p>
-        ${cats.map(cat => `<div class="sec"><small>${esc(cat)}</small></div>${CONTROLS.filter(c => c.cat === cat).map(c => {
+        ${cats.map(cat => `<div class="sec"><small>${esc(cat)}</small></div>${avail.filter(c => c.cat === cat).map(c => {
           const owned = S.owned.has(c.id);
           return `<div class="ctl ${owned ? 'owned' : ''}">
             <div class="row between"><h4>${esc(c.name)}</h4><span class="price">${owned ? `<span class="pill ok">${icon('check')} Installed</span>` : money(c.cost)}</span></div>
@@ -842,7 +975,10 @@ const PANELS = {
   quests() {
     return {
       eyebrow: `${Math.min(S.questIdx, QUESTS.length)}/${QUESTS.length} complete`, title: 'Quests',
-      html: CHAPTERS.map((name, ch) => `<div class="sec"><small>Chapter ${pad(ch + 1)} · ${esc(name)}</small></div>
+      html: CHAPTERS.map((name, ch) => ch > S.chapter
+        ? `<div class="sec"><small>Chapter ${pad(ch + 1)} · ${esc(name)}</small></div>
+          <div class="box row locked"><span class="a-ic">${icon('lock')}</span><div class="grow"><b style="font-size:13.5px">Locked</b><div class="tiny muted">${QUESTS.filter(q => q.ch === ch).length} missions · opens when Chapter ${pad(ch)} is complete</div></div></div>`
+        : `<div class="sec"><small>Chapter ${pad(ch + 1)} · ${esc(name)}</small></div>
         ${QUESTS.map((q, i) => ({ q, i })).filter(o => o.q.ch === ch).map(({ q, i }) => `<div class="box row">
           <span class="a-ic" style="${i < S.questIdx ? 'background:var(--mint);color:var(--mint-ink)' : i === S.questIdx ? 'background:var(--red);color:#fff' : ''}">${icon(i < S.questIdx ? 'check' : q.icon)}</span>
           <div class="grow"><b style="font-size:13.5px">${esc(q.title)}</b><div class="tiny muted">${esc(q.desc)}</div></div>
@@ -919,6 +1055,14 @@ function conduitRow(c) {
   return `<div class="box row"><div class="grow"><b style="font-size:13px">${esc(c.name)}</b><div class="tiny muted">${esc(ASSETS[c.a].short)} ↔ ${esc(ASSETS[c.b].short)} · ${esc(c.proto)}</div></div>${pill}</div>`;
 }
 
+// plant facts for the chapter 3 sites
+function westHTML(id) {
+  const rows = id === 'hydro'
+    ? [['Units', '3 × 20 MW Francis turbines'], ['Reservoir', S.storming ? 'Rising · spillway gates open' : '212.4 m · normal'], ['Dam', '21 m concrete gravity, 3 radial gates'], ['Export', '132 kV Line 4']]
+    : [['Supply', S.feeders.E.on ? 'Line 4 tap · energized' : 'De-energized'], ['Output', '54 cars an hour on two lines'], ['People', '2,600 on three shifts'], ['Shipping', 'Ro-ro jetty · car carrier Mutiara Spirit']];
+  return `<div class="sec"><small>Plant</small></div><div class="box"><div class="kv" style="margin:0">${rows.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('')}</div></div>`;
+}
+
 function sbspHTML() {
   const steps = [
     ['Capture', 'Solar arrays in orbit see the sun almost all the time — no night, no clouds, no seasons.'],
@@ -927,8 +1071,8 @@ function sbspHTML() {
     ['Receive', 'The rectenna rectifies the microwaves back to DC; inverters feed the grid — 24/7 baseload.'],
   ];
   return `<div class="sec"><small>Space-Based Solar Power (SBSP)</small></div>
-    <div class="box"><div class="row between"><small>Test beam</small><span class="pill ok">Locked on rectenna</span></div>
-      <div class="row between" style="margin-top:6px"><small>Rectenna output</small><b>${world.rndOutput} kW · test scale</b></div></div>
+    <div class="box"><div class="row between"><small>${S.chapter >= 4 ? 'Power beam' : 'Test beam'}</small><span class="pill ok">Locked on rectenna</span></div>
+      <div class="row between" style="margin-top:6px"><small>Rectenna output</small><b>${world.rndOutput} kW · ${S.chapter >= 4 ? 'full power, sold to the grid' : 'test scale'}</b></div></div>
     ${steps.map(([t, d], i) => `<div class="box row" style="align-items:flex-start;margin-bottom:5px"><span class="pill">${i + 1}</span><div class="grow"><b style="font-size:13px">${t}</b><div class="tiny muted" style="line-height:1.45">${d}</div></div></div>`).join('')}
     <div class="box"><small>Why OT security cares</small><p style="margin:5px 0 0">The beam is pointed by commands sent over the satellite control (TT&amp;C) link. Authenticating and encrypting that link matters as much as any substation conduit.</p></div>
     <button class="btn block" data-act="researcher">${icon('satellite')} Talk to ${esc(SITE.researcher)}</button>`;
@@ -999,6 +1143,7 @@ function closePanel() {
   renderHUD();
 }
 function openResearcher() {
+  questEvent('researcher');
   const r = world.researcher.position;
   world.walkTo(r.x + 2.2, r.z + 2.2);
   world.animateTo(r.clone(), { radius: 45, phi: 0.95, theta: world.spherical().theta }, 0.7);
@@ -1015,7 +1160,10 @@ function openModal(html) {
   $('#modal-inner').innerHTML = html;
   $('#modal').hidden = false;
 }
-function closeModal() { $('#modal').hidden = true; }
+function closeModal() {
+  $('#modal').hidden = true;
+  if (S.card) { S.card = false; setSpeed(S.cardSpeed || 1); }
+}
 
 function openRespond() {
   const inc = S.incident;
@@ -1048,6 +1196,7 @@ function openHelp() {
       <div class="box"><b>Grading</b><p>60% response quality, 30% detection accuracy (right True/False Positive calls earn points, wrong calls cost them), 10% speed. Treating an attack as a routine fault caps you at D; shutting the grid down yourself caps you at C.</p></div>
       <div class="box"><b>Controls</b><p>Some controls prevent a scenario outright. Visibility controls (inventory, monitoring, backups) add context chips to logs. The playbook annotates response options. Opex is charged daily.</p></div>
       <div class="box"><b>Network overlay</b><p>Blue conduits are protected or baseline, amber need a control, orange is internet-exposed. Red pulses are an attack path in progress.</p></div>
+      <div class="box"><b>Chapters</b><p>Six chapters of missions. Finish one and the next unlocks: the Sungai Mutiara hydro station with Line 4 and the Mutiara Motor Works car factory, the monsoon, full-power space-based solar, and finally Grid of the Year.</p></div>
       <div class="box"><b>For trainers</b><p>The SOC panel runs any scenario as a drill (graded, no costs). Every debrief explains each detection with its MITRE ATT&amp;CK for ICS technique.</p></div>
     </div>
     <div class="modal-foot"><button class="btn primary" data-act="close-modal">Got it</button></div>`);
@@ -1143,6 +1292,8 @@ const ACTS = {
   close: () => closePanel(),
   'close-modal': () => closeModal(),
   quest: () => questAction(),
+  'chapter-go': ch => { closeModal(); const c = CHAPTER_INTRO[+ch]; if (c) world.focus(c.focus); },
+  sandbox: () => { closeModal(); setSpeed(1); },
   restart: () => location.reload(),
   rename: () => openRename(),
   researcher: () => openResearcher(),
@@ -1214,6 +1365,14 @@ $('#start').addEventListener('click', () => {
   Snd.init();
   $('#intro').remove();
   S.started = true;
+  const jump = Math.floor(+new URLSearchParams(location.search).get('chapter') || 0) - 1;
+  if (jump >= 2 && jump < CHAPTERS.length) {
+    S.questIdx = QUESTS.findIndex(q => q.ch === jump);
+    S.funds = 1000000 + 250000 * (jump - 1);
+    for (const id of ['inventory', 'ids', 'itotfw', 'mfa', 'portsec', 'backups']) S.owned.add(id);
+    refreshConduits();
+    enterChapter(jump);
+  }
   alertLog(`${SITE.utility}: shift started at ${SITE.station}.`);
   toast(`Welcome to Bukit Mutiara, ${esc(S.player)}. Follow the quest card to get started.`, 'good', 'zap');
   renderAction();
@@ -1239,6 +1398,7 @@ function frame(now) {
     hudTimer = 0;
     renderHUD();
     if (S.panel && ['site', 'report', 'asset', 'researcher'].includes(S.panel.name)) renderPanel();
+    if (S.started && !S.over) checkQuests();
   }
   world.update(dt, daylight(), lightHour());
   positionOverlays();

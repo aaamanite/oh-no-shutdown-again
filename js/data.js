@@ -79,6 +79,17 @@ export const ASSETS = {
     desc: 'Operated by ONSA Power & Co. Palm oil mill effluent (POME) is pumped from the raw pond to the mixing pit, digested in the AD tank and covered lagoon, cleaned of H₂S in the scrubber and burned in the genset. Surplus gas goes to the flare. A PLC in the MCC room reads every transmitter on the pipelines and drives the motorized valves.',
     protocols: ['4–20 mA', 'Modbus RTU', 'Modbus TCP', 'IEC 60870-5-104'],
   },
+  // chapter 3 onwards
+  hydro: {
+    name: 'Sungai Mutiara hydro station', short: 'Hydro station', level: 'Generation · 11/132 kV', icon: 'droplet',
+    desc: 'Operated by ONSA Power & Co. A 21 m concrete gravity dam holds the reservoir in the hills; three penstocks feed three 20 MW Francis turbines in the powerhouse at its foot, and three radial gates open the spillway in a flood. The switchyard on the east bank exports on grid Line 4. Gates and turbine setpoints are telecontrolled from the control center.',
+    protocols: ['IEC 60870-5-104', 'Modbus TCP', 'IEC 61850 MMS'],
+  },
+  factory: {
+    name: 'Feeder E · Mutiara Motor Works', short: 'Car factory', level: 'Bulk load · 132/33 kV', icon: 'car',
+    desc: 'The vehicle assembly plant by the harbour: press shop, a body shop with 400 welding robots, the paint shop and final assembly, with a ro-ro jetty where the car carrier loads. 2,600 people on three shifts. Its own intake substation is tapped from Line 4, and one stopped production line costs the plant millions.',
+    protocols: [],
+  },
 };
 
 // Biogas plant instruments, in process order. Positions live in world.js (by tag).
@@ -132,7 +143,11 @@ export const FEEDERS = {
   B: { asset: 'townB', share: 0.33, customers: 3100, label: 'hospital + 3,100 customers' },
   C: { asset: 'townC', share: 0.15, customers: 4800, label: 'college · 4,800 students' },
   D: { asset: 'townD', share: 0.22, customers: 140, label: 'mall · 140 shops + cinema' },
+  E: { asset: 'factory', share: 0.36, customers: 2600, label: 'car factory · 2,600 workers', ch: 2 },
 };
+
+// assets that only appear once their chapter is reached (0-based chapter index)
+export const UNLOCK = { hydro: 2, factory: 2 };
 
 export const PURDUE = [
   { level: 'External', ids: ['internet'] },
@@ -140,7 +155,7 @@ export const PURDUE = [
   { level: 'L3.5 OT DMZ', ids: ['dmz'] },
   { level: 'L3 Operations', ids: ['scc'] },
   { level: 'L2 Station control', ids: ['ctrl'] },
-  { level: 'L1–0 Protection & process', ids: ['yard', 'biogas', 'wind', 'solar'] },
+  { level: 'L1–0 Protection & process', ids: ['yard', 'biogas', 'wind', 'solar', 'hydro'] },
 ];
 
 // guard: the control that protects this conduit. exposedUntil: conduit disappears once that control is owned.
@@ -153,6 +168,7 @@ export const CONDUITS = [
   { id: 'corp-rnd', a: 'corp', b: 'rnd', name: 'R&D lab network', proto: 'HTTPS, satellite ops VPN' },
   { id: 'scc-wind', a: 'scc', b: 'wind', name: 'Wind farm telecontrol', proto: 'IEC 61400-25 / IEC 104' },
   { id: 'scc-bio', a: 'scc', b: 'biogas', name: 'Generator telecontrol', proto: 'IEC 104 output setpoints' },
+  { id: 'scc-hydro', a: 'scc', b: 'hydro', name: 'Hydro telecontrol', proto: 'IEC 104 gate & unit setpoints', guard: 'diode', ch: 2 },
   { id: 'scc-ctrl', a: 'scc', b: 'ctrl', name: 'SCADA WAN', proto: 'IEC 60870-5-104, DNP3' },
   { id: 'ctrl-yard', a: 'ctrl', b: 'yard', name: 'Station bus', proto: 'IEC 61850 MMS + GOOSE', guard: 'portsec' },
   { id: 'inet-ctrl', a: 'internet', b: 'ctrl', name: 'Forgotten cellular modem', proto: 'IEC 104 on TCP/2404', exposedUntil: 'surface' },
@@ -208,6 +224,27 @@ export const CONTROLS = [
     id: 'playbook', cat: 'People', name: 'IR playbook & tabletop drills', short: 'IR playbook', cost: 35000, opex: 1000,
     desc: 'Operators, protection engineers and the SOC rehearse OT-specific responses together.',
     effect: 'Respond or Remediate options show playbook guidance.', ref: 'NERC CIP-008',
+  },
+  // unlocked by later chapters (ch = 0-based chapter index)
+  {
+    id: 'diode', cat: 'Segmentation', name: 'One-way gateway for hydro telemetry', short: 'Data diode', cost: 85000, opex: 2000, ch: 2,
+    desc: 'Dam and turbine readings flow out to SCADA through a hardware one-way link; gate and unit commands come only from the control center over an authenticated conduit.',
+    effect: 'Protects the hydro telecontrol conduit. Feeder E outages are halved: the factory rides through on Line 4.', ref: 'IEC 62443-3-3 SR 5.1 · NERC CIP-005',
+  },
+  {
+    id: 'spares', cat: 'Recovery', name: 'Critical spares & 24 h repair contract', short: 'Critical spares', cost: 50000, opex: 1000, ch: 3,
+    desc: 'Spare relays, RTU cards, a mobile transformer and a contractor on call around the clock.',
+    effect: 'Repair bills for damaged equipment are halved.', ref: 'NERC CIP-009 · ISO 22301',
+  },
+  {
+    id: 'siem', cat: 'Visibility', name: 'SIEM log correlation', short: 'SIEM', cost: 90000, opex: 2500, ch: 3,
+    desc: 'One place for every OT and IT log, correlated against a learned baseline of normal operations.',
+    effect: 'Everyday background log lines are marked "Routine · matches baseline".', ref: 'IEC 62443-2-1 · NIST SP 800-82',
+  },
+  {
+    id: 'soc247', cat: 'People', name: '24/7 managed OT SOC', short: '24/7 SOC', cost: 120000, opex: 4000, ch: 4,
+    desc: 'Analysts who know OT protocols watch your sensors around the clock and pre-triage every alert.',
+    effect: '+30 s to decide on every incident.', ref: 'NERC CIP-008 · CISA OT SOC guidance',
   },
 ];
 
@@ -776,7 +813,17 @@ export const HONEYPOT = {
   'exposed-rtu': ['92.63.197.18 (internet)', 'IEC 104 TCP/2404 · interrogation'],
 };
 
-export const CHAPTERS = ['First shift at Bukit Mutiara', 'Harden the station'];
+export const CHAPTERS = ['First shift at Bukit Mutiara', 'Harden the station', 'Line 4: water and wheels', 'Monsoon season', 'First power from space', 'Grid of the Year'];
+
+// shown on the title card when a chapter opens; focus = where the camera flies
+export const CHAPTER_INTRO = [
+  null,
+  null,
+  { focus: 'hydro', icon: 'droplet', text: 'The Sungai Mutiara hydro station is online: a 21 m dam in the hills, three turbines and a brand-new 132 kV Line 4. On its way to Bukit Mutiara the line feeds Mutiara Motor Works, the car factory by the harbour: 2,600 people, 400 welding robots and a ship of new cars leaving every week. A bigger grid means more revenue and more to defend.' },
+  { focus: 'hydro', icon: 'cloud', text: 'The north-east monsoon has arrived. Storms roll in off the sea, the reservoir is rising and lightning hunts for your lines. In bad weather, real faults and real attacks look alike. Stay calm and read the evidence.' },
+  { focus: 'rnd', icon: 'satellite', text: 'Prof. Dr. Hanafiya\u2019s SBSP-1 satellite is switching from tests to full power. For the first time, energy collected in space is sold to the grid, day and night. The beam never sleeps, so neither can your SOC.' },
+  { focus: 'yard', icon: 'trophy', text: 'ONSA Power & Co. is shortlisted for Grid of the Year. The judges want a grid that is secure, reliable and profitable, and they will be watching your next incident. This is your final exam.' },
+];
 
 export const QUESTS = [
   { ch: 0, event: 'camera', icon: 'compass', reward: 0, action: 'rotate', title: 'Look around the site', desc: 'Drag to pan. Right-drag or two fingers to rotate. Scroll or pinch to zoom.' },
@@ -789,4 +836,22 @@ export const QUESTS = [
   { ch: 1, event: 'prevent', icon: 'lock', reward: 30000, action: 'panel:network', title: 'Stop an attack before it starts', desc: 'Have the right control in place when an attack arrives.' },
   { ch: 1, event: 'gradeB', icon: 'chart', reward: 30000, action: 'panel:soc', title: 'Score B or better on an incident', desc: 'Tag precisely, respond proportionately, decide quickly.' },
   { ch: 1, event: 'benign', icon: 'check', reward: 30000, action: 'panel:soc', title: 'Close a false alarm without escalating', desc: 'Some alerts are authorised work. Prove it from the evidence.' },
+  // fresh: the event must happen while this quest is the current one
+  { ch: 2, event: 'inspect:hydro', icon: 'droplet', reward: 20000, action: 'asset:hydro', title: 'Visit the hydro station', desc: 'Tap the Sungai Mutiara hydro station. Its turbines export on the new Line 4.' },
+  { ch: 2, event: 'inspect:factory', icon: 'car', reward: 20000, action: 'asset:factory', title: 'Meet your biggest customer', desc: 'Tap Mutiara Motor Works. One stopped production line costs the plant millions.' },
+  { ch: 2, event: 'buy:diode', icon: 'lock', reward: 25000, action: 'panel:shop', title: 'Protect the hydro telecontrol link', desc: 'Buy the one-way gateway in Upgrades. Dam gates and turbines must never take orders from just anywhere.' },
+  { ch: 2, event: 'factoryDay', icon: 'car', reward: 60000, action: 'speed', title: 'Keep the factory running for a whole day', desc: 'Get through one full day, midnight to midnight, without Feeder E losing supply.' },
+  { ch: 2, event: 'gradeB', fresh: true, icon: 'chart', reward: 40000, action: 'panel:soc', title: 'Score B or better on the bigger grid', desc: 'Handle an incident with the factory online and score B or better.' },
+  { ch: 3, event: 'stormDay', icon: 'cloud', reward: 50000, action: 'speed', title: 'Ride out a stormy day', desc: 'Finish a day that had a storm with grid reliability at 70 or above.' },
+  { ch: 3, event: 'buy:spares', icon: 'zap', reward: 20000, action: 'panel:shop', title: 'Put critical spares on contract', desc: 'Storms break things. Buy critical spares in Upgrades to halve repair bills.' },
+  { ch: 3, event: 'benign', fresh: true, icon: 'check', reward: 30000, action: 'panel:soc', title: 'Tell the weather from an attack', desc: 'Close a false alarm without escalating. In a storm, most alarms are the weather.' },
+  { ch: 3, event: 'streak3', icon: 'trophy', reward: 50000, action: 'panel:soc', title: 'Three good calls in a row', desc: 'Score B or better on three real incidents in a row.' },
+  { ch: 4, event: 'researcher', fresh: true, icon: 'satellite', reward: 20000, action: 'researcher', title: 'Visit Prof. Dr. Hanafiya', desc: 'Find her at the R&D Centre and see the full-power beam.' },
+  { ch: 4, event: 'buy:soc247', icon: 'radar', reward: 30000, action: 'panel:shop', title: 'Staff the SOC around the clock', desc: 'The beam runs 24/7. Buy the 24/7 managed OT SOC in Upgrades.' },
+  { ch: 4, event: 'nightClean', icon: 'moon', reward: 60000, action: 'speed', title: 'Keep every light on through the night', desc: 'From 20:00 to 06:00, no feeder may lose supply.' },
+  { ch: 4, event: 'gradeA', fresh: true, icon: 'shield', reward: 50000, action: 'panel:soc', title: 'Score an A', desc: 'Tag precisely, respond proportionately, decide quickly.' },
+  { ch: 5, event: 'sl5', icon: 'shield', reward: 60000, action: 'panel:shop', title: 'Reach Security Level 5', desc: 'Twelve controls installed across visibility, segmentation, access, recovery and people.' },
+  { ch: 5, event: 'rel90', icon: 'zap', reward: 50000, action: 'speed', title: 'Push grid reliability to 90', desc: 'Keep every feeder energized and make good calls until reliability reaches 90.' },
+  { ch: 5, event: 'funds15', icon: 'coins', reward: 0, action: 'speed', title: 'Bank $1.5M', desc: 'The judges check the books. Hold at least $1.5M in funds.' },
+  { ch: 5, event: 'finale', fresh: true, icon: 'trophy', reward: 100000, action: 'incident', title: 'Pass the judges\u2019 live incident', desc: 'The judges watch your next real incident. Score B or better to win Grid of the Year.' },
 ];

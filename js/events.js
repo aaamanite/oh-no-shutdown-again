@@ -336,6 +336,95 @@ const FA = [
     best: ['Confirm the handover and close', 'A view-only session during handover. Remind staff to log out of spare consoles.', 'Closed. The handover finishes at 19:30.'],
     lesson: 'Shared or doubled sessions are worth checking. Here, the roster and badges explain it.',
   },
+  // ---------- from chapter 3 (ch = 0-based chapter that adds them) ----------
+  {
+    id: 'fa-spillway-test', ch: 2, title: 'Spillway gate moved in the middle of the night', short: 'Gate test', targets: ['hydro'], feeders: [],
+    alert: { asset: 'hydro', src: 'Dam SCADA', text: 'RADIAL GATE 2 position 0% -> 15% -> 0% · 02:10–02:24', why: 'A dam gate moving at night is worth checking. Gates are safety equipment.' },
+    clues: [
+      { asset: 'hydro', src: 'Dam safety plan', text: 'monthly gate exercise · gate 2 · crack to 15% and close', chips: ['Scheduled test'], why: 'Dam rules require every gate to be exercised monthly so it never seizes.' },
+      { asset: 'scc', src: 'Shift log', text: 'ops_night: gate test with dam engineer by phone 02:05', chips: ['Control room aware'], why: 'The control room logged the test before it started.' },
+      { asset: 'hydro', src: 'Badge system', text: 'eng_rahim badge IN · dam control room 01:52', chips: ['Engineer on site'], why: 'The dam engineer was physically at the dam.' },
+    ],
+    best: ['Match it to the gate exercise and close', 'Planned monthly test, logged by the control room with the engineer on site.', 'Closed. Gate 2 moved freely and is back at 0%.'],
+    lesson: 'Safety equipment must be tested, and tests look like alarms. The test plan, the shift log and the badge record tell the story.',
+  },
+  {
+    id: 'fa-unit-local', ch: 2, title: 'Hydro unit 3 started without a SCADA command', short: 'Local start', targets: ['hydro'], feeders: [],
+    alert: { asset: 'hydro', src: 'Unit 3 governor', text: 'START sequence · mode LOCAL · 0 -> 20 MW in 4 min', why: 'A start that did not come from SCADA means someone pressed the button on site.' },
+    clues: [
+      { asset: 'scc', src: 'Dispatch', text: 'grid operator phone order 14:02: +20 MW hydro for evening peak', chips: ['Dispatch order'], why: 'The national grid operator asked for more power by phone.' },
+      { asset: 'hydro', src: 'Powerhouse HMI', text: 'user op_hydro1 · LOCAL START unit 3 · 14:06', chips: ['Known operator'], why: 'A registered plant operator started it from the powerhouse panel.' },
+      { asset: 'hydro', src: 'Reservoir', text: 'level 213.2 m · inflow 41 m³/s · spilling margin OK', chips: ['Water available'], why: 'There is plenty of water to run the extra unit.' },
+    ],
+    best: ['Confirm the dispatch order with the plant and close', 'A phone order from dispatch, executed locally by a registered operator.', 'Closed. Unit 3 carries the evening peak as ordered.'],
+    lesson: 'Local operation is normal at a power station. Ask who, why and on whose order before calling it an attack.',
+  },
+  {
+    id: 'fa-robots', ch: 2, title: '12 unknown devices joined the factory network', short: 'New robots', targets: ['factory'], feeders: ['E'],
+    alert: { asset: 'factory', src: 'OT monitoring', text: '12 new hosts on BODY-SHOP VLAN 40 · PROFINET · vendor OUI KUKA', why: 'New devices on an OT network always need explaining.' },
+    clues: [
+      { asset: 'factory', src: 'Change management', text: 'MMW-CHG-118 APPROVED · body shop line 3 · 12 welding robots', chips: ['Approved change'], why: 'The factory approved a new robot line this week.' },
+      { asset: 'factory', src: 'Asset register', text: 'robots R301–R312 pre-registered · MACs match', chips: ['Pre-registered'], why: 'Every new MAC address was registered in advance.' },
+      { asset: 'factory', src: 'Visitor log', text: 'vendor commissioning team · 6 people · escorted', chips: ['Escorted vendor'], why: 'The vendor team is on site under escort.' },
+    ],
+    best: ['Verify against the change and register, then close', 'Approved robot line, MACs pre-registered, vendor escorted.', 'Closed. Line 3 starts production next week.'],
+    lesson: 'New devices are expected after an approved project. An asset register with pre-registered addresses turns a scare into a two-minute check.',
+  },
+  {
+    id: 'fa-shift-break', ch: 2, title: 'Feeder E load dropped 55% in one minute', short: 'Shift break', targets: ['factory'], feeders: ['E'],
+    alert: { asset: 'factory', src: 'Feeder E meter', text: 'load 28 MW -> 12.6 MW · 13:00:10', why: 'A sudden load drop can mean tripped equipment, or something much more ordinary.' },
+    clues: [
+      { asset: 'factory', src: 'Production calendar', text: 'lunch break all shops 13:00–13:45 · lines stopped', chips: ['Planned stop'], why: 'The whole plant stops for lunch at 13:00.' },
+      { asset: 'factory', src: 'Paint shop PLC', text: 'ovens to standby · conveyors halted · normal sequence', chips: ['Normal sequence'], why: 'Equipment went to standby in the normal order.' },
+      { asset: 'yard', src: 'Protection', text: 'no trips · no faults on Line 4 or Feeder E', chips: ['No faults'], why: 'Nothing tripped anywhere.' },
+    ],
+    best: ['Match it to the lunch break and close', 'The production calendar explains it to the minute.', 'Closed. Load climbs back to 28 MW at 13:45.'],
+    lesson: 'Know your customers. Big industrial loads follow shift patterns that explain most sudden changes.',
+  },
+  {
+    id: 'fa-oven-trip', ch: 2, title: 'Paint shop oven tripped on high temperature', short: 'Oven fault', targets: ['factory'], feeders: ['E'],
+    alert: { asset: 'factory', src: 'Paint shop SIS', text: 'OVEN 2 TRIP · TT-204 HIGH 262 °C · burners off', why: 'A safety system trip on a hot process needs checking.' },
+    clues: [
+      { asset: 'factory', src: 'Maintenance', text: 'TT-204 reading jumped 180 -> 262 °C in 1 s · TT-205 steady 181 °C', chips: ['Sensor fault'], why: 'Real ovens cannot heat 80 °C in a second, and the twin sensor saw nothing.' },
+      { asset: 'factory', src: 'Work order', text: 'WO-5531: replace thermocouple TT-204 · done 15:40', chips: ['Repaired'], why: 'The faulty thermocouple was replaced.' },
+      { asset: 'factory', src: 'OT monitoring', text: 'no writes to oven PLC in 24 h · config checksum unchanged', chips: ['No writes'], why: 'Nobody changed the oven controller.' },
+    ],
+    best: ['Treat as an instrument fault and close', 'A failed thermocouple, confirmed by its twin and replaced.', 'Closed. Oven 2 restarts after the repair.'],
+    lesson: 'Safety systems trip on bad sensors too. A twin sensor and "no writes to the PLC" separate a broken part from tampering.',
+  },
+  {
+    id: 'fa-line4-storm', ch: 3, title: 'Line 4 tripped and reclosed twice in a storm', short: 'Storm reclose', targets: ['hydro', 'factory'], feeders: ['E'],
+    alert: { asset: 'yard', src: 'Line 4 protection', text: 'TRIP zone 1 · reclose OK · TRIP zone 1 · reclose OK · 16:41', why: 'Repeated trips on a line deserve a look at the weather.' },
+    clues: [
+      { asset: 'yard', src: 'Lightning detection', text: '14 strikes within 1 km of Line 4 · 16:35–16:50', chips: ['Lightning'], why: 'The storm passed right over the line.' },
+      { asset: 'yard', src: 'Fault recorder', text: 'phase-to-earth faults · 60–80 ms · real fault current', chips: ['Real faults'], why: 'Measured fault current: physics, not a command.' },
+      { asset: 'scc', src: 'Weather feed', text: 'monsoon squall line moving west · gusts 70 km/h', chips: ['Storm'], why: 'A monsoon squall was crossing the area.' },
+    ],
+    best: ['Close as weather and order a line patrol', 'Lightning plus real fault current and clean recloses.', 'Closed. The patrol finds a cracked insulator on tower 4-7 and replaces it.'],
+    lesson: 'In the monsoon, lines trip. Fault current and lightning data are your best friends.',
+  },
+  {
+    id: 'fa-reservoir-alarm', ch: 3, title: 'Reservoir level alarm: rising fast', short: 'Flood inflow', targets: ['hydro'], feeders: [],
+    alert: { asset: 'hydro', src: 'Dam SCADA', text: 'LEVEL HIGH 214.6 m · rising 30 cm/h', why: 'A fast-rising reservoir needs action, but not necessarily a security response.' },
+    clues: [
+      { asset: 'hydro', src: 'Rain gauges', text: 'catchment rainfall 92 mm in 6 h', chips: ['Heavy rain'], why: 'Heavy rain in the hills explains the inflow.' },
+      { asset: 'hydro', src: 'Level sensors', text: 'radar and pressure gauges agree within 2 cm', chips: ['Two sensors agree'], why: 'Two independent instruments agree, so the reading is real.' },
+      { asset: 'hydro', src: 'Flood procedure', text: 'FP-2: open spillway gates in steps above 214.5 m', chips: ['Procedure'], why: 'The flood procedure says exactly what to do.' },
+    ],
+    best: ['Follow the flood procedure and close the security case', 'Real rain, two sensors agree: an operational event, not an attack.', 'The gates open in steps and the level stabilises at 214.8 m.'],
+    lesson: 'Physical events cause real alarms. Independent sensors that agree are strong evidence that the process, not an attacker, is speaking.',
+  },
+  {
+    id: 'fa-beam-dip', ch: 4, title: 'SBSP beam power dropped by a third', short: 'Beam dip', targets: ['rnd'], feeders: [],
+    alert: { asset: 'rnd', src: 'Rectenna', text: 'received power -34% for 6 min · then normal', why: 'A drop in the beam can mean pointing trouble.' },
+    clues: [
+      { asset: 'rnd', src: 'Mission plan', text: 'SBSP-1 array re-pointing calibration 11:00–11:10', chips: ['Planned calibration'], why: 'The satellite team planned a calibration manoeuvre.' },
+      { asset: 'rnd', src: 'Ground station', text: 'TT&C commands signed and acknowledged · key ID 7', chips: ['Signed commands'], why: 'Every command to the satellite was signed with the mission key.' },
+      { asset: 'rnd', src: 'Lab log', text: 'Prof. Dr. Hanafiya: calibration run 3 of 5 complete', chips: ['Researcher log'], why: 'The researcher logged the run.' },
+    ],
+    best: ['Match it to the calibration and close', 'A planned calibration with signed commands and a lab log entry.', 'Closed. Beam power is back to normal.'],
+    lesson: 'Signed commands and a mission plan let you tell a planned manoeuvre from a hijacked link.',
+  },
 ];
 
 // alert/evidence times (seconds before the alarm) for templates
@@ -348,7 +437,7 @@ export function buildFalseAlarm(t) {
     text: c.text, chips: (c.chips || []).map(x => ({ t: x, tone: 'ok' })), why: c.why,
   });
   return {
-    id: t.id, benign: true, title: t.title, short: t.short,
+    id: t.id, ch: t.ch, benign: true, title: t.title, short: t.short,
     inspired: 'Routine operations. Most OT alerts are faults, weather or authorised work — telling them apart quickly is the job.',
     blockedBy: null, targets: t.targets, conduits: [], impact: null,
     clues: [{ ...clue(t.alert, 0), chips: [] }, ...t.clues.map((c, k) => clue(c, k + 1))],
@@ -389,12 +478,16 @@ export const NOISE = [
   { asset: 'scc', src: 'Weather feed', text: 'forecast updated · light winds', why: 'Routine weather update.' },
   { asset: 'townB', src: 'Feeder B meter', text: 'hospital load 2.1 MW · normal', why: 'Normal customer load.' },
   { asset: 'townA', src: 'Feeder A meter', text: 'residential load following evening curve', why: 'Normal daily load pattern.' },
+  { asset: 'hydro', ch: 2, src: 'Dam SCADA', text: 'reservoir 212.4 m · seepage weirs normal', why: 'Routine dam monitoring.' },
+  { asset: 'hydro', ch: 2, src: 'Unit 2 governor', text: '18.0 MW · speed 428.6 rpm · auto', why: 'A turbine running steadily under automatic control.' },
+  { asset: 'factory', ch: 2, src: 'Body shop MES', text: 'line 2 · 54 bodies/hour · OEE 87%', why: 'Normal production reporting.' },
+  { asset: 'factory', ch: 2, src: 'Paint oven 1', text: '180 °C · conveyor 4.2 m/min · normal', why: 'A paint oven at its normal temperature.' },
 ];
 
 // ---------- random plant events ----------
 // Applied by game.js between incidents. effect fields: funds, rel, demand {mult, hours}, outage {feeders, hours}, audit.
 export const PLANT_EVENTS = [
-  { id: 'storm', icon: 'zap', title: 'Thunderstorm over Bukit Mutiara', text: 'Lightning trips Feeder A for 30 minutes before it auto-recloses.', kind: 'bad', outage: { feeders: ['A'], hours: 0.5 }, rel: -3 },
+  { id: 'storm', storm: true, icon: 'zap', title: 'Thunderstorm over Bukit Mutiara', text: 'Lightning trips Feeder A for 30 minutes before it auto-recloses.', kind: 'bad', outage: { feeders: ['A'], hours: 0.5 }, rel: -3 },
   { id: 'heatwave', icon: 'sun', title: 'Heatwave', text: 'Air-conditioning load is up 20% for the next 6 hours: more revenue, more stress on the transformers.', kind: 'warn', demand: { mult: 1.2, hours: 6 }, rel: -2 },
   { id: 'audit', icon: 'shield', title: 'Regulator spot audit', text: 'The energy regulator checks your security controls.', kind: 'warn', audit: true },
   { id: 'budgetcut', icon: 'coins', title: 'Head office budget cut', text: 'Finance claws back $60K from the security budget.', kind: 'bad', funds: -60000 },
@@ -402,4 +495,15 @@ export const PLANT_EVENTS = [
   { id: 'festival', icon: 'bag', title: 'Festival at Mutiara Avenue Mall', text: 'A weekend festival lifts demand by 10% for 4 hours.', kind: 'good', demand: { mult: 1.1, hours: 4 } },
   { id: 'ageing', icon: 'alert', title: 'Ageing switchgear', text: 'An old breaker needs early refurbishment: $35K.', kind: 'bad', funds: -35000, rel: -2 },
   { id: 'training', icon: 'trophy', title: 'Team training day', text: 'Your operators finish an incident-response course. Reliability +3.', kind: 'good', rel: 3 },
+  // from chapter 3 (ch); storm: true events come round more often in the monsoon and bring the rain
+  { id: 'nightshift', ch: 2, icon: 'car', title: 'Extra night shift at Mutiara Motor Works', text: 'A rush order for the new EV keeps every line running overnight: demand +15% for 8 hours.', kind: 'good', demand: { mult: 1.15, hours: 8 } },
+  { id: 'carship', ch: 2, icon: 'car', title: 'Car carrier sails on time', text: 'Mutiara Spirit leaves with 2,000 new cars. The factory pays a $70K on-time supply bonus.', kind: 'good', funds: 70000 },
+  { id: 'dryspell', ch: 2, icon: 'sun', title: 'Dry spell in the hills', text: 'The reservoir is low, so the hydro runs one unit only. Bought-in power cuts margins for 6 hours.', kind: 'warn', demand: { mult: 0.9, hours: 6 } },
+  { id: 'monsoon', ch: 3, storm: true, icon: 'cloud', title: 'Monsoon downpour', text: 'Heavy rain over the catchment. The spillway gates open and all three hydro units run flat out: demand +10% for 4 hours.', kind: 'good', demand: { mult: 1.1, hours: 4 }, rel: -1 },
+  { id: 'line4strike', ch: 3, storm: true, icon: 'zap', title: 'Lightning strike on Line 4', text: 'A strike trips Line 4. The factory loses supply for 30 minutes until the line is re-energized.', kind: 'bad', outage: { feeders: ['E'], hours: 0.5 }, rel: -3 },
+  { id: 'flashflood', ch: 3, storm: true, icon: 'cloud', title: 'Flash flood on the trunk road', text: 'Repair crews are stuck behind the floodwater. Overtime and boats cost $40K.', kind: 'bad', funds: -40000 },
+  { id: 'landslip', ch: 3, storm: true, icon: 'alert', title: 'Landslip near tower 4-7', text: 'Soaked ground slips beside a Line 4 tower. Emergency piling costs $50K.', kind: 'bad', funds: -50000, rel: -2 },
+  { id: 'beamsale', ch: 4, icon: 'satellite', title: 'SBSP-1 sells its first night-time power', text: 'Power collected in space is sold to the grid at midnight for the first time. A $90K premium.', kind: 'good', funds: 90000 },
+  { id: 'solarstorm', ch: 4, icon: 'sun', title: 'Solar storm', text: 'A burst of solar particles puts SBSP-1 into safe mode for two hours: demand served drops 10%.', kind: 'warn', demand: { mult: 0.9, hours: 2 } },
+  { id: 'judges', ch: 5, icon: 'trophy', title: 'Grid of the Year judges visit', text: 'The judges tour the control room and check your security controls.', kind: 'warn', audit: true },
 ];
