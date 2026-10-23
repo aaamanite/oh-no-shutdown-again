@@ -436,6 +436,61 @@ const FA = [
     best: ['Close as a correct safety stop', 'A forklift broke the light curtain and the safety PLC did its job.', 'Closed. Forklift routes are re-marked away from the press.'],
     lesson: 'A safety stop with a physical cause and an unchanged safety program is the system working. Tampering would show in the safety program CRC.',
   },
+  {
+    id: 'fa-opcua-none', ch: 2, title: 'OPC UA session with no security', short: 'OPC UA None', targets: ['factory'], feeders: [],
+    alert: { asset: 'factory', src: 'OT monitoring', text: 'OPC UA session SecurityMode=None · 10.62.4.31 -> OPC-GW1 · read only', why: 'An unencrypted, unauthenticated OPC UA session is a security gap, whoever the client is.' },
+    clues: [
+      { asset: 'factory', src: 'Asset register', text: '10.62.4.31 = ENERGY-DASH-02 (facilities) · registered 2023', chips: ['Known client'], why: 'It is the facilities energy dashboard, a known device.' },
+      { asset: 'factory', src: 'OPC-GW1 audit log', text: 'session reads 46 energy tags · 0 writes in 90 days', chips: ['Read only'], why: 'It has only ever read energy data.' },
+      { asset: 'factory', src: 'IT ticket', text: 'MMW-T-5604 open: dashboard upgrade to SignAndEncrypt, due next month', chips: ['Fix planned'], why: 'The gap is known and the fix is scheduled.' },
+    ],
+    best: ['Close and keep the remediation ticket tracked', 'A known, read-only dashboard already scheduled for signed and encrypted sessions.', 'Closed. Facilities brings the upgrade forward by two weeks.'],
+    lesson: 'Not every finding is an attack. A known, read-only client on an insecure mode is a vulnerability to fix on a plan, not an incident. The real risk is leaving security mode None switched on for everyone.',
+  },
+  {
+    id: 'fa-profinet-dcp', ch: 2, title: 'PROFINET devices renamed on the body shop network', short: 'DCP rename', targets: ['factory'], feeders: ['E'],
+    alert: { asset: 'factory', src: 'OT monitoring', text: 'PROFINET DCP SET NameOfStation x12 · from 10.40.2.250 · VLAN 40', why: 'DCP Set renames devices and can knock them off the network. It needs a reason.' },
+    clues: [
+      { asset: 'factory', src: 'Asset register', text: '10.40.2.250 = CL-07 commissioning laptop · robot vendor team', chips: ['Commissioning laptop'], why: 'The commands came from the registered commissioning laptop.' },
+      { asset: 'factory', src: 'Change management', text: 'MMW-CHG-118 · robot line 3 commissioning window today 08:00–18:00', chips: ['Change window'], why: 'Line 3 is being commissioned right now.' },
+      { asset: 'factory', src: 'RC-BS1', text: 'R301–R312 named per design drawing · all online', chips: ['Names match design'], why: 'The new names match the design, and every robot came back online.' },
+    ],
+    best: ['Confirm it was commissioning and close', 'The registered commissioning laptop, inside the change window, naming new robots to design.', 'Closed. Line 3 passes its network test.'],
+    lesson: 'PROFINET DCP Set is normal during commissioning and a red flag at any other time. Who sent it, and when, is what matters.',
+  },
+  {
+    id: 'fa-mqtt-burst', ch: 2, title: 'IIoT gateway sending 10 times the usual data', short: 'MQTT burst', targets: ['factory', 'internet'], feeders: [],
+    alert: { asset: 'factory', src: 'Factory firewall', text: 'IIOT-01 outbound MQTT/TLS 12 MB/h (normal 1.2) · broker.robotvendor.example', why: 'A jump in data leaving the plant can be exfiltration, or a diagnostics job.' },
+    clues: [
+      { asset: 'factory', src: 'Vendor ticket', text: 'RV-8812: high-rate servo diagnostics R110–R118 for 48 h', chips: ['Booked study'], why: 'The robot vendor booked a two-day diagnostics study.' },
+      { asset: 'factory', src: 'Firewall policy', text: 'IIOT-01 outbound only · TLS to approved broker · no inbound sessions', chips: ['Outbound only', 'Approved broker'], why: 'Data goes only to the approved broker, and nothing can connect back in.' },
+      { asset: 'factory', src: 'IIOT-01', text: 'topics: robots/R11x/servo/* only · no new topics', chips: ['Expected topics'], why: 'Only the robots in the ticket are publishing.' },
+    ],
+    best: ['Match it to the vendor study and close', 'A booked study to the approved broker, outbound only, from the robots named in the ticket.', 'Closed. Traffic returns to normal after 48 hours.'],
+    lesson: 'Watch what leaves the plant. A known destination, a ticket and outbound-only rules explain a burst; an unknown destination would not.',
+  },
+  {
+    id: 'fa-s7-stop', ch: 2, title: 'Press line PLC switched to STOP', short: 'PLC stop', targets: ['factory'], feeders: ['E'],
+    alert: { asset: 'factory', src: 'PLC-PR1', text: 'CPU RUN -> STOP · program download from 10.30.1.15 · 06:10', why: 'Stopping a PLC and downloading a program is exactly what an attacker would do. It is also routine engineering.' },
+    clues: [
+      { asset: 'factory', src: 'Asset register', text: '10.30.1.15 = EWS-F1 PLC engineering workstation · user eng_tan', chips: ['Engineering station'], why: 'The download came from the plant\u2019s own engineering workstation.' },
+      { asset: 'factory', src: 'Change management', text: 'MMW-CHG-140 APPROVED · press line 1 die-change logic · shutdown 06:00–08:00', chips: ['Approved change'], why: 'An approved change during a planned shutdown.' },
+      { asset: 'factory', src: 'PLC-PR1', text: 'new program checksum 4F2A = release v8.1 · CPU back in RUN 06:42', chips: ['Checksum matches'], why: 'The program is exactly the approved release, and the press is running again.' },
+    ],
+    best: ['Verify the checksum and close', 'Approved change, the right workstation, and a checksum matching the release.', 'Closed. The press restarts on time.'],
+    lesson: 'Program downloads and CPU stops need three answers: which station, which approved change, and does the checksum match. Here all three line up.',
+  },
+  {
+    id: 'fa-bacnet-write', ch: 2, title: 'BACnet writes to the chiller setpoints', short: 'BACnet write', targets: ['factory'], feeders: [],
+    alert: { asset: 'factory', src: 'OT monitoring', text: 'BACnet WriteProperty x6 · chillers CH-1..CH-3 · from 10.70.0.40', why: 'Changes to building systems that cool the paint shop and welders need checking.' },
+    clues: [
+      { asset: 'factory', src: 'Jump host', text: 'contractor bms_lee · MFA OK · recorded session 10:00–11:00', chips: ['Recorded session'], why: 'The BMS contractor came in through the recorded jump host.' },
+      { asset: 'factory', src: 'Facilities ticket', text: 'FAC-2231: seasonal chilled-water setpoint 6.5 -> 7.0 °C', chips: ['Booked work'], why: 'A seasonal setpoint change was booked.' },
+      { asset: 'factory', src: 'UT-01', text: 'new setpoints within design range · plant temperatures normal', chips: ['Values sane'], why: 'The new values are normal and nothing overheated.' },
+    ],
+    best: ['Match it to the facilities ticket and close', 'A booked seasonal change through the jump host, with sane values.', 'Closed. Chilled water settles at 7 °C.'],
+    lesson: 'Building systems get changed by contractors all the time. A recorded session, a ticket and sensible values make it maintenance.',
+  },
   // ---------- from chapter 3 (ch = 0-based chapter that adds them) ----------
   {
     id: 'fa-spillway-test', ch: 2, title: 'Spillway gate moved in the middle of the night', short: 'Gate test', targets: ['hydro'], feeders: [],
@@ -588,6 +643,10 @@ export const NOISE = [
   { asset: 'factory', ch: 2, src: 'AGV-FM', text: '34 AGVs on mission · 2 charging', why: 'Normal fleet status.' },
   { asset: 'factory', ch: 2, src: 'COBOT-FA', text: 'cobot cell 9 · 412 screws driven this hour', why: 'Cobots working normally.' },
   { asset: 'factory', ch: 2, src: 'EMS-E1', text: 'Feeder E 27.6 MW · power factor 0.97', why: 'Normal factory load.' },
+  { asset: 'factory', ch: 2, src: 'OPC-GW1', text: '214 OPC UA sessions · 213 SignAndEncrypt', why: 'Routine status from the OPC UA server.' },
+  { asset: 'factory', ch: 2, src: 'IIOT-01', text: 'MQTT/TLS 1.2 MB/h to approved broker', why: 'Normal condition-monitoring traffic.' },
+  { asset: 'factory', ch: 2, src: 'VIS-QC', text: '412 bodies inspected · 0.4% sent to rework', why: 'Normal inspection results.' },
+  { asset: 'factory', ch: 2, src: 'TQ-FA', text: '9,830 bolts tightened · 0 out of spec', why: 'Normal torque records.' },
 ];
 
 // ---------- random plant events ----------

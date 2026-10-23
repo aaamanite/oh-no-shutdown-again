@@ -57,13 +57,16 @@
       <button data-speed="2" data-icon="ff" title="Fast (2)"></button>
       <button data-speed="4" data-icon="fff" title="Fastest (3)"></button>
     </div>
-    <div class="settings">
-      <button id="rb-layers" class="on" data-icon="layers" title="Network overlay"></button>
-      <button id="rb-light" title="Lighting: auto"></button>
-      <button id="rb-sound" title="Sound"></button>
-      <button id="rb-quality" class="txt" title="Graphics quality"></button>
-      <button id="rb-help" class="img" title="How to play"><img src="img/onsa-icon-lime.png" alt="How to play"></button>
+    <div class="settings" id="settings">
+      <button id="rb-layers" class="on" data-icon="layers" title="Network overlay" data-label="Network layer"></button>
+      <button id="rb-light" title="Lighting: auto" data-label="Lighting"></button>
+      <button id="rb-sound" title="Sound" data-label="Sound"></button>
+      <button id="rb-quality" class="txt" title="Graphics quality" data-label="Graphics"></button>
+      <button id="rb-name" class="phone-only" data-act="rename" data-icon="user" title="Change your name" data-label="Change name"></button>
+      <button id="rb-help" class="img" title="How to play" data-label="How to play"><img src="img/onsa-icon-lime.png" alt="How to play"></button>
     </div>
+    <!-- phones: the settings above fold into this menu -->
+    <button id="rb-more" class="more" data-icon="sliders" title="Settings" aria-controls="settings" aria-expanded="false"></button>
   </div>
 
   <!-- left: mission tracker -->

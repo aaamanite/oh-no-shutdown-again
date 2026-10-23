@@ -1,6 +1,6 @@
 // Game loop, economy, incidents and all HUD/panel UI.
 import { World } from './world.js';
-import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, CHAPTER_INTRO, UNLOCK, FEEDERS, PURDUE, SITE, PROCESS, INSTRUMENTS, FACTORY_SYSTEMS, instrumentRisk, HONEYPOT } from './data.js';
+import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, CHAPTER_INTRO, UNLOCK, FEEDERS, PURDUE, SITE, PROCESS, INSTRUMENTS, FACTORY_SYSTEMS, FACTORY_PROTOCOLS, instrumentRisk, HONEYPOT } from './data.js';
 import { icon, hydrateIcons } from './icons.js';
 import { FALSE_ALARMS, NOISE, PLANT_EVENTS } from './events.js';
 
@@ -28,6 +28,7 @@ const CTRL = Object.fromEntries(CONTROLS.map(c => [c.id, c]));
 const GAME_MIN_PER_SEC = 2;   // at 1×
 const REV_PER_MIN = 230;      // $ per game minute at full load
 const BASE_DECIDE = 150;      // seconds to decide on an incident
+const PROTO = Object.fromEntries(FACTORY_PROTOCOLS.map(p => [p.id, p]));
 const INST = Object.fromEntries([...INSTRUMENTS, ...FACTORY_SYSTEMS.map(i => ({ ...i, site: 'factory' }))].map(i => [i.tag, i]));
 const FEEDER_OF = Object.fromEntries(Object.entries(FEEDERS).map(([f, F]) => [F.asset, f]));
 const ALL_SCENARIOS = [...SCENARIOS, ...FALSE_ALARMS];
@@ -257,6 +258,8 @@ function positionOverlays() {
   meEl.style.display = me.vis ? '' : 'none';
   meEl.style.transform = `translate(${me.x}px, ${me.y}px) translate(-50%, -100%)`;
   const near = world.controls.target.distanceTo(world.centers.biogas) < 45 && world.camera.position.distanceTo(world.centers.biogas) < 140;
+  const rStatus = world.researcherStatus || 'Researcher · SBSP · ONSA R&D';   // what she is doing right now
+  if (npcEl.dataset.status !== rStatus) { npcEl.dataset.status = rStatus; npcEl.querySelector('small').textContent = rStatus; }
   const rp = world.project(world.researcherAnchor());
   npcEl.style.display = rp.vis ? '' : 'none';
   npcEl.style.transform = `translate(${rp.x}px, ${rp.y}px) translate(-50%, -100%)`;
@@ -888,7 +891,22 @@ const PANELS = {
           <span>${fac ? 'Network' : 'Signal to PLC'}</span><span>${esc(i.signal)}</span>
           <span>${fac ? 'Area' : 'Process stage'}</span><span>${esc(i.stage)}</span></div></div>
         <div class="box"><small>Why an attacker cares</small><p style="margin:5px 0 0">${esc(fac ? i.risk : instrumentRisk(i))}</p></div>
+        ${fac ? `<div class="sec"><small>Protocols · tap for security concerns</small></div>${protoButtons(i.protocols)}` : ''}
         <div class="row" style="margin-top:10px;gap:8px"><button class="btn" data-act="asset:${fac ? 'factory' : 'biogas'}">${icon('arrow')} All ${fac ? 'factory systems' : 'plant instruments'}</button></div>`,
+    };
+  },
+
+  proto(id) {
+    const p = PROTO[id], users = FACTORY_SYSTEMS.filter(s => s.protocols.includes(id));
+    return {
+      eyebrow: 'Mutiara Motor Works · protocol', title: p.name,
+      html: `<div class="box"><small>Used for</small><p style="margin:5px 0 0">${esc(p.use)}</p></div>
+        <div class="box" style="box-shadow:inset 0 0 0 1px rgba(255,77,106,.45)"><small style="color:#ffa79e">Security concerns</small><p style="margin:5px 0 0">${esc(p.concern)}</p></div>
+        <div class="sec"><small>MITRE ATT&amp;CK for ICS techniques it is exposed to</small></div>
+        <div class="row" style="flex-wrap:wrap;gap:5px">${p.ttps.map(t => `<span class="pill bad">${esc(t)}</span>`).join('')}</div>
+        <div class="box" style="margin-top:10px;box-shadow:inset 0 0 0 1px rgba(200,238,58,.4)"><small style="color:var(--lime)">How it is defended</small><p style="margin:5px 0 0">${esc(p.defend)}</p></div>
+        <div class="sec"><small>Systems using ${esc(p.name)}</small></div>
+        ${users.map(i => `<button class="box row" style="width:100%;text-align:left;margin-bottom:5px;padding:8px 10px" data-act="inst:${i.tag}"><span class="pill" style="font-family:var(--mono)">${esc(i.tag)}</span><span class="grow"><b style="font-size:12.5px">${esc(i.name)}</b></span>${icon('arrow')}</button>`).join('')}`,
     };
   },
 
@@ -1062,12 +1080,16 @@ function conduitRow(c) {
   return `<div class="box row"><div class="grow"><b style="font-size:13px">${esc(c.name)}</b><div class="tiny muted">${esc(ASSETS[c.a].short)} ↔ ${esc(ASSETS[c.b].short)} · ${esc(c.proto)}</div></div>${pill}</div>`;
 }
 
+// protocol chips that open the protocol's security panel
+const protoButtons = ids => `<div class="row" style="flex-wrap:wrap;gap:5px">${ids.map(id => `<button class="pill" style="cursor:pointer" data-act="proto:${id}">${esc(PROTO[id].name)} ${icon('arrow')}</button>`).join('')}</div>`;
+
 // plant facts for the chapter 3 sites
 function westHTML(id) {
   const rows = id === 'hydro'
     ? [['Units', '3 × 20 MW Francis turbines'], ['Reservoir', S.storming ? 'Rising · spillway gates open' : '212.4 m · normal'], ['Dam', '21 m concrete gravity, 3 radial gates'], ['Export', '132 kV Line 4']]
     : [['Supply', S.feeders.E.on ? 'Line 4 tap · energized' : 'De-energized'], ['Output', '54 cars an hour on two lines'], ['People', '2,600 on three shifts'], ['Shipping', 'Ro-ro jetty · car carrier Mutiara Spirit']];
   return `<div class="sec"><small>Plant</small></div><div class="box"><div class="kv" style="margin:0">${rows.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('')}</div></div>
+    ${id === 'factory' ? `<div class="sec"><small>Protocols on the plant network · tap for security concerns</small></div>${protoButtons(FACTORY_PROTOCOLS.map(p => p.id))}` : ''}
     ${id === 'factory' ? `<div class="sec"><small>Control systems · attack surface</small></div>${FACTORY_SYSTEMS.map(i =>
       `<button class="box row" style="width:100%;text-align:left;margin-bottom:5px;padding:8px 10px" data-act="inst:${i.tag}">
         <span class="pill" style="font-family:var(--mono)">${esc(i.tag)}</span><span class="grow"><b style="font-size:12.5px">${esc(i.name)}</b><div class="tiny muted">${esc(i.stage)} · ${esc(i.signal)}</div></span>${icon('arrow')}</button>`).join('')}` : ''}`;
@@ -1272,6 +1294,7 @@ function renderRail() {
 const ACTS = {
   panel: name => (S.panel?.name === name ? closePanel() : openPanel(name)),
   asset: id => openAsset(id),
+  proto: id => { if (PROTO[id]) openPanel('proto', id); },
   inst: tag => {
     const at = world.instruments.find(x => x.tag === tag);
     if (at) { world.walkTo(at.pos.x, at.pos.z + 1.6); world.animateTo(at.pos.clone().setY(0), { radius: 45, phi: 0.9, theta: world.spherical().theta }, 0.7); }
@@ -1352,6 +1375,12 @@ $('#rb-quality').addEventListener('click', () => {
 });
 renderQuality();
 $('#rb-help').addEventListener('click', openHelp);
+// phones: the settings live in a menu behind the sliders button; tapping anywhere else closes it
+const setMenu = open => { $('#settings').classList.toggle('open', open); $('#rb-more').setAttribute('aria-expanded', String(open)); };
+$('#rb-more').addEventListener('click', e => { e.stopPropagation(); setMenu(!$('#settings').classList.contains('open')); });
+document.addEventListener('pointerdown', e => { if (!e.target.closest('#settings, #rb-more')) setMenu(false); });
+$('#rb-help').addEventListener('click', () => setMenu(false));
+$('#rb-name').addEventListener('click', () => setMenu(false));
 
 window.addEventListener('keydown', e => {
   if (e.target.closest('input, textarea')) return;

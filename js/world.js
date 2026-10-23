@@ -349,6 +349,7 @@ export class World {
 
     this.buildStreetscape();
     this.buildSiteLights();
+    this.buildLightningMasts();
     this.initDamageFx();
     this.buildRain();
     this.batchStatic();
@@ -707,6 +708,87 @@ export class World {
     }
   }
 
+  // Free-standing lightning masts for the open equipment yards (buildings carry roof air terminals). For each yard,
+  // masts are added greedily until every point is inside a mast's 45° protection cone at 3 m above ground
+  // (radius = mast height - 3), on clear ground away from equipment, roads, walkways, lines and towers.
+  buildLightningMasts() {
+    const G = this.grid, cell = (x, z) => { const i = Math.floor(x - G.x0), j = Math.floor(z - G.z0); return i >= 0 && j >= 0 && i < G.w && j < G.h && !G.block[j * G.w + i]; };
+    const roads = [...this.roadSegs.map((q, j) => [q, j < 2 ? 2.5 : 2]), [this.westRoads[0], 2.5], [this.westRoads[1], 2]];
+    const masts = [];
+    const occ = new Uint8Array(G.w * G.h), bb = new THREE.Box3(), m4 = new THREE.Matrix4();
+    this.scene.updateMatrixWorld(true);
+    this.scene.traverse(o => {
+      if (!o.isMesh || o === this.water.mesh) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      const mark = () => {
+        if (bb.max.y < 0.5 || bb.min.y > 30 || bb.max.x - bb.min.x > 60 || bb.max.z - bb.min.z > 60) return;
+        for (let j = Math.max(0, Math.floor(bb.min.z - G.z0)); j <= Math.min(G.h - 1, Math.floor(bb.max.z - G.z0)); j++)
+          for (let i = Math.max(0, Math.floor(bb.min.x - G.x0)); i <= Math.min(G.w - 1, Math.floor(bb.max.x - G.x0)); i++) occ[j * G.w + i] = 1;
+      };
+      if (o.isInstancedMesh) for (let k = 0; k < o.count; k++) { o.getMatrixAt(k, m4); bb.copy(o.geometry.boundingBox).applyMatrix4(m4.premultiply(o.matrixWorld)); mark(); }
+      else { bb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld); mark(); }
+    });
+    const clearAbove = (x, z) => [[0, 0], [0.6, 0.6], [-0.6, 0.6], [0.6, -0.6], [-0.6, -0.6]].every(([dx, dz]) => {
+      const i = Math.floor(x + dx - G.x0), j = Math.floor(z + dz - G.z0);
+      return i >= 0 && j >= 0 && i < G.w && j < G.h && !occ[j * G.w + i];
+    });
+    const ok = (x, z, inField = false) => (inField || (cell(x, z) && cell(x + 0.8, z) && cell(x - 0.8, z) && cell(x, z + 0.8) && cell(x, z - 0.8) && clearAbove(x, z)))
+      && !roads.some(([q, h]) => nearestOnSeg(x, z, q)[2] < h + 1.2) && !this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 1.7)
+      && !this.lineSegs.some(q => nearestOnSeg(x, z, q)[2] < 5.5) && !this.towerFeet.some(([tx, tz]) => Math.hypot(tx - x, tz - z) < 5)
+      && !masts.some(m => Math.hypot(m.x - x, m.z - z) < 6);
+    const wp = this.areas.wind.position, rb = this.areas.rnd.position, bio = new THREE.Box3().setFromObject(this.areas.biogas);
+    const sites = [
+      { r: [-20, -14, 20, 14], h: 22, parent: this.scene },                                   // PMU Bukit Mutiara switchyard
+      { r: [bio.min.x + 2, Math.max(bio.min.z, -66) + 2, bio.max.x - 2, bio.max.z - 2], h: 22, parent: this.scene },
+      { r: [-154.8, 68.2, -103.2, 113.3], h: 24, parent: this.scene,                           // solar farm: masts may also stand
+        field: Array.from({ length: 10 }, (_, r) => [-145, -136.5, -128, -119.5, -111].map(x => [x, 75.55 + r * 3.1]))
+          .flat() },                                                                             // in the gaps between panel rows
+      { r: [wp.x + 50, wp.z - 56, wp.x + 73, wp.z - 47], h: 20, parent: this.scene },          // wind shore station
+      { r: [rb.x - 56, rb.z + 62, rb.x - 40.8, rb.z + 73.5], h: 20, parent: this.scene },       // rectenna field
+      { r: [75.5, -20.5, 84.5, -13.5], h: 18, parent: this.scene }, { r: [75.5, 13.5, 84.5, 20.5], h: 18, parent: this.scene },
+      { r: [65.5, 53.5, 74.5, 60.5], h: 18, parent: this.scene }, { r: [2.5, 54.3, 11.5, 61.3], h: 18, parent: this.scene },
+      { r: [-232, 28, -212, 46], h: 22, parent: this.areas.hydro },                           // hydro switchyard
+      { r: [-232, -66, -156, -8], h: 24, parent: this.areas.factory },                        // factory yard and intake
+    ];
+    this.lightningGaps = [];
+    for (const { r: [x0, z0, x1, z1], h, parent, field = [] } of sites) {
+      const R = h - 3, need = [], cand = field.map(([x, z]) => [x, z, true]);
+      for (let x = x0; x <= x1 + 0.01; x += 2) for (let z = z0; z <= z1 + 0.01; z += 2) need.push([x, z]);
+      for (let x = x0 - 4; x <= x1 + 4; x += 1.5) for (let z = z0 - 4; z <= z1 + 4; z += 1.5) cand.push([x, z]);
+      let open = need.slice();
+      // existing masts already protect part of the yard
+      open = open.filter(([x, z]) => !masts.some(m => Math.hypot(m.x - x, m.z - z) <= m.h - 3));
+      while (open.length) {
+        let best = null, score = 0;
+        for (const [cx, cz, inField] of cand) {
+          if (!ok(cx, cz, inField)) continue;
+          let n = 0;
+          for (const [x, z] of open) if ((x - cx) ** 2 + (z - cz) ** 2 <= R * R) n++;
+          if (n > score) { score = n; best = [cx, cz]; }
+        }
+        if (!best) { this.lightningGaps.push(...open); break; }
+        masts.push({ x: best[0], z: best[1], h, parent });
+        open = open.filter(([x, z]) => (x - best[0]) ** 2 + (z - best[1]) ** 2 > R * R);
+      }
+    }
+    this.lightningMasts = masts;
+    // tapered galvanised pole, air-terminal spike, concrete base — one instanced set per parent
+    const pole = new THREE.CylinderGeometry(0.07, 0.22, 1, 10).translate(0, 0.5, 0), spike = new THREE.ConeGeometry(0.06, 1.6, 8).translate(0, 0.8, 0), foot = roundedBox(1, 0.5, 1);
+    const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S3 = new THREE.Vector3();
+    for (const parent of new Set(masts.map(m => m.parent))) {
+      const list = masts.filter(m => m.parent === parent);
+      const off = parent === this.scene ? new THREE.Vector3() : parent.position;
+      const poles = new THREE.InstancedMesh(pole, this.galv, list.length), spikes = new THREE.InstancedMesh(spike, mat(0xb87333), list.length), feet = new THREE.InstancedMesh(foot, mat(COL.concrete), list.length);
+      list.forEach((m, i) => {
+        poles.setMatrixAt(i, M.compose(P.set(m.x - off.x, 0.2, m.z - off.z), Q, S3.set(1, m.h, 1)));
+        spikes.setMatrixAt(i, M.compose(P.set(m.x - off.x, 0.2 + m.h, m.z - off.z), Q, S3.set(1, 1, 1)));
+        feet.setMatrixAt(i, M.compose(P.set(m.x - off.x, 0.25, m.z - off.z), Q, S3.set(1, 1, 1)));
+      });
+      poles.castShadow = spikes.castShadow = true;
+      parent.add(poles, spikes, feet);
+    }
+  }
+
   // street lights every ~24 m along the roads (heads glow at night), and kerbs along the road edges
   buildStreetscape() {
     const G = this.grid, free = (x, z) => {
@@ -964,12 +1046,13 @@ export class World {
     // continuing to the college on Feeder C), the southern road to Mutiara Avenue Mall (Feeder D),
     // and the R&D centre access road
     this.roadSegs = [
-      [-125, 0, -20, 0], [20, 0, 150, 0],          // trunk
+      [-125, 0, -20, 0], [20, 0, 161, 0],          // trunk
       [-50, -57.2, -50, 125],                       // IT spine, down to the biogas plant
       [105, -41, 105, 91], [123, -41, 123, 41],     // town streets · Feeders A, B, C
       [-48, 64, 103, 64],                           // southern road · Feeder D
       [-16, 66, -16, 111], [-18, 109, -8, 109],     // mall access + car park entrance (meeting in an L)
       [-48, 87.5, -84, 87.5],                       // R&D centre access
+      [159, -41, 159, 41],                          // east street (new homes)
     ];
     const road = (ax, az, bx, bz, w) => {
       const len = Math.hypot(bx - ax, bz - az);
@@ -977,10 +1060,10 @@ export class World {
       return m;
     };
     road(-125, 0, -20, 0, 5);
-    road(20, 0, 150, 0, 5);
+    road(20, 0, 161, 0, 5);
     for (const q of this.roadSegs.slice(2)) road(...q, 4);
     const junction = x => this.roadSegs.slice(2).some(([ax, az, bx, bz]) => Math.abs(ax - bx) < 0.01 && Math.min(az, bz) <= 0 && Math.max(az, bz) >= 0 && Math.abs(ax - x) < 3.9);
-    for (let x = -122; x < 148; x += 6) if ((x < -22 || x > 22) && !junction(x)) flat(2.2, 0.25, 0xf1ead8, x, 0, 0.09);
+    for (let x = -122; x < 156; x += 6) if ((x < -22 || x > 22) && !junction(x)) flat(2.2, 0.25, 0xf1ead8, x, 0, 0.09);
 
     // parked cars at HQ
     const rand = rng(7);
@@ -1068,14 +1151,13 @@ export class World {
       this.lamps[f] = lamp;
     }
     // lightning masts
-    for (const [x, z] of [[-19.7, -13.7], [19.7, 13.7], [-19.7, 13.7]]) cyl(g, 0.12, 15, COL.steelDark, x, 0, z);
   }
 
   buildControlHouse() {
     const g = this.group('ctrl');
     const top = this.structure(g, {
       x: -14.5, z: 8.5, w: 7, d: 5, h: 3.5, wall: 0xe6dccb,
-      windows: [{ side: 's', y: 1.2, at: [1.2, 2.6], ww: 1.0, wh: 0.9 }, { side: 'e', y: 1.2, at: [0], ww: 1.0, wh: 0.9 }],
+      windows: [{ side: 's', y: 1.2, at: [0.4, 2.2], ww: 1.0, wh: 0.9 }, { side: 'e', y: 1.2, at: [0], ww: 1.0, wh: 0.9 }],
       doors: [{ side: 's', at: -1.6 }],
       louvres: [{ side: 'w', at: -1.2, y: 0.4, w: 0.8, h: 0.6 }, { side: 'w', at: 1.2, y: 0.4, w: 0.8, h: 0.6 }, { side: 'n', at: 2, y: 2.3, w: 0.7, h: 0.5 }],
     });
@@ -1092,7 +1174,8 @@ export class World {
     const modemLed = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff7a3d }));
     modemLed.position.set(-0.15, 0.6, 0.17);
     this.modem.add(modemLed);
-    this.modem.position.set(-10.6, 2.2, 11.15);
+    this.modem.position.set(-12.2, 1.6, 5.85);   // on the north wall, clear of the cable tray and the AC unit
+    this.modem.rotation.y = Math.PI;
     g.add(this.modem);
   }
 
@@ -1138,18 +1221,15 @@ export class World {
       g.add(f);
     };
     const faceLen = side => (side === 's' || side === 'n' ? w : d);
-    if (o.cladding) {
-      for (const side of ['s', 'n', 'e', 'w']) {
-        const L = faceLen(side);
-        for (let a = -L / 2 + 0.3; a < L / 2 - 0.2; a += 0.55) onFace(side, a, f => box(f, 0.06, h - 0.1, 0.07, wallMat, 0, base + 0.05, 0.03));
-      }
-    }
+    const rod = (px, py, pz, len) => { cyl(g, 0.025, len, 0xb87333, px, py, pz); add(g, JOINT, mat(0xb87333), px, py + len, pz, 0.05, 0.05, 0.05); };
     if (o.roof === 'hip') {
-      const roof = new THREE.Mesh(hipRoofGeometry(w + 1.0, d + 1.0, o.roofH || Math.min(w, d) * 0.32), surface('roof', o.roofTint || 0xffffff));
+      const roofH = o.roofH || Math.min(w, d) * 0.32;
+      const roof = new THREE.Mesh(hipRoofGeometry(w + 1.0, d + 1.0, roofH), surface('roof', o.roofTint || 0xffffff));
       roof.position.set(x, top, z);
       roof.castShadow = roof.receiveShadow = true;
       g.add(roof);
       box(g, w + 1.0, 0.14, d + 1.0, 0xe8e4dc, x, top - 0.14, z); // fascia
+      rod(x, top + roofH - 0.05, z, 1.1);                          // air terminal on the ridge
     } else {
       const t = 0.22, ph = 0.6;
       box(g, w, ph, t, wallMat, x, top, z + d / 2 - t / 2);
@@ -1158,31 +1238,66 @@ export class World {
       box(g, t, ph, d - 2 * t, wallMat, x - w / 2 + t / 2, top, z);
       for (const [cw, cd, cx, cz] of [[w + 0.1, 0.32, x, z + d / 2 - 0.11], [w + 0.1, 0.32, x, z - d / 2 + 0.11], [0.32, d, x + w / 2 - 0.11, z], [0.32, d, x - w / 2 + 0.11, z]]) box(g, cw, 0.07, cd, 0x8d9296, cx, top + ph, cz);
       box(g, w - 0.44, 0.05, d - 0.44, 0x5b6166, x, top, z);
+      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) rod(x + sx * (w / 2 - 0.3), top + ph, z + sz * (d / 2 - 0.3), 0.9); // air terminals
+    }
+    // face items are laid out doors first, then louvres, then windows; anything that would overlap an item
+    // already on that face, run into a corner downpipe or reach the roof edge is left out
+    const used = { s: [], n: [], e: [], w: [] };
+    const fits = (side, kind, ...rects) => {    // rects: [x0, x1, y0, y1] in face coordinates
+      const L = faceLen(side), ok = rects.every(([x0, x1, y0, y1]) => x0 >= -L / 2 + 0.28 && x1 <= L / 2 - 0.28 && y1 <= base + h - 0.08
+        && !used[side].some(([a0, a1, b0, b1]) => x0 < a1 + 0.08 && x1 > a0 - 0.08 && y0 < b1 + 0.08 && y1 > b0 - 0.08));
+      if (ok) used[side].push(...rects); else (this.facadeSkips = this.facadeSkips || []).push(`${kind} ${side} @${rects[0][0].toFixed(1)}`);
+      return ok;
+    };
+    for (const dr of o.doors || []) {
+      const dw = dr.w || 1.1, dh = dr.h || 2.2, top = base + dh + 0.1;
+      const rects = [[dr.at - (dw + 0.18) / 2, dr.at + (dw + 0.18) / 2, 0, top]];
+      if (dr.canopy !== false) rects.push([dr.at - (dw + 0.8) / 2, dr.at + (dw + 0.8) / 2, top, top + 0.3]);
+      if (!fits(dr.side, 'door', ...rects)) continue;
+      onFace(dr.side, dr.at, f => {
+        box(f, dw + 0.18, dh + 0.1, 0.08, 0x2e3338, 0, base, 0.02);
+        box(f, dw, dh, 0.06, dr.glass ? glass : dr.color || 0x5d666d, 0, base, 0.06);
+        if (!dr.glass) cyl(f, 0.03, 0.2, 0xc9cdd0, dw * 0.35, base + 1.0, 0.12);
+        if (dr.canopy !== false) box(f, dw + 0.8, 0.12, 1.1, 0x8d9296, 0, base + dh + 0.25, 0.55);
+        box(f, dw + 0.6, 0.15, 0.7, COL.concrete, 0, 0.15, 0.4);
+      });
+    }
+    for (const lv of o.louvres || []) {
+      const lw = lv.w || 0.9, lh = lv.h || 0.7, y = base + lv.y;
+      if (!fits(lv.side, 'louvre', [lv.at - lw / 2 - 0.05, lv.at + lw / 2 + 0.05, y - 0.05, y + lh + 0.05])) continue;
+      onFace(lv.side, lv.at, f => {
+        box(f, lw + 0.1, lh + 0.1, 0.06, 0x8d9296, 0, y - 0.05, 0.02);
+        for (let k = 0; k < 5; k++) { const sl = box(f, lw, 0.05, 0.12, 0x6d757b, 0, y + (k + 0.5) * (lh / 5) - 0.025, 0.07); sl.rotation.x = -0.5; }
+      });
     }
     for (const row of o.windows || []) {
       const L = faceLen(row.side), n = row.count || Math.max(1, Math.floor((L - 1) / ((row.ww || 1.2) + 1.1)));
       const at = row.at || Array.from({ length: n }, (_, i) => -L / 2 + (L / n) * (i + 0.5));
-      for (const ys of [].concat(row.y)) for (const a of at) onFace(row.side, a, f => {
+      for (const ys of [].concat(row.y)) for (const a of at) {
         const ww = row.ww || 1.2, wh = row.wh || 1.1, y = base + ys;
-        box(f, ww + 0.16, wh + 0.16, 0.09, 0x2e3338, 0, y - 0.08, 0.02);
-        box(f, ww, wh, 0.05, glass, 0, y, 0.06);
-        if (ww > 1.4) box(f, 0.05, wh, 0.07, 0x2e3338, 0, y, 0.07);
-        box(f, ww + 0.3, 0.07, 0.22, COL.concrete, 0, y - 0.15, 0.1);
-      });
+        if (!fits(row.side, 'window', [a - (ww + 0.3) / 2, a + (ww + 0.3) / 2, y - 0.15, y + wh + 0.08])) continue;
+        onFace(row.side, a, f => {
+          box(f, ww + 0.16, wh + 0.16, 0.09, 0x2e3338, 0, y - 0.08, 0.02);
+          box(f, ww, wh, 0.05, glass, 0, y, 0.06);
+          if (ww > 1.4) box(f, 0.05, wh, 0.07, 0x2e3338, 0, y, 0.07);
+          box(f, ww + 0.3, 0.07, 0.22, COL.concrete, 0, y - 0.15, 0.1);
+        });
+      }
     }
-    for (const dr of o.doors || []) onFace(dr.side, dr.at, f => {
-      const dw = dr.w || 1.1, dh = dr.h || 2.2;
-      box(f, dw + 0.18, dh + 0.1, 0.08, 0x2e3338, 0, base, 0.02);
-      box(f, dw, dh, 0.06, dr.glass ? glass : dr.color || 0x5d666d, 0, base, 0.06);
-      if (!dr.glass) cyl(f, 0.03, 0.2, 0xc9cdd0, dw * 0.35, base + 1.0, 0.12);
-      if (dr.canopy !== false) box(f, dw + 0.8, 0.12, 1.1, 0x8d9296, 0, base + dh + 0.25, 0.55);
-      box(f, dw + 0.6, 0.15, 0.7, COL.concrete, 0, 0.15, 0.4);
-    });
-    for (const lv of o.louvres || []) onFace(lv.side, lv.at, f => {
-      const lw = lv.w || 0.9, lh = lv.h || 0.7, y = base + lv.y;
-      box(f, lw + 0.1, lh + 0.1, 0.06, 0x8d9296, 0, y - 0.05, 0.02);
-      for (let k = 0; k < 5; k++) { const sl = box(f, lw, 0.05, 0.12, 0x6d757b, 0, y + (k + 0.5) * (lh / 5) - 0.025, 0.07); sl.rotation.x = -0.5; }
-    });
+    // profiled cladding: vertical ribs every 0.55 m, broken around every door, louvre and window
+    if (o.cladding) {
+      for (const side of ['s', 'n', 'e', 'w']) {
+        const L = faceLen(side);
+        for (let a = -L / 2 + 0.3; a < L / 2 - 0.2; a += 0.55) {
+          const cuts = used[side].filter(([x0, x1]) => a > x0 - 0.06 && a < x1 + 0.06).map(([, , y0, y1]) => [y0 - 0.04, y1 + 0.04]).sort((p, q) => p[0] - q[0]);
+          let y = base + 0.05;
+          for (const [c0, c1] of [...cuts, [base + h - 0.05, Infinity]]) {
+            if (c0 - y > 0.15) { const y0 = y, len = c0 - y; onFace(side, a, f => box(f, 0.06, len, 0.07, wallMat, 0, y0, 0.03)); }
+            y = Math.max(y, c1);
+          }
+        }
+      }
+    }
     for (const [px, pz] of [[x - w / 2 + 0.12, z + d / 2 + 0.06], [x + w / 2 - 0.12, z + d / 2 + 0.06], [x - w / 2 + 0.12, z - d / 2 - 0.06], [x + w / 2 - 0.12, z - d / 2 - 0.06]]) cyl(g, 0.06, h, 0x8a8f93, px, base, pz);
     return top;
   }
@@ -1219,6 +1334,9 @@ export class World {
     for (const [cx, cz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) box(g, 0.5, h + 0.5, 0.5, alu, x + cx * (w / 2), 0.4, z + cz * (d / 2));
     const top = 0.4 + h;
     for (const [cw, cd, cx, cz] of [[w, 0.3, x, z + d / 2 - 0.15], [w, 0.3, x, z - d / 2 + 0.15], [0.3, d, x + w / 2 - 0.15, z], [0.3, d, x - w / 2 + 0.15, z]]) box(g, cw, 0.8, cd, alu, cx, top, cz);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {                          // air terminals
+      cyl(g, 0.03, 1.4, 0xb87333, x + sx * (w / 2 - 0.15), top + 0.8, z + sz * (d / 2 - 0.15));
+    }
     box(g, w - 0.6, 0.06, d - 0.6, 0x5b6166, x, top, z);
     box(g, w * 0.42, 2.6, d * 0.36, surface('concrete', 0xb8b4ac), x + w * 0.12, top, z - d * 0.18);  // plant room
     this.roofUnit(g, x - w * 0.25, top + 0.05, z + d * 0.2, 1.8, 1.4, true);
@@ -1290,7 +1408,7 @@ export class World {
     // two-storey annex: glazed ground-floor lobby, ribbon windows, entrance canopy
     const at = this.structure(g, {
       x: -48, z: -21.5, w: 18, d: 7, h: 5, wall: 0xd9d3c6,
-      windows: [{ side: 's', y: [0.5, 2.9], count: 7, ww: 1.8, wh: 1.5 }, { side: 'e', y: [0.5, 2.9], count: 2, ww: 1.6, wh: 1.5 }, { side: 'w', y: [0.5, 2.9], count: 2, ww: 1.6, wh: 1.5 }],
+      windows: [{ side: 's', y: [0.5, 3.2], at: [-7.4, -4.9, -2.6, 2.6, 4.9, 7.4], ww: 1.8, wh: 1.5 }, { side: 'e', y: [0.5, 3.2], count: 2, ww: 1.6, wh: 1.5 }, { side: 'w', y: [0.5, 3.2], count: 2, ww: 1.6, wh: 1.5 }],
       doors: [{ side: 's', at: 0, w: 2.6, h: 2.5, glass: true }],
     });
     box(g, 7, 0.22, 3, 0xd9dcdf, -48, 3.1, -16.6);
@@ -1306,7 +1424,7 @@ export class World {
     // data hall: ribbed steel cladding, glazed entrance and office window, intake louvres, rooftop chillers
     const top = this.structure(g, {
       x: -24, z: -28, w: 10, d: 7, h: 4.2, cladding: 0x7d8a92,
-      windows: [{ side: 's', y: 1.4, at: [3.3], ww: 1.6, wh: 1.0 }],
+      windows: [{ side: 's', y: 1.4, at: [3.6], ww: 1.6, wh: 1.0 }],
       doors: [{ side: 's', at: 1.2, w: 1.6, h: 2.3, glass: true }, { side: 'e', at: 0, w: 1.4, h: 2.3 }],
       louvres: [-2.3, -0.8, 0.7, 2.2].map(at => ({ side: 'w', at, y: 0.7, w: 1.0, h: 1.2 })),
     });
@@ -1334,7 +1452,7 @@ export class World {
       doors: [{ side: 'e', at: 2.4, w: 1.8, h: 2.4, glass: true }],
     });
     this.roofUnit(g, -31, top + 0.05, 19.5, 1.8, 1.4, true);
-    box(g, 0.9, 0.6, 0.32, 0xe4e6e6, -38.5, 2.4, 17.33);
+    box(g, 0.9, 0.6, 0.32, 0xe4e6e6, -37, 2.6, 17.33);
     box(g, 0.4, 2, 0.4, COL.steelDark, -37, 6, 24);
     const dish = new THREE.Mesh(new THREE.SphereGeometry(1.8, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2.4), mat(0xf0f0ea, { side: THREE.DoubleSide }));
     dish.position.set(-37, 8.6, 24);
@@ -1379,7 +1497,7 @@ export class World {
     const wallCols = [0xf2e6d0, 0xe8d3b5, 0xd9e1e3, 0xf0d9c8, 0xcfd8c4, 0xe6c9a8];
     const roofTints = [0xffffff, 0xe6c6b6, 0xb9c0c6, 0xd8a890];
     const gA = this.group('townA'), gB = this.group('townB');
-    const xs = [48.5, 54.5, 66, 72, 84.5, 90.5];
+    const xs = [66, 72, 84.5, 90.5, 102, 108];          // world x 111–153: all east of the town road
     const house = (g, f, x, z) => {
       const h = Math.round((2.6 + rand() * 0.6) * 10) / 10;
       this.structure(g, {
@@ -1393,7 +1511,7 @@ export class World {
     for (const x of xs) for (const z of [-36, -29, -22, -15, -8]) if (rand() > 0.12) house(gA, 'A', x, z);
     for (const x of xs) for (const z of [8, 15, 22, 29, 36]) {
       if (x > 61 && x < 76 && z < 27) continue; // hospital footprint
-      if (x > 82 && z > 26) continue; // water tower
+      if (x > 82 && x < 95 && z > 26) continue; // water tower
       if (rand() > 0.15) house(gB, 'B', x, z);
     }
 
@@ -1644,10 +1762,10 @@ export class World {
     // export-cable landing station on the shore, tied into grid Line 2
     this.structure(g, {
       x: 57, z: -51.5, w: 5, d: 3.6, h: 2.9, wall: 0xdcd4c4,
-      doors: [{ side: 's', at: -1.2, w: 1.4, h: 2.3 }],
+      doors: [{ side: 's', at: -1.2, w: 1.2, h: 2.1, canopy: false }],
       louvres: [{ side: 'e', at: 0, y: 0.5, w: 1.0, h: 0.8 }, { side: 'w', at: 0, y: 0.5, w: 1.0, h: 0.8 }, { side: 's', at: 1.2, y: 0.6, w: 1.2, h: 0.9 }],
     });
-    this.sign(57, 2.45, -49.62, 3.4, 0.55, 0, [{ text: 'ONSA · OFFSHORE WIND LANDING', size: 70, y: 82, color: BRAND.white }], false, g);
+    this.sign(57, 2.62, -49.62, 3.4, 0.55, 0, [{ text: 'ONSA · OFFSHORE WIND LANDING', size: 70, y: 82, color: BRAND.white }], false, g);
     this.padTransformer(g, 53.2, -52.6, true);
     // cable sealing-end structure where the subsea export cable comes ashore
     for (const lx of [-0.9, 0.9]) this.lattice(g, 60.9 + lx, -52.6, 3, 0.14, 0.12);
@@ -1665,7 +1783,7 @@ export class World {
     const cg = this.feederGlass.C;
     // academic block: two storeys, tiled hip roof, glazed entrance
     this.structure(g, {
-      x: 71, z: 56, w: 18, d: 10, h: 7.4, wall: 0xe2d3b6, glass: cg, roof: 'hip', roofH: 2.6, roofTint: 0xe6c6b6,
+      x: 71, z: 56, w: 16, d: 10, h: 7.4, wall: 0xe2d3b6,                              // clear of the town road kerb glass: cg, roof: 'hip', roofH: 2.6, roofTint: 0xe6c6b6,
       windows: [{ side: 's', y: [1.0, 4.6], count: 7, ww: 1.4, wh: 1.6 }, { side: 'n', y: [1.0, 4.6], count: 7, ww: 1.4, wh: 1.6 },
         { side: 'e', y: [1.0, 4.6], count: 3, ww: 1.4, wh: 1.6 }, { side: 'w', y: [1.0, 4.6], count: 3, ww: 1.4, wh: 1.6 }],
       doors: [{ side: 's', at: 0, w: 2.4, h: 2.6, glass: true }],
@@ -1701,7 +1819,7 @@ export class World {
     // library: tall glazing
     this.structure(g, {
       x: 52, z: 60, w: 9, d: 7, h: 4.8, wall: 0xece4d4, glass: cg,
-      windows: [{ side: 's', y: 0.6, count: 3, ww: 2.2, wh: 3.2 }, { side: 'e', y: 0.6, count: 2, ww: 2.2, wh: 3.2 }],
+      windows: [{ side: 's', y: 0.6, count: 3, ww: 2.0, wh: 3.2 }, { side: 'e', y: 0.6, count: 2, ww: 2.0, wh: 3.2 }],
       doors: [{ side: 'w', at: 0, w: 1.6, h: 2.4, glass: true }],
     });
     // grandstand by the field
@@ -1729,7 +1847,7 @@ export class World {
   // ONSA Power & Co. solar farm: tilted PV rows, string inverters and a step-up station on grid Line 3
   buildSolar() {
     const g = this.group('solar');
-    box(g, 50, 0.1, 38, 0xc9bf9f, -82, 0, 70);
+    box(g, 47.6, 0.1, 41.1, 0xc9bf9f, -84, 0, 70.75);                                  // fills the walkway loop exactly
     const rows = 11, per = 12;
     const panels = new THREE.InstancedMesh(BOX, new THREE.MeshStandardMaterial({ map: panelTexture('pv'), roughness: 0.14, metalness: 0.0, envMapIntensity: 0.35 }), rows * per);
     const posts = new THREE.InstancedMesh(BOX, mat(COL.steelDark), rows * per);
@@ -1868,6 +1986,17 @@ export class World {
     }
     rect.castShadow = rect.receiveShadow = true;
     g.add(rect);
+    // each panel stands on four galvanised posts (taller at the back, following the tilt) with concrete footings
+    const posts = new THREE.InstancedMesh(CYL, mat(0x9aa5ab), 42 * 4), feet = new THREE.InstancedMesh(BOX, mat(COL.concrete), 42 * 4);
+    const P = new THREE.Vector3(), Sc = new THREE.Vector3(), Q0 = new THREE.Quaternion();
+    let j = 0;
+    for (let r = 0; r < 6; r++) for (let k = 0; k < 7; k++) for (const sx of [-0.8, 0.8]) for (const sz of [-0.55, 0.55]) {
+      const top = 0.87 + Math.sin(0.25) * sz, px = -55 + k * 2.2 + sx, pz = 63 + r * 1.9 + Math.cos(0.25) * sz;
+      posts.setMatrixAt(j, m.compose(P.set(px, top / 2, pz), Q0, Sc.set(0.045, top, 0.045)));
+      feet.setMatrixAt(j++, m.compose(P.set(px, 0.06, pz), Q0, Sc.set(0.26, 0.12, 0.26)));
+    }
+    posts.castShadow = true;
+    g.add(posts, feet);
     this.rectenna = new THREE.Vector3(-48.4, 1, 67.8).add(g.position);
     this.satCenter = new THREE.Vector3(-46, 0, 70).add(g.position);
     this.rectGlow = new THREE.Mesh(new THREE.PlaneGeometry(16, 12), new THREE.MeshBasicMaterial({ color: 0x7fe3ff, transparent: true, opacity: 0.12, depthWrite: false }));
@@ -1937,7 +2066,22 @@ export class World {
     this.pickables.push(r);
     // makes rounds of the rectenna field, the ground-station dish and the lab door, on open ground,
     // routed around everything solid the same way as the player
-    this.rStops = [[-47, 75.5], [-34, 70], [-48, 59.5], [-59, 70], [-56, 82.5]].map(([x, z]) => new THREE.Vector3(x, 0, z).add(this.areas.rnd.position));
+    // her rounds: at each stop she faces the equipment, raises the tablet and records data from it
+    const o = this.areas.rnd.position, at = (x, y, z) => new THREE.Vector3(x, y, z).add(o);
+    this.rStops = [
+      { pos: at(-47, 0, 75.5), look: at(-48.4, 1.2, 69), task: 'Measuring rectenna output' },
+      { pos: at(-34, 0, 70), look: at(-37.5, 3.6, 70), task: 'Logging satellite telemetry' },
+      { pos: at(-48, 0, 59.5), look: at(-48.4, 1.2, 64.5), task: 'Checking beam alignment sensors' },
+      { pos: at(-59, 0, 70), look: at(-54, 1.2, 68), task: 'Scanning panel temperatures' },
+      { pos: at(-56, 0, 82.5), look: at(-53, 2.2, 82.5), task: 'Uploading data to the lab server' },
+    ];
+    // data pulses that stream from the equipment into her tablet while she works
+    const pm = new THREE.MeshBasicMaterial({ color: 0x9ff0ff, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.rData = Array.from({ length: 7 }, (_, i) => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), pm); m.userData.t = i / 7; m.visible = false; this.scene.add(m); return m; });
+    this.rDataMat = pm;
+    this.rWork = 0;
+    this.rTask = null;
+    this.researcherStatus = '';
     this.rStop = 1;
     this.rPath = null;
     this.rWait = 3;
@@ -1981,7 +2125,7 @@ export class World {
     if (this.rWait > 0) this.rWait -= dt;
     else if (this.grid) {
       if (!this.rPath) {
-        const to = this.rStops[this.rStop];
+        const to = this.rStops[this.rStop].pos;
         this.rPath = this.findPath(r.position.x, r.position.z, to.x, to.z);
         this.rPi = 0;
       }
@@ -1989,7 +2133,13 @@ export class World {
       const v = to ? to.clone().sub(r.position).setY(0) : new THREE.Vector3();
       const dist = v.length();
       if (dist < 0.05 && to && ++this.rPi < this.rPath.length) moving = true;
-      else if (dist < 0.05) { this.rStop = (this.rStop + 1) % this.rStops.length; this.rPath = null; this.rWait = 3 + Math.random() * 3; }
+      else if (dist < 0.05) {
+        const st = this.rStops[this.rStop];
+        this.rTask = { ...st, t: 0, dur: 9 + Math.random() * 4 };
+        this.rStop = (this.rStop + 1) % this.rStops.length;
+        this.rPath = null;
+        this.rWait = this.rTask.dur;
+      }
       else {
         moving = true;
         v.normalize();
@@ -1999,9 +2149,33 @@ export class World {
         r.rotation.y += diff * Math.min(1, dt * 8);
       }
     }
+    // working at a stop: turn to the equipment, tablet up, head down, data streaming in
+    const task = !moving && this.rWait > 0 ? this.rTask : null;
+    if (task) {
+      task.t += dt;
+      let diff = Math.atan2(task.look.x - r.position.x, task.look.z - r.position.z) - r.rotation.y;
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      r.rotation.y += diff * Math.min(1, dt * 4);
+      const pct = Math.min(100, Math.round((task.t / task.dur) * 112));
+      this.researcherStatus = pct < 100 ? `${task.task} · ${pct}%` : `${task.task.replace(/^\w+ing/, w => ({ Measuring: 'Measured', Logging: 'Logged', Checking: 'Checked', Scanning: 'Scanned', Uploading: 'Uploaded' }[w] || w))} ✓`;
+    } else this.researcherStatus = moving ? 'Walking to the next measurement point' : '';
+    this.rWork += ((task ? 1 : 0) - this.rWork) * Math.min(1, dt * 3);
     if (this.researcherRig) {
       this.researcherRig.play(moving ? 'walk' : 'idle');
       this.researcherRig.mixer.update(dt);
+      if (this.rWork > 0.01) this.poseReading(this.researcherRig, r, this.rWork);
+      if (this.researcherRig.screen) this.researcherRig.screen.material.color.setHex(0x7fe3ff).multiplyScalar(0.8 + 0.6 * this.rWork * (0.5 + 0.5 * Math.sin(this._t * 6)));
+    }
+    const streaming = task && task.t < task.dur * 0.9 && this.researcherRig;
+    const hand = streaming ? this.researcherRig.bone('RightHand').getWorldPosition(new THREE.Vector3()) : null;
+    for (const d of this.rData) {
+      d.visible = !!streaming;
+      if (!streaming) continue;
+      d.userData.t = (d.userData.t + dt * 0.7) % 1;
+      const t = d.userData.t;
+      d.position.copy(task.look).lerp(hand, t);
+      d.position.y += Math.sin(Math.PI * t) * 1.2;
+      d.scale.setScalar(0.6 + 0.6 * Math.sin(Math.PI * t));
     }
     this.rPhase += dt * (moving ? 9 : 0);
     const swing = moving ? Math.sin(this.rPhase) * 0.55 : 0;
@@ -2015,6 +2189,26 @@ export class World {
       arm.sh.quaternion.slerp(target.sh, k);
       arm.el.quaternion.slerp(target.el, k);
     });
+  }
+
+  // overlay a "reading the tablet" pose on the animated skeleton: upper arm down by her side, forearm raised
+  // in front of her chest, head tipped down to the screen. Directions are in her own frame (+z ahead, -x right).
+  poseReading(rig, holder, k) {
+    const q = holder.getWorldQuaternion(new THREE.Quaternion());
+    // turn a joint so the segment to its child joint points along dir (the skeleton's bone axes don't follow the limbs)
+    const aim = (name, child, dir) => {
+      const b = rig.bone(name), c = rig.bone(child);
+      if (!b || !c) return;
+      const cur = c.getWorldPosition(new THREE.Vector3()).sub(b.getWorldPosition(new THREE.Vector3())).normalize();
+      const want = dir.clone().normalize().applyQuaternion(q);
+      const qw = b.getWorldQuaternion(new THREE.Quaternion());
+      qw.slerp(new THREE.Quaternion().setFromUnitVectors(cur, want).multiply(qw), k);
+      b.quaternion.copy(b.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(qw));
+      b.updateMatrixWorld(true);
+    };
+    aim('RightArm', 'RightForeArm', new THREE.Vector3(0.15, -1, 0.25));
+    aim('RightForeArm', 'RightHand', new THREE.Vector3(0.6, 0.35, 1));
+    aim('Head', 'HeadTop_End', new THREE.Vector3(0, 1, 0.45));
   }
 
   lattice(parent, x, z, h, base, top) {
@@ -2092,10 +2286,10 @@ export class World {
 
   buildLines() {
     const routes = [
-      { pts: [[24, -5], [40, -9], [56, -13], [72, -17], [88, -20]], h: 13, tag: '33 kV Feeder A · Homes' },
-      { pts: [[24, 5], [40, 9], [56, 13], [72, 17], [88, 20]], h: 13, tag: '33 kV Feeder B · Hospital' },
-      { pts: [[16, 17], [30, 32], [46, 46], [62, 57], [78, 70], [91, 74]], h: 13, tag: '33 kV Feeder C · College' },
-      { pts: [[6, 17], [7, 34], [7, 51], [8, 74]], h: 13, tag: '33 kV Feeder D · Mutiara Avenue Mall' },
+      { pts: [[24, -5], [40, -9], [56, -13], [72, -17]], h: 13, tag: '33 kV Feeder A · Homes' },
+      { pts: [[24, 5], [40, 9], [56, 13], [72, 17]], h: 13, tag: '33 kV Feeder B · Hospital' },
+      { pts: [[16, 17], [30, 32], [46, 46], [62, 57]], h: 13, tag: '33 kV Feeder C · College' },
+      { pts: [[6, 17], [7, 34], [7, 51]], h: 13, tag: '33 kV Feeder D · Mutiara Avenue Mall' },
       { pts: [[-6, 17], [-18, 34], [-36, 48], [-60, 58], [-84, 71], [-100, 74]], h: 15, tag: '132 kV Line 3 · Solar farm PV inverters' },
       { pts: [[0, -16], [0, -28], [8, -40], [20, -49], [32, -51.5]], h: 15, tag: '132 kV Line 1 · Biogas genset G-501' },
       { pts: [[22, -17], [34, -28], [44, -40], [54, -51], [56, -65]], h: 15, tag: '132 kV Line 2 · Wind turbines WTG-1–4 + Wind farm genset G-502' },
@@ -2104,8 +2298,43 @@ export class World {
     this.lineSegs = [];
     this.wireGeos = [];
     this._towerAt = {};
-    for (const r of routes) this.route(r);
+    const ends = routes.map(r => this.route(r));
+    // each 33 kV feeder ends at a fenced distribution substation outside the area it supplies; from there the
+    // supply runs underground, so no overhead line or tower stands among homes, the hospital, college or mall
+    const dist = [
+      ['A', 'townA', [75.5, -20.5, 84.5, -13.5], 'xmin', 'xmax'],
+      ['B', 'townB', [75.5, 13.5, 84.5, 20.5], 'xmin', 'xmax'],
+      ['C', 'townC', [65.5, 53.5, 74.5, 60.5], 'xmin', 'zmax'],
+      ['D', 'townD', [2.5, 54.3, 11.5, 61.3], 'zmin', 'zmax'],
+    ];
+    dist.forEach(([f, area, rect, gantrySide, gateSide], i) => this.distSub(this.areas[area], rect, gantrySide, gateSide, ends[i].at(-1), routes[i].pts.at(-1)));
     this.finishLines(this.scene);
+  }
+
+  // 33/11 kV distribution substation: gravel pad in an HV fence, termination gantry facing the incoming line,
+  // transformer and ring-main unit. Wires span from the last tower to the gantry.
+  distSub(parent, [x0, z0, x1, z1], gantrySide, gateSide, towerAttach, [tx, tz]) {
+    const off = parent.position, g = new THREE.Group();
+    g.position.set(-off.x, 0, -off.z);                // build in world coordinates inside the area group
+    parent.add(g);
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    box(g, x1 - x0, 0.15, z1 - z0, COL.gravel, cx, 0, cz);
+    const gate = { side: gateSide, at: gateSide[0] === 'x' ? cz : cx, w: 3 };
+    this.hvFence(g, x0, z0, x1, z1, gate);
+    const alongX = gantrySide[0] === 'z', gx = gantrySide === 'xmin' ? x0 + 0.8 : cx, gz = gantrySide === 'zmin' ? z0 + 0.8 : cz;
+    const ends = alongX ? [[gx - 2.4, gz], [gx + 2.4, gz]] : [[gx, gz - 2.4], [gx, gz + 2.4]];
+    for (const [px, pz] of ends) this.lattice(g, px, pz, 7, 0.3, 0.24).position.y = 0.15;
+    this.girder(g, new THREE.Vector3(ends[0][0], 7, ends[0][1]), new THREE.Vector3(ends[1][0], 7, ends[1][1]), 0.24);
+    const ty = alongX ? gx : gz;
+    const pts = towerAttach.map((a, k) => {
+      const t = THREE.MathUtils.clamp((alongX ? a.x : a.z) - ty, -2, 2);
+      return new THREE.Vector3(alongX ? gx + t : gx, k < 2 ? 6.6 : 5.9, alongX ? gz : gz + t);
+    });
+    this.span(towerAttach, pts, 0.5);
+    this.lineSegs.push([tx, tz, gx, gz]);
+    const inX = gantrySide === 'xmin' ? 1 : 0, inZ = gantrySide === 'zmin' ? 1 : 0;
+    this.padTransformer(g, cx + inX * 0.8, cz + inZ * 0.8);
+    this.cabinet(g, cx + inX * 3 - inZ * 2.6, 0.15, cz + inZ * 2.4 - inX * 2.2, 1.4, 1.5, 0.8, 0x9aa3a8, inX ? Math.PI / 2 : 0);
   }
 
   // the wires so far as one mesh, and every tower as one instanced lattice + insulators + concrete footings per height
@@ -2263,9 +2492,20 @@ export class World {
     box(g, 5.2, 0.08, 48, 0x6f767c, -273, 21.5, 34);
     for (const x of [-275.85, -270.15]) box(g, 0.3, 1.1, 56, conc, x, 21.5, 36);
     for (const z of [12, 24, 48]) { cyl(g, 0.08, 5, COL.steelDark, -270.4, 22.6, z); box(g, 0.9, 0.12, 0.3, 0xdfe3e6, -270.8, 27.5, z); }
-    // spillway chute: training walls, stilling basin; white water when the gates are open
+    // spillway chute between training walls. At the toe a walled tailwater basin takes the spillway flow and,
+    // through a channel along the powerhouse, the turbine discharge; the river leaves over an end sill.
     for (const z of [29.6, 42.4]) box(g, 18, 2.2, 0.6, conc, -263, 0, z);
-    box(g, 10, 0.4, 13.4, conc, -251, -0.3, 36);
+    const TW = 0.32;                                                                    // tailwater level
+    const poolShape = new THREE.Shape([[-256, -29.6], [-246, -29.6], [-238.8, -29.6], [-238.8, -57.2], [-245, -57.2], [-245, -43], [-256, -43]].map(([x, z]) => new THREE.Vector2(x, z)));
+    const tailwater = new THREE.Mesh(new THREE.ShapeGeometry(poolShape).rotateX(-Math.PI / 2), this.riverMat);
+    tailwater.position.y = TW;
+    tailwater.receiveShadow = true;
+    g.add(tailwater);
+    box(g, 10.2, 1.8, 0.4, conc, -251, -0.5, 29.4);                                    // basin south wall
+    box(g, 1.2, 1.8, 0.4, conc, -255.6, -0.5, 43);                                     // basin north wall, beside the powerhouse
+    box(g, 0.4, 1.8, 28.4, conc, -238.6, -0.5, 43.2);                                  // channel east wall
+    box(g, 6.8, 1.8, 0.4, conc, -241.8, -0.5, 57.4);                                   // channel head wall
+    box(g, 7.6, TW + 0.06, 0.7, conc, -242.4, -0.05, 29.4);                            // end sill: the river leaves here
     const fc = document.createElement('canvas');
     fc.width = 64; fc.height = 256;
     const fg = fc.getContext('2d');
@@ -2282,8 +2522,8 @@ export class World {
     chute.lookAt(chute.position.clone().add(new THREE.Vector3(0.71, 0.7, 0)));
     chute.rotateZ(Math.PI / 2);
     g.add(chute);
-    const pool = new THREE.Mesh(new THREE.PlaneGeometry(14, 11.8).rotateX(-Math.PI / 2), this.foamMat);
-    pool.position.set(-249, 0.3, 36);
+    const pool = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape([[-256, -29.6], [-246, -29.6], [-246, -43], [-256, -43]].map(([x, z]) => new THREE.Vector2(x, z)))).rotateX(-Math.PI / 2), this.foamMat);
+    pool.position.y = TW + 0.02;                                                       // white water in the basin in a flood
     g.add(pool);
     // name on the downstream face
     const nameMat = new THREE.MeshBasicMaterial({ map: textTexture([{ text: 'EMPANGAN SUNGAI MUTIARA', size: 120, y: 80, color: '#f4f1e8' }], 2048, 160), transparent: true, depthWrite: false });
@@ -2307,32 +2547,21 @@ export class World {
     const phTop = this.structure(g, {
       x: -250, z: 50, w: 10, d: 14, h: 11, cladding: 0xbfc6ca,
       windows: [{ side: 'e', y: [2.6, 6.6], count: 4, ww: 1.6, wh: 2.4 }, { side: 'n', y: [6.6], count: 3, ww: 1.6, wh: 2 }],
-      doors: [{ side: 's', at: 2.2, w: 3.6, h: 4.4, canopy: false }],
+      doors: [{ side: 'n', at: 0, w: 3.6, h: 4.4, canopy: false }],
     });
     for (const x of [-253.5, -246.5]) box(g, 0.4, 0.5, 14, steel, x, phTop + 0.6, 50);
     box(g, 7.6, 0.8, 1.2, 0xf2b33d, -250, phTop + 1.1, 47);                            // crane bridge
     for (const z of [45.5, 50, 54.5]) box(g, 0.2, 1.6, 2.6, dark, -244.9, 0.2, z);    // draft-tube outlets
-    const tail = this.strip([[-248, 42.9], [-248.2, 40], [-248.8, 37]], 6, () => 0.17, this.riverMat);
-    g.add(tail);
-    for (const x of [-251.4, -244.9]) box(g, 0.5, 1, 4.8, conc, x, 0, 40.4);
 
     // dam control room on the north abutment
     const cr = new THREE.Group();
     cr.position.y = 21.5;
     g.add(cr);
-    this.structure(cr, { x: -273, z: 61, w: 5, d: 3.4, h: 3, wall: 0xeef0ee, windows: [{ side: 'e', y: 1.1, count: 2, ww: 1.2, wh: 0.9 }], doors: [{ side: 's', at: 1.4 }] });
+    this.structure(cr, { x: -273, z: 61, w: 5, d: 3.4, h: 3, wall: 0xeef0ee, windows: [{ side: 'e', y: 1.1, at: [0], ww: 1.2, wh: 0.9 }, { side: 's', y: 1.1, at: [-1.2], ww: 1.0, wh: 0.9 }], doors: [{ side: 's', at: 0.9 }] });
 
     // switchyard on the east bank: three 11/132 kV step-up transformers, breakers, the Line 4 gantry
     box(g, 20, 0.15, 18, COL.gravel, -222, 0, 37);
-    const fence = chainLink();
-    for (const [w, x, z, rot] of [[8, -228, 28, 0], [8, -216, 28, 0], [20, -222, 46, 0], [18, -232, 37, Math.PI / 2], [18, -212, 37, Math.PI / 2]]) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 2.2), fence);
-      m.position.set(x, 1.25, z);
-      m.rotation.y = rot;
-      g.add(m);
-    }
-    for (let x = -232; x <= -212; x += 4) for (const z of [28, 46]) cyl(g, 0.08, 2.4, COL.steelDark, x, 0, z);
-    for (let z = 32; z <= 44; z += 4) for (const x of [-232, -212]) cyl(g, 0.08, 2.4, COL.steelDark, x, 0, z);
+    this.hvFence(g, -232, 28, -212, 46, { side: 'zmin', at: -222, w: 4 });
     const finGeo = new THREE.BoxGeometry(0.04, 2, 0.8);
     for (const x of [-227, -221, -215]) {
       box(g, 3.6, 0.4, 3, COL.concrete, x, 0.15, 33);
@@ -2349,13 +2578,64 @@ export class World {
     this.girder(g, new THREE.Vector3(-213.5, 9.6, 30.7), new THREE.Vector3(-213.5, 9.6, 43.3), 0.3);
     this.hydroGantry = [[-213.5, 8.9, 39.6], [-213.5, 8.9, 34.4], [-213.5, 8.2, 38.1], [-213.5, 8.2, 35.9]].map(p => new THREE.Vector3(...p));
     // generator cables cross the tailrace on a cable bridge from the powerhouse
-    for (const x of [-242, -235]) this.lattice(g, x, 44, 6.2, 0.3, 0.25).position.y = 0.15;
-    box(g, 11, 0.7, 1.1, steel, -239.6, 6.3, 44);
+    for (const x of [-236.6, -233.2]) this.lattice(g, x, 44, 5.6, 0.3, 0.25).position.y = 0.15;  // clear of the tailrace channel
+    box(g, 12.6, 0.7, 1.1, steel, -238.6, 5.75, 44);                                    // between the two window rows
     box(g, 20, 0.12, 3, 0x6f767c, -222, 0.15, 25.5);                               // apron at the gate
     this.sign(-216, 1.4, 26.4, 7, 2.2, 0, [
       { text: 'ONSA Power & Co.', size: 124, y: 105, color: BRAND.amber },
       { text: 'SUNGAI MUTIARA HYDRO · 3 × 20 MW', size: 52, y: 215, color: BRAND.white, weight: 800 },
     ], true, g);
+  }
+
+  // high-voltage compound fence: chain-link on posts every ~2.5 m with a top rail, a locked double gate,
+  // and a BAHAYA / DANGER sign on every side facing out. gate.side: zmin | zmax | xmin | xmax
+  hvFence(g, x0, z0, x1, z1, gate) {
+    const mesh = chainLink(), steel = mat(COL.steelDark);
+    this.dangerMat = this.dangerMat || new THREE.MeshStandardMaterial({
+      roughness: 0.6,
+      map: textTexture([
+        { text: '\u26A1 BAHAYA', size: 104, y: 70, color: '#c62828' },
+        { text: 'DANGER · HIGH VOLTAGE', size: 46, y: 160, color: '#1d1d1d', weight: 900 },
+        { text: 'NO ENTRY · AUTHORISED STAFF ONLY', size: 30, y: 212, color: '#1d1d1d', weight: 800 },
+      ], 512, 256, '#f2c230'),
+    });
+    const run = (ax, az, bx, bz) => {
+      const L = Math.hypot(bx - ax, bz - az), rot = Math.atan2(-(bz - az), bx - ax), n = Math.max(1, Math.round(L / 2.5));
+      const panel = new THREE.Mesh(new THREE.PlaneGeometry(L, 2.2), mesh);
+      panel.position.set((ax + bx) / 2, 1.25, (az + bz) / 2);
+      panel.rotation.y = rot;
+      g.add(panel);
+      for (let k = 0; k <= n; k++) cyl(g, 0.06, 2.5, steel, ax + ((bx - ax) * k) / n, 0, az + ((bz - az) * k) / n);
+      const rail = add(g, CYL, steel, (ax + bx) / 2, 2.42, (az + bz) / 2, 0.035, L, 0.035);
+      rail.rotation.set(0, rot, Math.PI / 2);
+    };
+    const sides = { zmin: [[x0, z0], [x1, z0], Math.PI], xmax: [[x1, z0], [x1, z1], Math.PI / 2], zmax: [[x1, z1], [x0, z1], 0], xmin: [[x0, z1], [x0, z0], -Math.PI / 2] };
+    for (const [side, [[ax, az], [bx, bz], out]] of Object.entries(sides)) {
+      const L = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / L, uz = (bz - az) / L;
+      const at = t => [ax + ux * t, az + uz * t];
+      let signT = L / 2;
+      if (gate && gate.side === side) {
+        const c = Math.abs(side[0] === 'z' ? gate.at - ax : gate.at - az), g0 = c - gate.w / 2, g1 = c + gate.w / 2;
+        run(ax, az, ...at(g0));
+        run(...at(g1), bx, bz);
+        for (const t of [g0, g1]) cyl(g, 0.11, 2.6, steel, ...at(t).flatMap((v, i) => (i ? [0, v] : [v])));
+        // two closed gate leaves: mesh in a tube frame, chained shut in the middle
+        for (const [t0, t1] of [[g0 + 0.1, c - 0.03], [c + 0.03, g1 - 0.1]]) {
+          const [lx, lz] = at((t0 + t1) / 2), lw = t1 - t0, rot = Math.atan2(-uz, ux);
+          const leaf = new THREE.Mesh(new THREE.PlaneGeometry(lw, 1.95), mesh);
+          leaf.position.set(lx, 1.15, lz);
+          leaf.rotation.y = rot;
+          g.add(leaf);
+          for (const y of [0.18, 2.12]) { const bar = add(g, CYL, steel, lx, y, lz, 0.03, lw, 0.03); bar.rotation.set(0, rot, Math.PI / 2); }
+        }
+        signT = (g0 + g1) / 2 + gate.w / 2 + 1.6;
+      } else run(ax, az, bx, bz);
+      const [sx, sz] = at(signT), ox = Math.sin(out) * 0.07, oz = Math.cos(out) * 0.07;
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.45), this.dangerMat);
+      sign.position.set(sx + ox, 1.55, sz + oz);
+      sign.rotation.y = out;
+      g.add(sign);
+    }
   }
 
   buildFactory() {
@@ -2466,13 +2746,7 @@ export class World {
 
     // the 132/33 kV intake substation, fed by the Line 4 tap
     box(g, 14, 0.15, 12, COL.gravel, -165, 0, -16);
-    const fence = chainLink();
-    for (const [w, x, z, rot] of [[14, -165, -22, 0], [5, -169.5, -10, 0], [5, -160.5, -10, 0], [12, -172, -16, Math.PI / 2], [12, -158, -16, Math.PI / 2]]) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 2.2), fence);
-      m.position.set(x, 1.25, z);
-      m.rotation.y = rot;
-      g.add(m);
-    }
+    this.hvFence(g, -172, -22, -158, -10, { side: 'zmax', at: -165, w: 4 });
     for (const x of [-168.5, -161.5]) {
       box(g, 4, 0.4, 3.4, COL.concrete, x, 0.15, -18.5);
       box(g, 3, 2.8, 2.2, COL.xfmr, x, 0.55, -18.5);
@@ -2488,12 +2762,13 @@ export class World {
 
     // finished cars waiting for the ship
     const paints = [0xe8e8e8, 0x1d1f22, 0xb3261e, 0x8a8f94, 0x1f4e8c, 0xf4f4f4, 0x51705a];
-    for (let r = 0; r < 4; r++) {
-      box(g, 22, 0.02, 0.12, 0xf1ead8, -169, 0.12, -50.5 - r * 4);
+    for (let r = 0; r < 3; r++) {                                                        // 3 rows of 2.6 m bays
+      const z = -51.4 - r * 5.6;
+      for (let k = 0; k <= 9; k++) box(g, 0.12, 0.02, 4.8, 0xf1ead8, -180.8 + k * 2.6, 0.12, z);
       for (let k = 0; k < 9; k++) {
         const c = car(paints[(r * 3 + k) % paints.length]);
-        c.position.set(-179 + k * 2.5, 0.12, -52.5 - r * 4);
-        c.rotation.y = Math.PI / 2;
+        c.position.set(-179.5 + k * 2.6, 0.12, z);
+        c.rotation.y = r % 2 ? Math.PI : 0;
         g.add(c);
       }
     }
@@ -2506,12 +2781,12 @@ export class World {
     for (let z = -94; z <= -76; z += 4) for (const x of [-189, -183]) cyl(g, 0.35, 2.4, 0x8a8f93, x, -1.2, z);
     for (let z = -94; z <= -76; z += 6) cyl(g, 0.22, 0.5, 0x2e3338, -182.9, JY, z);
     box(g, 10, 13, 44, 0x1d3b5c, -197, -2, -102);
-    box(g, 10.08, 1.2, 44.08, 0x9e2a2a, -197, -2, -102);
-    box(g, 10.1, 0.4, 44.1, 0xf2f2f2, -197, 10.6, -102);
+    box(g, 10.08, 1.2, 44.08, 0x9e2a2a, -197, -1.9, -102);
+    box(g, 10.1, 0.38, 44.1, 0xf2f2f2, -197, 10.6, -102);                               // white sheer stripe, just under the deck
     const bridge = new THREE.Group();
     bridge.position.y = 11;
     g.add(bridge);
-    this.structure(bridge, { x: -197, z: -119.5, w: 9.6, d: 4, h: 3, wall: 0xf2f2f2, windows: [{ side: 'n', y: 1.4, count: 6, ww: 1, wh: 0.8 }] });
+    this.structure(bridge, { x: -197, z: -119.5, w: 9.6, d: 4, h: 3, wall: 0xf2f2f2, windows: [{ side: 'n', y: 1.4, count: 5, ww: 1, wh: 0.8 }] });
     box(g, 3, 4.2, 3, 0xf2f2f2, -197, 11, -86);
     box(g, 3.05, 1, 3.05, 0x1f4e8c, -197, 13.6, -86);
     const board = add(g, BOX, mat(0x6d757b), -190.85, (JY + 2.1) / 2 - 0.15, -92, Math.hypot(2.9, 2.1 - JY) + 0.3, 0.3, 5);
@@ -2544,7 +2819,8 @@ export class World {
     // control systems on the factory floor, tagged in the 3D view (they show up in detections)
     for (const [t, x, y, z] of [['ASRS-01', -226.5, 20, -16.5], ['MES-01', -213.5, 12.5, -15], ['OLP-01', -205.5, 12.5, -15], ['PLC-PR1', -222.5, 15, -36],
       ['RC-BS1', -201, 11, -30], ['DCS-PS1', -168, 17.5, -32], ['RC-PS1', -176, 17.5, -41], ['AGV-FM', -219, 3.2, -26],
-      ['COBOT-FA', -205, 13.5, -59], ['EMS-E1', -165, 11, -16], ['UT-01', -219, 14.2, -51.4]]) this.instruments.push({ tag: t, pos: new THREE.Vector3(x, y, z), site: 'factory' });
+      ['COBOT-FA', -205, 13.5, -59], ['EMS-E1', -165, 11, -16], ['UT-01', -219, 14.2, -51.4], ['EWS-F1', -227, 15, -31],
+      ['VIS-QC', -195.5, 11, -30], ['SIS-PS1', -168, 20.5, -40], ['TQ-FA', -217, 13.5, -61], ['OPC-GW1', -209.5, 15, -15], ['IIOT-01', -216.5, 16.5, -15]]) this.instruments.push({ tag: t, pos: new THREE.Vector3(x, y, z), site: 'factory' });
   }
 
   buildLine4() {
@@ -3150,7 +3426,7 @@ export class World {
 
     // keep the map in bounds
     const t = this.controls.target;
-    const cx = THREE.MathUtils.clamp(t.x, this.minX, 165), cz = THREE.MathUtils.clamp(t.z, -110, 130);
+    const cx = THREE.MathUtils.clamp(t.x, this.minX, 175), cz = THREE.MathUtils.clamp(t.z, -110, 130);
     const cy = THREE.MathUtils.clamp(t.y, 0, 4);
     if (cx !== t.x || cz !== t.z || cy !== t.y) {
       const d = new THREE.Vector3(cx - t.x, cy - t.y, cz - t.z);

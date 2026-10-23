@@ -355,10 +355,11 @@ export function makeWorker(gltf, holder, { woman = false, scale = 2.3, tablet = 
   const bone = n => model.getObjectByName('mixamorig' + n);
   const attach = (b, obj) => { obj.scale.multiplyScalar(100); b.add(obj); };
   attach(bone('Head'), gearForHead(woman));
+  let screen = null;
   if (tablet) {
     const tab = new THREE.Group();
     const slab = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.24, 0.012), new THREE.MeshStandardMaterial({ color: 0x1f2a33, roughness: 0.3 }));
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.21), new THREE.MeshBasicMaterial({ color: 0x7fe3ff }));
+    screen = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.21), new THREE.MeshBasicMaterial({ color: 0x7fe3ff }));
     screen.position.z = 0.007;
     tab.add(slab, screen);
     // Held flat against the right palm, screen towards her body, long side along the fingers. The grip is
@@ -380,7 +381,7 @@ export function makeWorker(gltf, holder, { woman = false, scale = 2.3, tablet = 
   const clip = name => gltf.animations.find(a => a.name === name);
   const actions = { idle: mixer.clipAction(clip('idle')), walk: mixer.clipAction(clip('walk')), run: mixer.clipAction(clip('run')) };
   actions.idle.play();
-  const rig = { model, mixer, actions, current: 'idle' };
+  const rig = { model, mixer, actions, current: 'idle', bone, screen };
   rig.play = name => {
     if (rig.current === name) return;
     const from = actions[rig.current], to = actions[name];
