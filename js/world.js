@@ -598,7 +598,8 @@ export class World {
       return i >= 0 && j >= 0 && i < G.w && j < G.h && !G.block[j * G.w + i];
     };
     const clearOf = (x, z) => free(x, z) && !this.roadSegs.some(q => nearestOnSeg(x, z, q)[2] < 3.2)
-      && !this.lineSegs.some(q => nearestOnSeg(x, z, q)[2] < 3) && !this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 1.6);
+      && !this.lineSegs.some(q => nearestOnSeg(x, z, q)[2] < 3) && !this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 1.6)
+      && !this.towerFeet.some(([tx, tz]) => Math.hypot(tx - x, tz - z) < 5.5);
     const wp = this.areas.wind.position;
     const sites = {
       yard: new THREE.Box3().setFromObject(this.areas.yard),
@@ -661,6 +662,7 @@ export class World {
       for (let t = 10, k = 0; t < len - 6; t += 24, k++) {
         const sd = k % 2 ? 1 : -1, x = ax + ux * t - uz * (half + 0.9) * sd, z = az + uz * t + ux * (half + 0.9) * sd;
         if (!free(x, z) || this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 2.2) || this.lineSegs.some(q => nearestOnSeg(x, z, q)[2] < 3)) continue;
+        if (this.roadSegs.some((q, j) => nearestOnSeg(x, z, q)[2] < (j < 2 ? 2.5 : 2) + 0.4)) continue;
         spots.push({ x, z, ry: Math.atan2(uz * sd, -ux * sd) });
       }
     });
@@ -1636,7 +1638,7 @@ export class World {
   // ONSA Power & Co. solar farm: tilted PV rows, string inverters and a step-up station on grid Line 3
   buildSolar() {
     const g = this.group('solar');
-    box(g, 46, 0.1, 38, 0xc9bf9f, -84, 0, 70);
+    box(g, 50, 0.1, 38, 0xc9bf9f, -82, 0, 70);
     const rows = 11, per = 12;
     const panels = new THREE.InstancedMesh(BOX, new THREE.MeshStandardMaterial({ map: panelTexture('pv'), roughness: 0.14, metalness: 0.0, envMapIntensity: 0.35 }), rows * per);
     const posts = new THREE.InstancedMesh(BOX, mat(COL.steelDark), rows * per);
@@ -1656,13 +1658,16 @@ export class World {
     panels.receiveShadow = true;
     g.add(panels, posts);
     for (let r = 0; r < rows; r++) { const tube = add(g, CYL, mat(0x9aa3a8), -84, 1.15, 54 + r * 3.1, 0.07, 41, 0.07); tube.rotation.z = Math.PI / 2; } // torque tubes
+    // inverter skids and the step-up transformer stand in the gravel strip between the last panel row
+    // (edge x = -63.3) and the perimeter walkway (inner edge x = -60.2)
+    const IX = -61.75;
     for (const z of [57, 66, 75, 84]) {                                                   // inverter skids
-      box(g, 2.2, 0.2, 1.6, COL.concrete, -62.5, 0, z);
-      this.cabinet(g, -62.9, 0.2, z, 0.8, 1.5, 0.7, 0xe4e1d8, Math.PI / 2);
-      this.cabinet(g, -62.1, 0.2, z, 0.8, 1.5, 0.7, 0xe4e1d8, Math.PI / 2);
-      box(g, 2.0, 0.08, 1.4, 0x8d9296, -62.5, 1.85, z);
+      box(g, 2.2, 0.2, 1.6, COL.concrete, IX, 0, z);
+      this.cabinet(g, IX - 0.4, 0.2, z, 0.8, 1.5, 0.7, 0xe4e1d8, Math.PI / 2);
+      this.cabinet(g, IX + 0.4, 0.2, z, 0.8, 1.5, 0.7, 0xe4e1d8, Math.PI / 2);
+      box(g, 2.0, 0.08, 1.4, 0x8d9296, IX, 1.85, z);
     }
-    this.padTransformer(g, -62.5, 59.5);
+    this.padTransformer(g, IX, 61.5, true);
     this.sign(-84, 1.4, 90.5, 8, 2.2, 0, [
       { text: 'ONSA Power & Co.', size: 130, y: 110, color: BRAND.amber },
       { text: 'SOLAR FARM · GRID LINE 3', size: 58, y: 220, color: BRAND.white, weight: 800 },
@@ -2006,9 +2011,11 @@ export class World {
     this.walkYellow = new THREE.MeshStandardMaterial({ color: 0xf2c230, roughness: 0.55, side: THREE.DoubleSide });
     const P = (pts, closed = false) => this.walkpath(pts, closed);
 
-    // substation: loop inside the fence, past the control house door; stub out through the east gate
-    P([[-19, -11.6], [17.2, -11.6], [17.2, 12.6], [-19, 12.6]], true);
-    P([[18.2, 0], [20, 0]]);
+    // substation: round the yard inside the fence, past the control house door; stub out through the east gate
+    // (kept inside the fence posts at x = -20 and clear of the line gantry columns at x = 18.5; the west side
+    // stops short of the control house, whose wall leaves only a 2 m alley to the fence)
+    P([[-18.7, 4.6], [-18.7, -11.6], [16.9, -11.6], [16.9, 12.6], [-18.7, 12.6]]);
+    P([[17.9, 0], [20, 0]]);
     // OT DMZ and SCADA control center: U-shaped, both ends meet the IT spine road
     P([[-48, -33.3], [-30.2, -33.3], [-30.2, -22.7], [-48, -22.7]]);
     P([[-52, 15.7], [-67.8, 15.7], [-67.8, 28.3], [-52, 28.3]]);
@@ -2018,7 +2025,7 @@ export class World {
     // Biogas plant: along the inland side and both ends, open to the shore; landing-station path
     P([[-48, -55.2], [50.8, -55.2], [50.8, -73.6]]);
     P([[-41.8, -56.2], [-41.8, -73.6]]);
-    P([[51.8, -68.6], [61.5, -68.6]]);
+    P([[51.8, -68.4], [61.5, -68.4]]);
     // solar farm: loop, with a path out to the southern road junction
     P([[-153.8, 69.2], [-104.2, 69.2], [-104.2, 112.3], [-153.8, 112.3]], true);
     P([[-110, 68.2], [-110, 64], [-52, 64]]);
@@ -2211,6 +2218,7 @@ export class World {
       if (boxes.some(bx => x > bx.min.x && x < bx.max.x && z > bx.min.z && z < bx.max.z)) continue;
       if (near(x, z, this.roadSegs, 5) || near(x, z, this.walkSegs, 3) || near(x, z, this.lineSegs, 4)) continue;
       if (Math.abs(x) < 26 && Math.abs(z) < 20) continue; // substation yard
+      if (spots.some(([sx, sz]) => (sx - x) ** 2 + (sz - z) ** 2 < 3.5 * 3.5)) continue; // no trunks growing into each other
       spots.push([x, z, 0.7 + rand() * 0.7]);
     }
     // an oil palm plantation in the west, rows 8 m apart
