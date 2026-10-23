@@ -15,10 +15,13 @@ A 3D, browser-based OT/ICS security training game. You are the OT Security Lead 
 - **Consumers** — Feeder A homes, Feeder B hospital, Feeder C college, Feeder D Mutiara Avenue Mall (shops, cinema, big wheel).
 - **ONSA R&D Centre** — Space-Based Solar Power (SBSP) research: a test satellite captures solar power in orbit and beams it as microwaves to a rectenna field; a ground-station dish tracks it. Researcher Prof. Dr. Hanafiya works on site — click her to hear about SBSP.
 - **Biogas plant** — raw POME pond (pump, electromagnetic flowmeter) → mixing pit (mixer, level transmitter) → AD tank & covered lagoon → H₂S scrubber → genset, each gas stage with ultrasonic flowmeter, pressure and temperature transmitters on the pipeline, plus a gas analyzer sampling before and after the scrubber. Flowmeters and the gas analyzer talk Modbus; pressure, temperature and level transmitters are 4–20 mA. Flaring system with ultrasonic flowmeter and pilot/ignition system. All valves are motorized (MOV). Zoom in to see every tag; click one for what it measures, its signal to the PLC, and why an attacker cares.
+- **Unlocked in chapter 3** — the **Sungai Mutiara hydro station** (21 m gravity dam, reservoir, radial spillway gates, penstocks, a glazed generator hall with three 20 MW units, switchyard) exporting on **132 kV Line 4**, which taps **Mutiara Motor Works** on Feeder E: warehouse, press, body shop with a visible robot welding line, paint shop, final assembly, car lot and a ro-ro jetty with a car carrier. Its 17 control systems (robots, cobots, paint shop DCS, warehouse, MES, OPC UA server, IIoT gateway…) and 15 protocols are tagged in 3D, each with its security concerns, MITRE ATT&CK for ICS techniques and defences.
+- **Safety** — every 33 kV feeder ends at a fenced distribution substation outside the area it supplies, so no tower stands among homes, the hospital, college or mall. HV yards are fenced with danger signs, every building carries roof air terminals and lightning masts cover every equipment yard.
 - **You** — a persona named by the player on the start screen: navy coverall with reflective bands, hi-vis vest, white helmet, clear safety glasses, ONSA Power & Co. tags on vest, sleeves, leg and helmet. Idles in a thinking pose; click anywhere on the map and they walk there, click an asset and they walk to it. Tap the name tag to rename.
 
 ## How it plays
 
+- **Six chapters.** First shift and hardening the station, then *Line 4: water and wheels* (the hydro station and car factory), *Monsoon season* (storms, rain, lightning, spillway in flood), *First power from space* (the SBSP beam at full power) and *Grid of the Year* — finish it for a certificate, then keep running the grid. Each chapter opens with a title card; later chapters show as locked teasers in Missions. (Reviewers can start at a chapter with `?chapter=3` … `?chapter=6`.)
 - **Run the site.** Energized feeders earn revenue. Outages cost revenue, grid reliability and regulator fines. Controls have capex and daily opex.
 - **Deception.** The OT honeypot (decoy RTU-99) sits in the switchyard. Nobody legitimate touches it, so a real attack trips it: you get a high-confidence detection and 30 s more to decide. On a false alarm it stays quiet.
 - **Invest in controls.** Asset inventory, OT network monitoring, IT/OT firewall, MFA + jump host, station-bus port security, removable-media control, attack-surface review, config backups, IR playbook. Some prevent a scenario outright; visibility controls add context to the logs you read; the playbook annotates response options.
@@ -39,7 +42,7 @@ A 3D, browser-based OT/ICS security training game. You are the OT Security Lead 
 ## Controls
 
 - Drag to pan, right-drag (or two fingers) to rotate a full 360°, scroll or pinch to zoom. The 360° rail button spins the map.
-- Rail: lighting (auto/day/night), sound, network overlay, rotate ±45°, top-down, zoom, reset, help.
+- Rail: lighting (auto/day/night), sound, network overlay, rotate ±45°, top-down, zoom, reset, help. On phones the settings sit behind the sliders button at the top right.
 - Keys: `Q`/`E` rotate, `Space` pause, `1`–`3` speed, `Esc` close.
 
 ## For trainers
