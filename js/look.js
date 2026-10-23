@@ -272,11 +272,19 @@ export class Look {
     const theta = THREE.MathUtils.degToRad(azim);
     this.sunDir.setFromSphericalCoords(1, phi, theta);
     this.sky.material.uniforms.sunPosition.value.copy(this.sunDir);
-    this.renderer.toneMappingExposure = 0.34 + 0.12 * daylight;
+    // monsoon weather (0…1) turns the sky to grey overcast and dims the exposure
+    const w = this.weather || 0, u = this.sky.material.uniforms;
+    u.turbidity.value = 2.6 + 12 * w;
+    u.rayleigh.value = 2.1 - 1.7 * w;
+    u.mieCoefficient.value = 0.003 + 0.01 * w;
+    this.renderer.toneMappingExposure = (0.34 + 0.12 * daylight) * (1 - 0.15 * w);
     this.bloom.strength = 0.18 + 0.7 * (1 - daylight);
-    if (Math.abs(elev - this._envElev) > 2.5) {
+    if (Math.abs(elev - this._envElev) > 2.5 || Math.abs(w - (this._envW || 0)) > 0.12) {
       this._envElev = elev;
-      this.skyForEnv.material.uniforms.sunPosition.value.copy(this.sunDir);
+      this._envW = w;
+      const e = this.skyForEnv.material.uniforms;
+      for (const k of ['turbidity', 'rayleigh', 'mieCoefficient']) e[k].value = u[k].value;
+      e.sunPosition.value.copy(this.sunDir);
       if (this.env) this.env.dispose();
       this.env = this.pmrem.fromScene(this.skyScene, 0, 1, 2000).texture;
       this.scene.environment = this.env;

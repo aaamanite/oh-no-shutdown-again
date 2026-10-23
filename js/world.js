@@ -33,6 +33,9 @@ const LAYOUT = {
   townD: { c: [14, 75], r: 25, hub: [8, 1.2, 52], label: [8, 14, 70] },
   solar: { c: [-84, 70], r: 26, hub: [-62, 1.2, 56], label: [-84, 7, 70] },
   rnd: { c: [-45, 74], r: 16, hub: [-45, 1.2, 62], label: [-46, 20, 84] },
+  // chapter 3: in the far west, not offset
+  hydro: { c: [-248, 36], r: 30, hub: [-222, 1.2, 22], label: [-262, 31, 36] },
+  factory: { c: [-194, -37], r: 38, hub: [-186, 1.2, -6], label: [-196, 20, -37] },
 };
 
 // Each area sits at its own offset so sites are spread apart — the town and hospital well clear of the grid.
@@ -194,6 +197,25 @@ function nearestOnSeg(px, pz, [ax, az, bx, bz]) {
 
 const BRAND = { navy: '#1b2a4a', amber: '#f2b33d', panel: '#1d2928', white: '#f4f6f2' };
 
+// ---------- the west: forested hills and the Sungai Mutiara valley (chapter 3 builds the dam in its gorge) ----------
+const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const hillNoise = (x, z) => 0.5 * Math.sin(x * 0.045 + Math.sin(z * 0.03) * 2) * Math.cos(z * 0.05 + x * 0.01)
+  + 0.3 * Math.sin(x * 0.11 + z * 0.07) * Math.sin(z * 0.13 - x * 0.05) + 0.2 * Math.sin(x * 0.23 - z * 0.19);
+const DAM_X = -276;   // upstream face of the dam
+const RES_Y = 17.5;   // reservoir level
+const valleyZ = x => 36 + 5 * Math.sin((x - DAM_X) * 0.035);
+// ground height west of x = -254: hills rise from the plain; the valley floor drops below the reservoir level
+// behind the dam, sits near 0 below it, and climbs out again upstream so the reservoir is closed in
+function westHeight(x, z) {
+  const ridge = smoothstep(-254, -276, x);
+  if (ridge <= 0) return 0;
+  const sig = 16 + 18 * smoothstep(-282, -310, x) - 14 * smoothstep(-335, -362, x);
+  const v = Math.exp(-(((z - valleyZ(x)) / sig) ** 2));
+  const floor = 0.4 + 3.6 * smoothstep(-266, -276, x) + 20 * smoothstep(-342, -372, x);
+  const peak = 40 + 14 * hillNoise(x, z) + 12 * smoothstep(-300, -380, x);
+  return ridge * (peak * (1 - 0.94 * v) + floor * v);
+}
+
 export class World {
   constructor(el) {
     this.el = el;
@@ -206,6 +228,7 @@ export class World {
     this.scene = new THREE.Scene();
     this.fogDay = new THREE.Color(0xc4d4de);
     this.fogNight = new THREE.Color(0x0c141d);
+    this.fogStorm = new THREE.Color(0x77838c);
     this.scene.fog = new THREE.Fog(this.fogDay.clone(), 450, 1300);
 
     this.camera = new THREE.PerspectiveCamera(30, el.clientWidth / el.clientHeight, 1, 5000);
@@ -254,14 +277,15 @@ export class World {
     this.pickables = [];
     this.spinners = [];
     this.nightMats = [];
-    this.feederOn = { A: true, B: true, C: true, D: true };
+    this.feederOn = { A: true, B: true, C: true, D: true, E: true };
     this.feederMats = {
       A: new THREE.MeshStandardMaterial({ color: 0x2c3842, roughness: 0.08, metalness: 0.7, emissive: 0xffd27a, emissiveIntensity: 0 }),
       B: new THREE.MeshStandardMaterial({ color: 0x2c3842, roughness: 0.08, metalness: 0.7, emissive: 0xffd27a, emissiveIntensity: 0 }),
       C: new THREE.MeshStandardMaterial({ color: 0x2c3842, roughness: 0.08, metalness: 0.7, emissive: 0xffd27a, emissiveIntensity: 0 }),
       D: new THREE.MeshStandardMaterial({ color: 0xf2f2f2, emissive: 0xffc861, emissiveIntensity: 0 }),
+      E: new THREE.MeshStandardMaterial({ color: 0x3a4f5c, roughness: 0.1, metalness: 0.7, emissive: 0xfff1d2, emissiveIntensity: 0 }), // factory roof glazing
     };
-    this.feederFacades = { A: [], B: [], C: [], D: [] };
+    this.feederFacades = { A: [], B: [], C: [], D: [], E: [] };
     const glazing = () => new THREE.MeshStandardMaterial({ color: 0x3d5a6c, roughness: 0.05, metalness: 0.85, emissive: 0xffd889, emissiveIntensity: 0 });
     this.winGlass = glazing();
     this.nightMats.push(this.winGlass);
@@ -293,6 +317,10 @@ export class World {
     this.buildMall();
     this.buildRnD();
     this.buildLines();
+    this.buildHills();
+    this.buildHydro();
+    this.buildFactory();
+    this.buildLine4();
     this.buildSigns();
     this.buildWalkpaths();
     this.buildTrees();
@@ -303,7 +331,9 @@ export class World {
     this.buildStreetscape();
     this.buildSiteLights();
     this.initDamageFx();
+    this.buildRain();
     this.batchStatic();
+    this.setUnlocked(false);
     this.setQuality(this.quality);
     // sky lighting fills shadows; keep it below the sun so shading has contrast
     this.scene.traverse(o => { for (const m of [].concat(o.material || [])) if (m.isMeshStandardMaterial && m.envMapIntensity === 1) m.envMapIntensity = 0.6; });
@@ -351,7 +381,7 @@ export class World {
     const c = this.centers[id];
     if (!c) return;
     const s = this.spherical();
-    const radius = id.startsWith('town') ? 120 : id === 'yard' || id === 'biogas' ? 90 : 75;
+    const radius = id.startsWith('town') || id === 'hydro' || id === 'factory' ? 120 : id === 'yard' || id === 'biogas' ? 90 : 75;
     this.animateTo(c, { radius, phi: Math.min(s.phi, 0.95), theta: s.theta }, 0.8);
   }
 
@@ -386,7 +416,9 @@ export class World {
       const rect = dom.getBoundingClientRect();
       const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       ray.setFromCamera(ndc, this.camera);
+      const shown = o => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
       for (const hit of ray.intersectObjects(this.pickables, true)) {
+        if (!shown(hit.object)) continue;
         for (let o = hit.object; o; o = o.parent) {
           if (o.userData.asset) { this.onPick?.(o.userData.asset); return; }
         }
@@ -607,10 +639,13 @@ export class World {
       biogas: new THREE.Box3().setFromObject(this.areas.biogas),
       solar: new THREE.Box3().setFromObject(this.areas.solar),
       wind: new THREE.Box3(new THREE.Vector3(wp.x + 50, 0, wp.z - 56), new THREE.Vector3(wp.x + 73, 6, wp.z - 47)), // shore station only
+      hydro: new THREE.Box3(new THREE.Vector3(-255, 0, 24), new THREE.Vector3(-212, 6, 58)),   // powerhouse and switchyard
+      factory: new THREE.Box3(new THREE.Vector3(-232, 0, -65), new THREE.Vector3(-157, 6, -8)),
     };
     const spots = [];
     this.siteLights = [];
-    for (const bb of Object.values(sites)) {
+    for (const [id, bb] of Object.entries(sites)) {
+      const west = id === 'hydro' || id === 'factory', parent = west ? this.areas[id] : this.scene;
       bb.expandByScalar(1.5);
       const cx = (bb.min.x + bb.max.x) / 2, cz = (bb.min.z + bb.max.z) / 2;
       const w = bb.max.x - bb.min.x, d = bb.max.z - bb.min.z;
@@ -627,27 +662,30 @@ export class World {
         }
         if (!found) continue;
         const [x, z] = found, dx = cx - x, dz = cz - z, L = Math.hypot(dx, dz) || 1;
-        spots.push({ x, z, ry: Math.atan2(-dz / L, dx / L) });
+        spots.push({ x, z, ry: Math.atan2(-dz / L, dx / L), parent });
       }
       const light = new THREE.PointLight(0xffe2b0, 0, Math.max(w, d) * 1.2 + 30, 1);
       light.position.set(cx, 26, cz);
+      light.userData.west = west;
       this.scene.add(light);
       this.siteLights.push(light);
     }
-    const n = spots.length;
     const steel = mat(0x8a9096, { metalness: 0.7, roughness: 0.4 });
-    const pole = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.1, 0.16, 10, 10).translate(0, 5, 0), steel, n);
-    const bar = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.12, 1.6).translate(0.25, 9.8, 0), steel, n);
+    const poleGeo = new THREE.CylinderGeometry(0.1, 0.16, 10, 10).translate(0, 5, 0), barGeo = new THREE.BoxGeometry(0.12, 0.12, 1.6).translate(0.25, 9.8, 0);
     const headGeo = mergeGeometries([-0.55, 0.55].map(oz => roundedBox(0.5, 0.36, 0.5).clone().rotateZ(-0.6).translate(0.55, 9.75, oz)));
-    const head = new THREE.InstancedMesh(headGeo, this.lampHeadMat, n);
-    const pool = new THREE.InstancedMesh(new THREE.CircleGeometry(10, 32).rotateX(-Math.PI / 2).translate(7, 0.22, 0), this.lampPoolMat, n);
+    const poolGeo = new THREE.CircleGeometry(10, 32).rotateX(-Math.PI / 2).translate(7, 0.22, 0);
     const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
-    spots.forEach(({ x, z, ry }, i) => {
-      M.compose(new THREE.Vector3(x, 0, z), Q.setFromAxisAngle(Y, ry), one);
-      for (const m of [pole, bar, head, pool]) m.setMatrixAt(i, M);
-    });
-    for (const m of [pole, bar, head]) { m.castShadow = true; this.scene.add(m); }
-    this.scene.add(pool);
+    for (const parent of new Set(spots.map(sp => sp.parent))) {
+      const list = spots.filter(sp => sp.parent === parent), n = list.length;
+      const pole = new THREE.InstancedMesh(poleGeo, steel, n), bar = new THREE.InstancedMesh(barGeo, steel, n);
+      const head = new THREE.InstancedMesh(headGeo, this.lampHeadMat, n), pool = new THREE.InstancedMesh(poolGeo, this.lampPoolMat, n);
+      list.forEach(({ x, z, ry }, i) => {
+        M.compose(new THREE.Vector3(x, 0, z), Q.setFromAxisAngle(Y, ry), one);
+        for (const m of [pole, bar, head, pool]) m.setMatrixAt(i, M);
+      });
+      for (const m of [pole, bar, head]) { m.castShadow = true; parent.add(m); }
+      parent.add(pool);
+    }
   }
 
   // street lights every ~24 m along the roads (heads glow at night), and kerbs along the road edges
@@ -656,36 +694,45 @@ export class World {
       const i = Math.floor((x - G.x0) / G.cs), j = Math.floor((z - G.z0) / G.cs);
       return i >= 0 && j >= 0 && i < G.w && j < G.h && !G.block[j * G.w + i];
     };
-    const spots = [];
-    this.roadSegs.forEach(([ax, az, bx, bz], i) => {
-      const len = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / len, uz = (bz - az) / len, half = i < 2 ? 2.5 : 2;
-      for (let t = 10, k = 0; t < len - 6; t += 24, k++) {
-        const sd = k % 2 ? 1 : -1, x = ax + ux * t - uz * (half + 0.9) * sd, z = az + uz * t + ux * (half + 0.9) * sd;
-        if (!free(x, z) || this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 2.2) || this.lineSegs.some(q => nearestOnSeg(x, z, q)[2] < 3)) continue;
-        if (this.roadSegs.some((q, j) => nearestOnSeg(x, z, q)[2] < (j < 2 ? 2.5 : 2) + 0.4)) continue;
-        spots.push({ x, z, ry: Math.atan2(uz * sd, -ux * sd) });
-      }
-    });
-    const n = spots.length;
-    const pole = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.07, 0.11, 7, 10).translate(0, 3.5, 0), mat(0x8a9096, { metalness: 0.7, roughness: 0.4 }), n);
-    const arm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.045, 0.045, 1.7, 8).rotateZ(Math.PI / 2).translate(0.8, 6.9, 0), mat(0x8a9096, { metalness: 0.7, roughness: 0.4 }), n);
+    // the west roads (shown from chapter 3) get their own set, kept with Line 4
+    const along = (segs, all) => {
+      const spots = [];
+      segs.forEach(([ax, az, bx, bz], i) => {
+        const len = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / len, uz = (bz - az) / len, half = i < 2 ? 2.5 : 2;
+        for (let t = 10, k = 0; t < len - 6; t += 24, k++) {
+          const sd = k % 2 ? 1 : -1, x = ax + ux * t - uz * (half + 0.9) * sd, z = az + uz * t + ux * (half + 0.9) * sd;
+          if (!free(x, z) || this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 2.2) || this.lineSegs.some(q => nearestOnSeg(x, z, q)[2] < 3)) continue;
+          if (all.some((q, j) => nearestOnSeg(x, z, q)[2] < (j < 2 || q === this.westRoads[0] ? 2.5 : 2) + 0.4)) continue;
+          spots.push({ x, z, ry: Math.atan2(uz * sd, -ux * sd) });
+        }
+      });
+      return spots;
+    };
+    const allRoads = [...this.roadSegs, ...this.westRoads];
+    const poleGeo = new THREE.CylinderGeometry(0.07, 0.11, 7, 10).translate(0, 3.5, 0), steel = mat(0x8a9096, { metalness: 0.7, roughness: 0.4 });
+    const armGeo = new THREE.CylinderGeometry(0.045, 0.045, 1.7, 8).rotateZ(Math.PI / 2).translate(0.8, 6.9, 0);
     this.lampHeadMat = new THREE.MeshStandardMaterial({ color: 0xdfe3e6, emissive: 0xffd9a0, emissiveIntensity: 0, roughness: 0.3 });
     this.nightMats.push(this.lampHeadMat);
-    const head = new THREE.InstancedMesh(roundedBox(0.75, 0.16, 0.34).clone().translate(1.6, 6.86, 0), this.lampHeadMat, n);
+    const headGeo = roundedBox(0.75, 0.16, 0.34).clone().translate(1.6, 6.86, 0);
     const pc = document.createElement('canvas');
     pc.width = pc.height = 128;
     const pg = pc.getContext('2d'), grad = pg.createRadialGradient(64, 64, 0, 64, 64, 64);
     grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(0.45, 'rgba(255,255,255,0.45)'); grad.addColorStop(1, 'rgba(255,255,255,0)');
     pg.fillStyle = grad; pg.fillRect(0, 0, 128, 128);
     this.lampPoolMat = new THREE.MeshBasicMaterial({ color: 0xffd9a0, map: new THREE.CanvasTexture(pc), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
-    const pool = new THREE.InstancedMesh(new THREE.CircleGeometry(4.2, 28).rotateX(-Math.PI / 2).translate(1.6, 0.2, 0), this.lampPoolMat, n);
+    const poolGeo = new THREE.CircleGeometry(4.2, 28).rotateX(-Math.PI / 2).translate(1.6, 0.2, 0);
     const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
-    spots.forEach(({ x, z, ry }, i) => {
-      M.compose(new THREE.Vector3(x, 0, z), Q.setFromAxisAngle(Y, ry), one);
-      for (const m of [pole, arm, head, pool]) m.setMatrixAt(i, M);
-    });
-    for (const m of [pole, arm, head]) { m.castShadow = true; this.scene.add(m); }
-    this.scene.add(pool);
+    for (const [spots, parent] of [[along(this.roadSegs, allRoads), this.scene], [along(this.westRoads, allRoads), this.line4]]) {
+      const n = spots.length;
+      const pole = new THREE.InstancedMesh(poleGeo, steel, n), arm = new THREE.InstancedMesh(armGeo, steel, n);
+      const head = new THREE.InstancedMesh(headGeo, this.lampHeadMat, n), pool = new THREE.InstancedMesh(poolGeo, this.lampPoolMat, n);
+      spots.forEach(({ x, z, ry }, i) => {
+        M.compose(new THREE.Vector3(x, 0, z), Q.setFromAxisAngle(Y, ry), one);
+        for (const m of [pole, arm, head, pool]) m.setMatrixAt(i, M);
+      });
+      for (const m of [pole, arm, head]) { m.castShadow = true; parent.add(m); }
+      parent.add(pool);
+    }
 
     // kerbs: concrete edge strips, broken where roads meet and where walkpaths reach the road
     const kerbGeos = [];
@@ -732,7 +779,7 @@ export class World {
     const dynamic = new Set();
     const keep = o => { if (o) o.traverse(c => dynamic.add(c)); };
     for (const sp of this.spinners) keep(sp.obj);
-    [this.modem, this.honeypot, this.flame, this.pilot, this.dish, this.rectGlow, ...Object.values(this.lamps)].forEach(keep);
+    [this.modem, this.honeypot, this.flame, this.pilot, this.dish, this.rectGlow, ...Object.values(this.lamps), ...this.gates, ...this.movers.map(m => m.obj)].forEach(keep);
     for (const root of [...Object.values(this.areas), ...this.blockers]) {
       root.updateMatrixWorld(true);
       const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
@@ -1799,6 +1846,14 @@ export class World {
     this.pickables.push(sat);
     this.beam = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 20, 1, true), new THREE.MeshBasicMaterial({ color: 0x7fe3ff, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
     this.scene.add(this.beam);
+    // chapter 5: energy pulses run down the beam once SBSP-1 goes to full power
+    this.pulses = [0, 0.25, 0.5, 0.75].map(t => {
+      const m = new THREE.Mesh(new THREE.TorusGeometry(1, 0.12, 8, 32).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xbff4ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+      m.userData.t = t;
+      m.visible = false;
+      this.scene.add(m);
+      return m;
+    });
     this.satAngle = 0.6;
     this.rndOutput = 0;
 
@@ -1856,15 +1911,25 @@ export class World {
     const d = this.rectenna.clone().sub(tx);
     const len = d.length();
     this.beam.position.copy(tx).addScaledVector(d, 0.5);
-    this.beam.scale.set(1.6, len, 1.6);
+    const full = this.beamFull ? 1 : 0, rad = 1.6 + 1.3 * full;
+    this.beam.scale.set(rad, len, rad);
     this.beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
-    const flicker = 0.13 + 0.05 * Math.sin(this._t * 5);
+    const flicker = 0.13 + 0.12 * full + 0.05 * Math.sin(this._t * 5);
     this.beam.material.opacity = flicker;
-    this.rectGlow.material.opacity = 0.08 + flicker * 0.5;
+    this.rectGlow.material.opacity = 0.08 + flicker * (0.5 + full);
+    for (const pu of this.pulses) {
+      pu.visible = !!full;
+      if (!full) continue;
+      pu.userData.t = (pu.userData.t + dt * 0.45) % 1;
+      pu.position.copy(tx).addScaledVector(d, len * pu.userData.t);
+      pu.quaternion.copy(this.beam.quaternion);
+      pu.scale.setScalar(rad * 1.15);
+      pu.material.opacity = 0.7 * Math.sin(Math.PI * pu.userData.t);
+    }
     this.dish.lookAt(sp);
     const dp = this.dish.getWorldPosition(new THREE.Vector3());
     const elev = Math.asin(THREE.MathUtils.clamp((sp.y - dp.y) / sp.distanceTo(dp), 0, 1));
-    this.rndOutput = Math.round((110 * Math.sin(elev)) / 5) * 5;
+    this.rndOutput = Math.round(((this.beamFull ? 4200 : 110) * Math.sin(elev)) / 5) * 5;
 
     // researcher: walk to the next stop, pause and check the tablet
     const r = this.researcher;
@@ -1958,6 +2023,27 @@ export class World {
         this.wireGeos.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.032, 5, false));
       }
     }
+    return attach;
+  }
+  // one conductor per phase from attachment points a[k] to b[k], sagging between them
+  span(a, b, sag = 1.4) {
+    for (let k = 0; k < Math.min(a.length, b.length); k++) {
+      const pts = [];
+      for (let st = 0; st <= 24; st++) {
+        const t = st / 24;
+        const pt = a[k].clone().lerp(b[k], t);
+        pt.y -= sag * 4 * t * (1 - t);
+        pts.push(pt);
+      }
+      this.wireGeos.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.032, 5, false));
+    }
+  }
+  route(r) {
+    const attach = this.chain(r.pts, r.h);
+    const [mx, mz] = r.pts[Math.floor(r.pts.length / 2)];
+    this.lineTags.push({ text: r.tag, pos: new THREE.Vector3(mx, r.h + 3, mz), ch: r.ch });
+    for (let i = 0; i < r.pts.length - 1; i++) this.lineSegs.push([...r.pts[i], ...r.pts[i + 1]]);
+    return attach;
   }
 
   buildLines() {
@@ -1974,15 +2060,15 @@ export class World {
     this.lineSegs = [];
     this.wireGeos = [];
     this._towerAt = {};
-    for (const r of routes) {
-      this.chain(r.pts, r.h);
-      const [mx, mz] = r.pts[Math.floor(r.pts.length / 2)];
-      this.lineTags.push({ text: r.tag, pos: new THREE.Vector3(mx, r.h + 3, mz) });
-      for (let i = 0; i < r.pts.length - 1; i++) this.lineSegs.push([...r.pts[i], ...r.pts[i + 1]]);
-    }
-    const wires = new THREE.Mesh(mergeGeometries(this.wireGeos), new THREE.MeshStandardMaterial({ color: 0x8d9296, metalness: 0.75, roughness: 0.42 }));
-    this.scene.add(wires);
-    // every tower drawn as one instanced lattice + insulators + concrete footings per height
+    for (const r of routes) this.route(r);
+    this.finishLines(this.scene);
+  }
+
+  // the wires so far as one mesh, and every tower as one instanced lattice + insulators + concrete footings per height
+  finishLines(parent) {
+    this.wireMat = this.wireMat || new THREE.MeshStandardMaterial({ color: 0x8d9296, metalness: 0.75, roughness: 0.42 });
+    parent.add(new THREE.Mesh(mergeGeometries(this.wireGeos), this.wireMat));
+    this.wireGeos = [];
     const footing = roundedBox(0.9, 0.5, 0.9), feet = [];
     for (const [h, list] of Object.entries(this._towerAt)) {
       const hh = +h;
@@ -1992,14 +2078,465 @@ export class World {
         const m = new THREE.InstancedMesh(geo, material, list.length);
         list.forEach((M, i) => m.setMatrixAt(i, M));
         m.castShadow = true;
-        this.scene.add(m);
+        parent.add(m);
       }
       for (const M of list) for (const sx of [-1, 1]) for (const sz of [-1, 1]) feet.push(new THREE.Matrix4().makeTranslation(sx * 1.6, -0.05, sz * 1.6).premultiply(M));
     }
+    this._towerAt = {};
     const fm = new THREE.InstancedMesh(footing, mat(COL.concrete), feet.length);
     feet.forEach((M, i) => fm.setMatrixAt(i, M));
     fm.receiveShadow = true;
-    this.scene.add(fm);
+    parent.add(fm);
+  }
+
+  // ---------- chapter 3: the west — hills and river, Sungai Mutiara hydro, Line 4 and Mutiara Motor Works ----------
+  // water surface that follows a centreline: per-point width and height, UVs running along the flow
+  strip(pts, width, yAt, material) {
+    const pos = [], uv = [], nrm = [], idx = [];
+    let run = 0;
+    pts.forEach(([x, z], i) => {
+      const [px, pz] = pts[Math.max(0, i - 1)], [nx, nz] = pts[Math.min(pts.length - 1, i + 1)];
+      const L = Math.hypot(nx - px, nz - pz) || 1, ux = (nx - px) / L, uz = (nz - pz) / L;
+      if (i) run += Math.hypot(x - pts[i - 1][0], z - pts[i - 1][1]);
+      const w = typeof width === 'function' ? width(i / (pts.length - 1)) : width, y = yAt(x, z);
+      for (const sd of [-1, 1]) { pos.push(x + uz * (w / 2) * sd, y, z - ux * (w / 2) * sd); uv.push((sd + 1) / 2, run / 10); nrm.push(0, 1, 0); }
+      if (i) { const a = (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    const m = new THREE.Mesh(geo, material);
+    m.receiveShadow = true;
+    return m;
+  }
+
+  // a straight pipe (or strut) between two points
+  pipe(g, a, b, r, color) {
+    const d = b.clone().sub(a), m = add(g, CYL, asMat(color), 0, 0, 0, r, d.length(), r);
+    m.position.copy(a).addScaledVector(d, 0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+    return m;
+  }
+
+  buildHills() {
+    const W = 200, D = 300, geo = new THREE.PlaneGeometry(W, D, 120, 180);
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(-254 - W / 2, 0, 25);
+    const pos = geo.attributes.position, col = new Float32Array(pos.count * 3);
+    const c = new THREE.Color(), meadow = new THREE.Color(0xa6b97c), forest = new THREE.Color(0x5b7d44), rock = new THREE.Color(0x9d968a);
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i), y = westHeight(x, z);
+      pos.setY(i, y - 0.06);
+      const slope = Math.hypot(westHeight(x + 1, z) - y, westHeight(x, z + 1) - y);
+      c.copy(meadow).lerp(forest, smoothstep(1.5, 9, y)).lerp(rock, smoothstep(0.8, 1.6, slope) * 0.8);
+      c.toArray(col, i * 3);
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.computeVertexNormals();
+    const hills = new THREE.Mesh(geo, surface('grass', 0xffffff, { vertexColors: true }));
+    hills.receiveShadow = hills.castShadow = true;
+    this.scene.add(hills);
+
+    // the Sungai Mutiara: down the valley, through the gorge, past the factory and out to sea
+    this.riverNormals = this.water.lowNormals.clone();
+    this.riverNormals.repeat.set(1, 1);
+    this.riverMat = new THREE.MeshStandardMaterial({ color: 0x356f73, roughness: 0.1, metalness: 0.15, normalMap: this.riverNormals, normalScale: new THREE.Vector2(0.5, 0.5), side: THREE.DoubleSide });
+    const ctrl = [];
+    for (let x = -352; x <= -262; x += 10) ctrl.push(new THREE.Vector3(x, 0, valleyZ(x)));
+    for (const [x, z] of [[-256, 36], [-249, 34.5], [-243.5, 30], [-240.5, 22], [-240, 8], [-240.5, -10], [-242, -30], [-244, -50], [-245.5, -66], [-246.5, -82]]) ctrl.push(new THREE.Vector3(x, 0, z));
+    const river = new THREE.CatmullRomCurve3(ctrl).getSpacedPoints(160).map(p => [p.x, p.z]);
+    this.riverPts = river;
+    const wAt = t => (t < 0.55 ? 5 : 5 + 4 * smoothstep(0.55, 0.62, t));
+    const bank = this.strip(river, t => wAt(t) + 3, (x, z) => westHeight(x, z) + 0.09, surface('sand', 0xcbb894, { side: THREE.DoubleSide }));
+    const water = this.strip(river, wAt, (x, z) => westHeight(x, z) + 0.16, this.riverMat);
+    this.scene.add(bank, water);
+
+    // rainforest on the slopes, kept off the dam site and below-water ground
+    const rand = rng(4242);
+    this.hillTrees = [];
+    for (let i = 0; i < 5000 && this.hillTrees.length < 280; i++) {
+      const x = -258 - rand() * 175, z = -70 + rand() * 235, y = westHeight(x, z);
+      if (y < 2.5) continue;
+      if (x < DAM_X + 2 && x > -372 && y < RES_Y + 1.5) continue;
+      if (x > -290 && Math.abs(z - 36) < 34) continue;
+      if (Math.hypot(westHeight(x + 1, z) - y, westHeight(x, z + 1) - y) > 1.2) continue;
+      if (this.hillTrees.some(([sx, sz]) => (sx - x) ** 2 + (sz - z) ** 2 < 16)) continue;
+      this.hillTrees.push([x, z, 1 + rand() * 0.6, false, y - 0.25]);
+    }
+  }
+
+  buildHydro() {
+    const g = this.group('hydro');
+    const conc = surface('concrete', 0xd7d2c6), dark = mat(0x4b5359), steel = mat(0x7e8a90, { metalness: 0.75, roughness: 0.4 });
+    // reservoir, held in by the valley sides; rises with the dam
+    this.lake = new THREE.Mesh(new THREE.PlaneGeometry(92, 130).rotateX(-Math.PI / 2), this.riverMat);
+    this.lake.position.set(DAM_X - 46, RES_Y, 36);
+    this.lake.receiveShadow = true;
+    g.add(this.lake);
+
+    // concrete gravity dam across the gorge: vertical upstream face, 6 m crest at 21.5 m, 0.7:1 downstream slope
+    const section = (pts, z0, z1) => {
+      const s = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
+      const geo = new THREE.ExtrudeGeometry(s, { depth: z1 - z0, bevelEnabled: false }).translate(0, 0, z0);
+      const m = new THREE.Mesh(geo, conc);
+      m.castShadow = m.receiveShadow = true;
+      g.add(m);
+    };
+    const body = [[DAM_X, -2], [DAM_X, 21.5], [-270, 21.5], [-256, 0.6], [-256, -2]];
+    section(body, 8, 30);
+    section(body, 42, 64);
+    // ogee spillway between, its crest 4 m lower, ending in a flip bucket
+    section([[DAM_X, -2], [DAM_X, 17.4], [-274.6, 18], [-272.8, 17.7], [-270.8, 16.3], [-257.2, 1.2], [-255.4, 0.9], [-254, 2.3], [-254, -2]], 30, 42);
+    // piers, radial gates and the road bridge over them
+    for (const z of [30, 34, 38, 42]) box(g, 7.2, 4.6, 0.9, conc, -272.8, 17.2, z);
+    this.gates = [];
+    const arc = (r, a0, a1, w) => {   // gate skin: arc of radius r around the trunnion, w wide along z
+      const p = [], ix = [], N = 10;
+      for (let i = 0; i <= N; i++) { const a = a0 + ((a1 - a0) * i) / N; for (const zz of [-w / 2, w / 2]) p.push(-r * Math.cos(a), r * Math.sin(a), zz); }
+      for (let i = 0; i < N; i++) { const k = i * 2; ix.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+      geo.setIndex(ix);
+      geo.computeVertexNormals();
+      return geo;
+    };
+    const skin = arc(6.4, -0.5, 0.33, 3.1);
+    for (const z of [32, 36, 40]) {
+      const gate = new THREE.Group();
+      gate.position.set(-269.6, 20.6, z);
+      const plate = new THREE.Mesh(skin, mat(0x2f6b8f, { metalness: 0.5, roughness: 0.45, side: THREE.DoubleSide }));
+      plate.castShadow = true;
+      gate.add(plate);
+      for (const zz of [-1.2, 1.2]) for (const a of [-0.42, 0.25]) this.pipe(gate, new THREE.Vector3(0, 0, zz), new THREE.Vector3(-6.3 * Math.cos(a), 6.3 * Math.sin(a), zz), 0.12, 0x2f6b8f);
+      g.add(gate);
+      this.gates.push(gate);
+      box(g, 2.2, 2.4, 2.6, 0xe9e0d0, -273.8, 21.8, z);                           // hoist house
+    }
+    box(g, 6, 0.5, 13, conc, -273, 21.5, 36);                                         // crest road bridge
+    // crest road, parapets and lamps
+    box(g, 5.2, 0.08, 56, 0x6f767c, -273, 21.5, 36);
+    for (const x of [-275.85, -270.15]) box(g, 0.3, 1.1, 56, conc, x, 21.5, 36);
+    for (let z = 12; z <= 60; z += 12) { cyl(g, 0.08, 5, COL.steelDark, -275.6, 22.6, z); box(g, 0.9, 0.12, 0.3, 0xdfe3e6, -275.2, 27.5, z); }
+    // spillway chute: training walls, stilling basin; white water when the gates are open
+    for (const z of [29.6, 42.4]) box(g, 18, 2.2, 0.6, conc, -263, 0, z);
+    box(g, 10, 0.4, 13.4, conc, -251, -0.3, 36);
+    const fc = document.createElement('canvas');
+    fc.width = 64; fc.height = 256;
+    const fg = fc.getContext('2d');
+    fg.fillStyle = '#cfe2e6'; fg.fillRect(0, 0, 64, 256);
+    const fr = rng(55);
+    for (let i = 0; i < 260; i++) { fg.fillStyle = `rgba(255,255,255,${0.4 + fr() * 0.6})`; fg.fillRect(fr() * 64, fr() * 256, 1 + fr() * 3, 6 + fr() * 30); }
+    const ft = new THREE.CanvasTexture(fc);
+    ft.wrapS = ft.wrapT = THREE.RepeatWrapping;
+    ft.repeat.set(3, 2);
+    this.foamMat = new THREE.MeshStandardMaterial({ map: ft, transparent: true, opacity: 0, roughness: 0.3, depthWrite: false });
+    const a = new THREE.Vector3(-270.8, 16.4, 36), b = new THREE.Vector3(-256, 1.4, 36);
+    const chute = new THREE.Mesh(new THREE.PlaneGeometry(11.8, a.distanceTo(b)), this.foamMat);
+    chute.position.copy(a).lerp(b, 0.5).add(new THREE.Vector3(0.45, 0.35, 0));
+    chute.lookAt(chute.position.clone().add(new THREE.Vector3(0.71, 0.7, 0)));
+    chute.rotateZ(Math.PI / 2);
+    g.add(chute);
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(14, 11.8).rotateX(-Math.PI / 2), this.foamMat);
+    pool.position.set(-249, 0.3, 36);
+    g.add(pool);
+    // name on the downstream face
+    const nameMat = new THREE.MeshBasicMaterial({ map: textTexture([{ text: 'EMPANGAN SUNGAI MUTIARA', size: 120, y: 80, color: '#f4f1e8' }], 2048, 160), transparent: true, depthWrite: false });
+    const nm = new THREE.Mesh(new THREE.PlaneGeometry(19, 1.5), nameMat);
+    const on = new THREE.Vector3(-264.5, 8.6, 19), nrm = new THREE.Vector3(20.9, 14, 0).normalize();
+    nm.position.copy(on).addScaledVector(nrm, 0.06);
+    nm.lookAt(on.clone().add(nrm));
+    g.add(nm);
+
+    // intake hoists on the crest and three penstocks down the face into the powerhouse
+    for (const z of [46, 50, 54]) {
+      box(g, 3.4, 3, 3, 0xe9e0d0, -273.6, 21.5, z);
+      const top = new THREE.Vector3(-268.6, 18.7, z), toe = new THREE.Vector3(-257.6, 3.4, z), inlet = new THREE.Vector3(-254.6, 3.4, z);
+      this.pipe(g, top, toe, 1.05, 0x5a6a73);
+      this.pipe(g, toe, inlet, 1.05, 0x5a6a73);
+      add(g, JOINT, mat(0x5a6a73), toe.x, toe.y, toe.z, 1.05, 1.05, 1.05);
+      for (let t = 0.15; t < 1; t += 0.28) { const p = top.clone().lerp(toe, t); box(g, 1.4, 1.2, 2.6, conc, p.x - 0.4, p.y - 2.3, z); }   // anchor saddles
+    }
+    // powerhouse at the toe: three 20 MW Francis units, gantry crane rails on the roof, tailrace to the river
+    const phTop = this.structure(g, {
+      x: -250, z: 50, w: 10, d: 14, h: 11, cladding: 0xbfc6ca,
+      windows: [{ side: 'e', y: [2.6, 6.6], count: 4, ww: 1.6, wh: 2.4 }, { side: 'n', y: [6.6], count: 3, ww: 1.6, wh: 2 }],
+      doors: [{ side: 's', at: 2.2, w: 3.6, h: 4.4, canopy: false }],
+    });
+    for (const x of [-253.5, -246.5]) box(g, 0.4, 0.5, 14, steel, x, phTop + 0.6, 50);
+    box(g, 7.6, 0.8, 1.2, 0xf2b33d, -250, phTop + 1.1, 47);                            // crane bridge
+    for (const z of [45.5, 50, 54.5]) box(g, 0.2, 1.6, 2.6, dark, -244.9, 0.2, z);    // draft-tube outlets
+    const tail = this.strip([[-246.5, 47], [-247, 42], [-248.5, 37]], 6, () => 0.17, this.riverMat);
+    g.add(tail);
+    for (const x of [-252.4, -244.1]) box(g, 0.5, 1, 7, conc, x, 0, 40.5);
+
+    // dam control room on the north abutment
+    const cr = new THREE.Group();
+    cr.position.y = 21.5;
+    g.add(cr);
+    this.structure(cr, { x: -273, z: 61, w: 5, d: 3.4, h: 3, wall: 0xeef0ee, windows: [{ side: 'e', y: 1.1, count: 2, ww: 1.2, wh: 0.9 }], doors: [{ side: 's', at: 1.4 }] });
+
+    // switchyard on the east bank: three 11/132 kV step-up transformers, breakers, the Line 4 gantry
+    box(g, 20, 0.15, 18, COL.gravel, -222, 0, 37);
+    const fence = chainLink();
+    for (const [w, x, z, rot] of [[20, -222, 28, 0], [20, -222, 46, 0], [18, -232, 37, Math.PI / 2], [18, -212, 37, Math.PI / 2]]) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 2.2), fence);
+      m.position.set(x, 1.25, z);
+      m.rotation.y = rot;
+      g.add(m);
+    }
+    for (let x = -232; x <= -212; x += 4) for (const z of [28, 46]) if (!(z === 28 && x === -224)) cyl(g, 0.08, 2.4, COL.steelDark, x, 0, z);
+    for (let z = 32; z <= 44; z += 4) for (const x of [-232, -212]) cyl(g, 0.08, 2.4, COL.steelDark, x, 0, z);
+    const finGeo = new THREE.BoxGeometry(0.04, 2, 0.8);
+    for (const x of [-227, -221, -215]) {
+      box(g, 3.6, 0.4, 3, COL.concrete, x, 0.15, 33);
+      box(g, 2.8, 2.6, 2, COL.xfmr, x, 0.55, 33);
+      for (const sd of [-1, 1]) for (let k = -1.1; k <= 1.1; k += 0.22) add(g, finGeo, mat(0x6f7c82), x + k, 1.9, 33 + sd * 1.45);
+      for (const bx of [-0.7, 0, 0.7]) cyl(g, 0.14, 1.5, COL.porcelain, x + bx, 3.15, 33.4);
+      this.cabinet(g, x + 1.9, 0.15, 31.2, 0.6, 1, 0.45, 0x9aa3a8);
+    }
+    for (const x of [-227, -221, -215]) {
+      this.lattice(g, x, 39.5, 1.9, 0.14, 0.12).position.y = 0.15;
+      for (const bz of [-0.55, 0, 0.55]) { cyl(g, 0.15, 1.5, COL.porcelain, x + bz, 2.1, 39.5); cyl(g, 0.12, 0.9, COL.porcelain, x + bz, 3.8, 39.5); }
+    }
+    for (const z of [31, 43]) this.lattice(g, -213.5, z, 9.6, 0.4, 0.3).position.y = 0.15;
+    this.girder(g, new THREE.Vector3(-213.5, 9.6, 30.7), new THREE.Vector3(-213.5, 9.6, 43.3), 0.3);
+    this.hydroGantry = [[-213.5, 8.9, 39.6], [-213.5, 8.9, 34.4], [-213.5, 8.2, 38.1], [-213.5, 8.2, 35.9]].map(p => new THREE.Vector3(...p));
+    // generator cables cross the tailrace on a cable bridge from the powerhouse
+    for (const x of [-242, -235]) this.lattice(g, x, 44, 6.2, 0.3, 0.25).position.y = 0.15;
+    box(g, 11, 0.7, 1.1, steel, -239.6, 6.3, 44);
+    box(g, 20, 0.12, 3, 0x6f767c, -222, 0.15, 25.5);                               // apron at the gate
+    this.sign(-216, 1.4, 26.4, 7, 2.2, 0, [
+      { text: 'ONSA Power & Co.', size: 124, y: 105, color: BRAND.amber },
+      { text: 'SUNGAI MUTIARA HYDRO · 3 × 20 MW', size: 52, y: 215, color: BRAND.white, weight: 800 },
+    ], true, g);
+  }
+
+  buildFactory() {
+    const g = this.group('factory');
+    box(g, 76, 0.12, 58, 0x8a9096, -194, 0, -37);                                     // paved yard
+    for (const [w, d, x, z] of [[76, 0.25, -194, -24], [76, 0.25, -194, -46.5], [0.25, 58, -186, -37]]) box(g, w, 0.02, d, 0xf1ead8, x, 0.12, z); // lane markings
+    const glazing = this.feederMats.E;
+    this.feederFacades.E.push(glazing);
+
+    // offices with the plant name on the roof
+    const offTop = this.curtainTower(g, { x: -210, z: -15, w: 22, d: 9, h: 9.75, seed: 31 });
+    this.sign(-210, offTop + 0.5, -10.7, 15, 2.6, 0, [
+      { text: 'MUTIARA MOTOR WORKS', size: 150, y: 110, color: '#ffffff' },
+      { text: 'VEHICLE ASSEMBLY PLANT', size: 56, y: 222, color: BRAND.amber, weight: 800 },
+    ], false, g);
+    // gatehouse and barrier
+    this.structure(g, { x: -180.5, z: -12, w: 3, d: 3, h: 2.8, wall: 0xe9e0d0, windows: [{ side: 'w', y: 1.1, at: [0], ww: 1.4, wh: 0.9 }, { side: 'n', y: 1.1, at: [0], ww: 1.4, wh: 0.9 }] });
+    box(g, 0.4, 1.1, 0.4, 0xd8d0c0, -182.6, 0.1, -9);
+    box(g, 5.2, 0.12, 0.12, 0xe8e8e8, -185.4, 1.05, -9);
+    for (let k = 0; k < 4; k++) box(g, 0.6, 0.13, 0.13, 0xc62828, -187.3 + k * 1.3, 1.05, -9);
+
+    // press shop · body shop (sawtooth north-light roof) · paint shop · final assembly
+    this.structure(g, {
+      x: -222.5, z: -36, w: 17, d: 16, h: 13, cladding: 0x8fa3b0,
+      windows: [{ side: 'n', y: [9.5], count: 5, ww: 2, wh: 1.6 }, { side: 's', y: [9.5], count: 5, ww: 2, wh: 1.6 }],
+      doors: [{ side: 'e', at: 0, w: 4, h: 5, canopy: false }],
+    });
+    const bsTop = this.structure(g, {
+      x: -201, z: -36, w: 20, d: 16, h: 8, cladding: 0xd5dade,
+      windows: [{ side: 's', y: [3.2], count: 6, ww: 1.8, wh: 1.4 }],
+      doors: [{ side: 'n', at: -4, w: 4, h: 4.5, canopy: false }],
+    });
+    const roofSheet = surface('metal', 0xb9c1c5, { metalness: 0.5, roughness: 0.5 });
+    for (let k = 0; k < 4; k++) {
+      const z0 = -44 + k * 4;
+      const plate = add(g, BOX, roofSheet, -201, bsTop + 0.6 + 1.25, z0 + 2, 19.6, 0.14, Math.hypot(4, 2.5));
+      plate.rotation.x = -Math.atan2(2.5, 4);
+      add(g, BOX, glazing, -201, bsTop + 0.6 + 1.25, z0 + 4 - 0.06, 19.6, 2.5, 0.08);
+    }
+    this.structure(g, {
+      x: -172, z: -36, w: 18, d: 16, h: 15, cladding: 0xe9ecee,
+      windows: [{ side: 'e', y: [4, 10], count: 4, ww: 1.6, wh: 1.4 }],
+      doors: [{ side: 'w', at: 4, w: 3, h: 4, canopy: false }],
+    });
+    for (const x of [-177, -172, -167]) { cyl(g, 0.65, 9, 0xc9cdd0, x, 15.9, -32); cyl(g, 0.72, 0.5, 0x8a9399, x, 24.5, -32); }
+    box(g, 8, 2.6, 4, 0xb5bcc0, -172, 15.9, -40);                                     // oven exhaust treatment
+    box(g, 10, 2.6, 3, roofSheet, -186, 6, -34);                                        // conveyor bridge to the paint shop
+    const faTop = this.structure(g, {
+      x: -211, z: -56.5, w: 40, d: 15, h: 11, cladding: 0xf1f3f4,
+      windows: [{ side: 'n', y: [3], count: 10, ww: 1.8, wh: 1.4 }],
+      doors: [{ side: 'e', at: -1, w: 5, h: 4.6, canopy: false }, { side: 'n', at: 12, w: 4.6, h: 4.6, canopy: false }],
+    });
+    box(g, 40.12, 1.3, 15.12, 0x1f4e8c, -211, 8.3, -56.5);                           // brand stripe
+    for (let x = -227; x <= -195; x += 8) add(g, BOX, glazing, x, faTop + 0.12, -56.5, 5, 0.25, 9);   // roof lights
+
+    // the 132/33 kV intake substation, fed by the Line 4 tap
+    box(g, 14, 0.15, 12, COL.gravel, -165, 0, -16);
+    const fence = chainLink();
+    for (const [w, x, z, rot] of [[14, -165, -22, 0], [5, -169.5, -10, 0], [5, -160.5, -10, 0], [12, -172, -16, Math.PI / 2], [12, -158, -16, Math.PI / 2]]) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 2.2), fence);
+      m.position.set(x, 1.25, z);
+      m.rotation.y = rot;
+      g.add(m);
+    }
+    for (const x of [-168.5, -161.5]) {
+      box(g, 4, 0.4, 3.4, COL.concrete, x, 0.15, -18.5);
+      box(g, 3, 2.8, 2.2, COL.xfmr, x, 0.55, -18.5);
+      for (const bx of [-0.7, 0, 0.7]) cyl(g, 0.14, 1.5, COL.porcelain, x + bx, 3.35, -18);
+    }
+    for (const x of [-169.5, -160.5]) this.lattice(g, x, -12, 9, 0.35, 0.28).position.y = 0.15;
+    this.girder(g, new THREE.Vector3(-169.8, 9, -12), new THREE.Vector3(-160.2, 9, -12), 0.28);
+    this.intakeGantry = [[-162, 8.3, -12], [-168, 8.3, -12], [-163.5, 7.6, -12], [-166.5, 7.6, -12]].map(p => new THREE.Vector3(...p));
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 12), new THREE.MeshBasicMaterial({ color: 0x5ee08f }));
+    lamp.position.set(-165, 9.7, -12);
+    g.add(lamp);
+    this.lamps.E = lamp;
+
+    // finished cars waiting for the ship
+    const paints = [0xe8e8e8, 0x1d1f22, 0xb3261e, 0x8a8f94, 0x1f4e8c, 0xf4f4f4, 0x51705a];
+    for (let r = 0; r < 4; r++) {
+      box(g, 22, 0.02, 0.12, 0xf1ead8, -169, 0.12, -50.5 - r * 4);
+      for (let k = 0; k < 9; k++) {
+        const c = car(paints[(r * 3 + k) % paints.length]);
+        c.position.set(-179 + k * 2.5, 0.12, -52.5 - r * 4);
+        c.rotation.y = Math.PI / 2;
+        g.add(c);
+      }
+    }
+    // ro-ro jetty and the car carrier alongside it
+    box(g, 7, 0.6, 32, COL.concrete, -186, 0.6, -80);
+    for (let z = -94; z <= -76; z += 4) for (const x of [-189, -183]) cyl(g, 0.35, 2.4, 0x8a8f93, x, -1.2, z);
+    for (let z = -94; z <= -70; z += 6) cyl(g, 0.22, 0.5, 0x2e3338, -189.2, 1.2, z);
+    box(g, 10, 13, 44, 0x1d3b5c, -197, -2, -102);
+    box(g, 10.08, 1.2, 44.08, 0x9e2a2a, -197, -2, -102);
+    box(g, 10.1, 0.4, 44.1, 0xf2f2f2, -197, 10.6, -102);
+    const bridge = new THREE.Group();
+    bridge.position.y = 11;
+    g.add(bridge);
+    this.structure(bridge, { x: -197, z: -119.5, w: 9.6, d: 4, h: 3, wall: 0xf2f2f2, windows: [{ side: 'n', y: 1.4, count: 6, ww: 1, wh: 0.8 }] });
+    box(g, 3, 4.2, 3, 0xf2f2f2, -197, 11, -86);
+    box(g, 3.05, 1, 3.05, 0x1f4e8c, -197, 13.6, -86);
+    const ramp = add(g, BOX, mat(0x6d757b), -190.6, 1.6, -92, 4.6, 0.3, 6);
+    ramp.rotation.z = -0.2;
+    const hullName = new THREE.Mesh(new THREE.PlaneGeometry(14, 1.6), new THREE.MeshBasicMaterial({ map: textTexture([{ text: 'MUTIARA SPIRIT', size: 120, y: 80, color: '#ffffff' }], 1024, 160), transparent: true, depthWrite: false }));
+    hullName.position.set(-191.94, 7.6, -110);
+    hullName.rotation.y = Math.PI / 2;
+    g.add(hullName);
+
+    // new cars shuttling from final assembly down the jetty and onto the ship
+    this.movers = [];
+    const loop = new THREE.CatmullRomCurve3([[-191, -57.5], [-184.8, -57.5], [-184.8, -90], [-186, -93], [-187.2, -90], [-187.2, -57.5]].map(([x, z]) => new THREE.Vector3(x, 0.12, z)), true);
+    for (let i = 0; i < 4; i++) {
+      const c = car(paints[i + 1]);
+      g.add(c);
+      this.movers.push({ obj: c, curve: loop, t: i / 4, speed: 0.018 });
+    }
+  }
+
+  buildLine4() {
+    const g = (this.line4 = new THREE.Group());
+    this.scene.add(g);
+    const pts = [[-208, 33], [-192, 24], [-176, 16], [-158, 10], [-140, 8], [-122, 8], [-104, 8], [-86, 8], [-70, 8], [-56, 8], [-41, 8], [-26, 9]];
+    const attach = this.route({ pts, h: 15, tag: '132 kV Line 4 · Sungai Mutiara hydro · tap to Mutiara Motor Works', ch: 2 });
+    this.span(this.hydroGantry, attach[0], 0.8);
+    // tap: one tower south of the road, then down to the factory's intake gantry
+    const tap = this.tower(-165, -4.5, Math.atan2(-165 + 158, -4.5 - 10), 15);
+    this.span(attach[3], tap);
+    this.span(tap, this.intakeGantry, 0.6);
+    this.lineSegs.push([-158, 10, -165, -4.5]);
+    this.finishLines(g);
+
+    // the trunk road continues west to the factory gate and up to the hydro switchyard
+    this.westRoads = [[-232, 0, -125, 0], [-222, 2.5, -222, 25.5]];
+    const flat = (w, d, color, x, z, y) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat(color));
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(x, y, z);
+      m.receiveShadow = true;
+      g.add(m);
+    };
+    flat(107, 5, COL.road, -178.5, 0, 0.07);
+    flat(4, 23, COL.road, -222, 14, 0.07);
+    flat(6, 5.6, COL.road, -186, -5.2, 0.075);
+    for (let x = -230; x < -126; x += 6) flat(2.2, 0.25, 0xf1ead8, x, 0, 0.09);
+  }
+
+  setUnlocked(on) {
+    this.westOn = on;
+    for (const o of [this.areas.hydro, this.areas.factory, this.line4]) o.visible = on;
+    this.minX = on ? -258 : -170;
+    this._n = -1;
+  }
+  // chapter 3 reveal: the new sites rise out of the ground and the reservoir fills
+  reveal() {
+    this.setUnlocked(true);
+    this.revealT = 0;
+  }
+
+  setBeamFull(on) { this.beamFull = on; }
+
+  // ---------- weather: monsoon rain and lightning ----------
+  buildRain() {
+    const n = 5000;
+    this.drops = new Float32Array(n * 3);
+    const r = rng(77);
+    for (let i = 0; i < n; i++) { this.drops[i * 3] = r() - 0.5; this.drops[i * 3 + 1] = r(); this.drops[i * 3 + 2] = r() - 0.5; }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 6), 3));
+    this.rain = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xb4c2cf, transparent: true, opacity: 0, depthWrite: false }));
+    this.rain.frustumCulled = false;
+    this.rain.visible = false;
+    this.scene.add(this.rain);
+    this.storm = 0;
+    this.stormTarget = 0;
+    this.flash = 0;
+    this.nextFlash = 3;
+    this.spill = 0;
+  }
+  setStorm(on) { this.stormTarget = on ? 1 : 0; }
+
+  updateWeather(dt) {
+    this.storm += (this.stormTarget - this.storm) * Math.min(1, dt * 0.35);
+    const vis = this.storm > 0.02;
+    this.rain.visible = vis;
+    if (vis) {
+      const t = this.controls.target, spread = THREE.MathUtils.clamp(this.camera.position.distanceTo(t) * 0.9, 70, 300), H = spread * 0.45;
+      const p = this.rain.geometry.attributes.position.array, d = this.drops, n = d.length / 3, fall = dt * 1.1;
+      const lx = spread * 0.004, ly = spread * 0.012;
+      for (let i = 0; i < n; i++) {
+        let y = d[i * 3 + 1] - fall;
+        if (y < 0) y += 1;
+        d[i * 3 + 1] = y;
+        const x = t.x + d[i * 3] * spread, yy = y * H, z = t.z + d[i * 3 + 2] * spread, o = i * 6;
+        p[o] = x; p[o + 1] = yy; p[o + 2] = z; p[o + 3] = x + lx; p[o + 4] = yy + ly; p[o + 5] = z + lx * 0.4;
+      }
+      this.rain.geometry.attributes.position.needsUpdate = true;
+      this.rain.material.opacity = 0.38 * this.storm;
+    }
+    this.flash = Math.max(0, this.flash - dt * 4.5);
+    if (this.storm > 0.75 && (this.nextFlash -= dt) <= 0) {
+      this.flash = 1;
+      this.nextFlash = 5 + Math.random() * 10;
+      this.onThunder?.();
+    }
+  }
+
+  updateWest(dt) {
+    this.riverNormals.offset.y -= dt * 0.05;
+    if (!this.westOn) return;
+    if (this.revealT !== null && this.revealT !== undefined) {
+      this.revealT += dt;
+      const k = smoothstep(0, 3.2, this.revealT);
+      for (const o of [this.areas.hydro, this.areas.factory, this.line4]) o.scale.y = Math.max(0.001, k);
+      if (k >= 1) this.revealT = null;
+    }
+    for (const m of this.movers) {
+      m.t = (m.t + dt * m.speed) % 1;
+      m.curve.getPointAt(m.t, m.obj.position);
+      const ahead = m.curve.getPointAt((m.t + 0.002) % 1);
+      m.obj.rotation.y = Math.atan2(ahead.x - m.obj.position.x, ahead.z - m.obj.position.z);
+    }
+    // spillway gates open in a storm and the chute turns white
+    this.spill += ((this.storm > 0.5 ? 1 : 0) - this.spill) * Math.min(1, dt * 0.4);
+    for (const gt of this.gates) gt.rotation.z = -this.spill * 0.55;
+    this.foamMat.opacity = this.spill * 0.92;
+    this.foamMat.map.offset.y -= dt * 1.6;
   }
 
   // ---------- green safety walkpaths with yellow edges around the equipment ----------
@@ -2074,7 +2611,7 @@ export class World {
 
   // ---------- walking: a grid of everything solid, and A* around it ----------
   buildNavGrid() {
-    const G = (this.grid = { x0: -172, z0: -76, cs: 1, w: 340, h: 210 });
+    const G = (this.grid = { x0: -262, z0: -76, cs: 1, w: 430, h: 210 });
     G.block = new Uint8Array(G.w * G.h);
     const R = 0.7; // half the persona's width
     const mark = (x1, z1, x2, z2) => {
@@ -2104,6 +2641,8 @@ export class World {
     for (const g of this.blockers) scan(g);
     for (const [x, z] of this.towerFeet) mark(x - 1.6 - R, z - 1.6 - R, x + 1.6 + R, z + 1.6 + R);
     mark(G.x0, G.z0, G.x0 + G.w * G.cs, -74); // the sea
+    for (let j = 0; j < G.h; j++) for (let i = 0; i < Math.min(G.w, 12); i++) if (westHeight(G.x0 + i + 0.5, G.z0 + j + 0.5) > 0.8) G.block[j * G.w + i] = 1; // hill slopes
+    for (const [x, z] of this.riverPts) mark(x - 5, z - 5, x + 5, z + 5);
     const N = G.w * G.h;
     this._nav = { g: new Float32Array(N), came: new Int32Array(N), seen: new Uint32Array(N), shut: new Uint32Array(N), run: 0 };
   }
@@ -2216,7 +2755,7 @@ export class World {
     for (let i = 0; i < 3000 && spots.length < 240; i++) {
       const x = -165 + rand() * 325, z = -71 + rand() * 200;
       if (boxes.some(bx => x > bx.min.x && x < bx.max.x && z > bx.min.z && z < bx.max.z)) continue;
-      if (near(x, z, this.roadSegs, 5) || near(x, z, this.walkSegs, 3) || near(x, z, this.lineSegs, 4)) continue;
+      if (near(x, z, this.roadSegs, 5) || near(x, z, this.westRoads, 5) || near(x, z, this.walkSegs, 3) || near(x, z, this.lineSegs, 4)) continue;
       if (Math.abs(x) < 26 && Math.abs(z) < 20) continue; // substation yard
       if (spots.some(([sx, sz]) => (sx - x) ** 2 + (sz - z) ** 2 < 3.5 * 3.5)) continue; // no trunks growing into each other
       spots.push([x, z, 0.7 + rand() * 0.7]);
@@ -2235,16 +2774,17 @@ export class World {
     const trunkB = trunkGeometry(3.0, 0.3, 0.18, 1);
     const trunkP = trunkGeometry(5.5, 0.42, 0.3, 2);
     const byLeaf = leaf.map(() => []), byPalm = palms.map(() => []);
-    for (const [x, z, sc, isPalm] of spots) {
+    spots.push(...this.hillTrees);
+    for (const [x, z, sc, isPalm, y0 = 0] of spots) {
       const palm = isPalm || rand() < 0.28;
-      (palm ? byPalm : byLeaf)[Math.floor(rand() * (palm ? palms.length : leaf.length))].push([x, z, sc, rand() * Math.PI * 2]);
+      (palm ? byPalm : byLeaf)[Math.floor(rand() * (palm ? palms.length : leaf.length))].push([x, z, sc, rand() * Math.PI * 2, y0]);
     }
     const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), S3 = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0);
     const inst = (geo, material, list, lift) => {
       if (!list.length) return;
       const m = new THREE.InstancedMesh(geo, material, list.length);
-      list.forEach(([x, z, sc, rot], i) => {
-        M.compose(new THREE.Vector3(x, lift * sc, z), Q.setFromAxisAngle(Y, rot), S3.set(sc, sc, sc));
+      list.forEach(([x, z, sc, rot, y0], i) => {
+        M.compose(new THREE.Vector3(x, y0 + lift * sc, z), Q.setFromAxisAngle(Y, rot), S3.set(sc, sc, sc));
         m.setMatrixAt(i, M);
       });
       m.castShadow = true;
@@ -2402,18 +2942,23 @@ export class World {
     this.sun.position.copy(t).addScaledVector(dir, 450);
     this.sun.target.position.copy(t);
     this.sun.target.updateMatrixWorld();
-    this.sun.intensity = elev > 1 ? 3.4 * THREE.MathUtils.smoothstep(elev, 1, 14) : 1.5;
+    const st = this.storm, fl = this.flash;
+    this.look.weather = st;
+    this.sun.intensity = (elev > 1 ? 3.4 * THREE.MathUtils.smoothstep(elev, 1, 14) : 1.5) * (1 - 0.72 * st);
     this.sun.color.setHex(elev > 1 ? (elev < 14 ? 0xffc98f : 0xfff2df) : 0x9fb4ff);
-    this.hemi.intensity = 0.55 - 0.05 * n;
+    this.hemi.intensity = (0.55 - 0.05 * n) * (1 - 0.2 * st) + fl * 3;
     this.hemi.color.setHex(0xdbe8ff).lerp(new THREE.Color(0x6f86c4), 1 - n);
     if (this.water.hi.visible) this.water.hi.material.uniforms.sunDirection.value.copy(dir);
-    if (Math.abs(n - this._n) < 0.003) return;
+    if (Math.abs(n - this._n) < 0.003 && Math.abs(st - this._st) < 0.01) return;
     this._n = n;
-    this.scene.fog.color.copy(this.fogDay).lerp(this.fogNight, 1 - n);
+    this._st = st;
+    this.scene.fog.color.copy(this.fogDay).lerp(this.fogStorm, st * 0.85).lerp(this.fogNight, 1 - n);
+    this.scene.fog.near = 450 - 340 * st;
+    this.scene.fog.far = 1300 - 700 * st;
     const night = 1 - n;
     for (const m of this.nightMats) m.emissiveIntensity = night * 1.4;
     if (this.lampPoolMat) this.lampPoolMat.opacity = night * 0.3;
-    for (const l of this.siteLights || []) l.intensity = night * 70;
+    for (const l of this.siteLights || []) l.intensity = l.userData.west && !this.westOn ? 0 : night * 70;
     for (const f of Object.keys(this.feederOn)) {
       const k = this.feederOn[f] ? night * 2 : 0;
       this.feederMats[f].emissiveIntensity = k;
@@ -2439,6 +2984,8 @@ export class World {
     else this.water.lowNormals.offset.x += dt * 0.01;
     if (this.honeypot.visible) this.hpLight.material.color.setHex(this.hpAlarm ? (Math.sin(this._t * 12) > 0 ? 0xff3b30 : 0x5a1410) : (Math.sin(this._t * 2) > 0.6 ? 0xf2b33d : 0x6b5216));
     this.updateSouth(dt);
+    this.updateWeather(dt);
+    this.updateWest(dt);
     const flick = 1 + 0.22 * Math.sin(this._t * 13) + 0.12 * Math.sin(this._t * 29);
     this.flame.scale.set(1, flick, 1);
     this.pilot.scale.set(1, 1 + 0.3 * Math.sin(this._t * 21), 1);
@@ -2468,7 +3015,7 @@ export class World {
 
     // keep the map in bounds
     const t = this.controls.target;
-    const cx = THREE.MathUtils.clamp(t.x, -170, 165), cz = THREE.MathUtils.clamp(t.z, -110, 130);
+    const cx = THREE.MathUtils.clamp(t.x, this.minX, 165), cz = THREE.MathUtils.clamp(t.z, -110, 130);
     const cy = THREE.MathUtils.clamp(t.y, 0, 4);
     if (cx !== t.x || cz !== t.z || cy !== t.y) {
       const d = new THREE.Vector3(cx - t.x, cy - t.y, cz - t.z);
