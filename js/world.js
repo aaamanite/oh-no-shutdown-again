@@ -351,8 +351,6 @@ export class World {
     this.buildSiteLights();
     this.initDamageFx();
     this.buildRain();
-    this.buildHeightMap();
-    this.settleHubs();
     this.batchStatic();
     this.setUnlocked(false);
     this.setQuality(this.quality);
@@ -2950,95 +2948,16 @@ export class World {
   }
 
   // ---------- network overlay ----------
-  // highest solid point in every 1 m cell: buildings, equipment, towers, trees, lamps, power conductors and the hills.
-  // Network conduits are routed over it (taken before static batching, while every mesh still has its own bounds).
-  buildHeightMap() {
-    const H = (this.hmap = { x0: -270, z0: -130, w: 440, h: 270 });
-    H.y = new Float32Array(H.w * H.h);
-    const raise = (x1, z1, x2, z2, y) => {
-      const i1 = Math.max(0, Math.floor(x1 - H.x0)), i2 = Math.min(H.w - 1, Math.floor(x2 - H.x0));
-      const j1 = Math.max(0, Math.floor(z1 - H.z0)), j2 = Math.min(H.h - 1, Math.floor(z2 - H.z0));
-      for (let j = j1; j <= j2; j++) for (let i = i1; i <= i2; i++) { const k = j * H.w + i; if (y > H.y[k]) H.y[k] = y; }
-    };
-    this.scene.updateMatrixWorld(true);
-    const skip = new Set([this.water.mesh, this.beam, ...this.pulses]);
-    for (const who of [this.persona, this.researcher, this.satellite]) who?.traverse(o => skip.add(o));
-    const bb = new THREE.Box3(), m4 = new THREE.Matrix4();
-    const mark = () => {
-      if (bb.max.y < 0.4 || bb.min.y > 30 || bb.max.x - bb.min.x > 70 || bb.max.z - bb.min.z > 70) return;
-      raise(bb.min.x, bb.min.z, bb.max.x, bb.max.z, bb.max.y);
-    };
-    this.scene.traverse(o => {
-      if (!o.isMesh || skip.has(o)) return;
-      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-      if (o.isInstancedMesh) {
-        for (let k = 0; k < o.count; k++) { o.getMatrixAt(k, m4); bb.copy(o.geometry.boundingBox).applyMatrix4(m4.premultiply(o.matrixWorld)); mark(); }
-      } else { bb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld); mark(); }
-    });
-    for (const [ax, az, bx, bz] of this.lineSegs) {          // conductors hang between tower tops
-      const n = Math.ceil(Math.hypot(bx - ax, bz - az));
-      for (let k = 0; k <= n; k++) { const x = ax + ((bx - ax) * k) / n, z = az + ((bz - az) * k) / n; raise(x - 3.5, z - 3.5, x + 3.5, z + 3.5, 15.6); }
-    }
-    for (let j = 0; j < H.h; j++) for (let i = 0; i < 40; i++) {     // hills
-      const k = j * H.w + i, y = westHeight(H.x0 + i + 0.5, H.z0 + j + 0.5);
-      if (y > H.y[k]) H.y[k] = y;
-    }
-  }
-  // a conduit rises straight up from its hub, so every hub must stand on open ground: nudge any hub that sits
-  // under a canopy, inside equipment or beside a wall to the nearest clear spot off roads and walkways
-  settleHubs() {
-    const roads = [...this.roadSegs.map((q, j) => [q, j < 2 ? 2.5 : 2]), ...this.westRoads.map((q, j) => [q, j ? 2 : 2.5])];
-    const ok = (x, z) => this.heightAt(x, z, 0.9) <= 0.45
-      && !roads.some(([q, h]) => nearestOnSeg(x, z, q)[2] < h + 0.6) && !this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 1.4);
-    for (const h of Object.values(this.hubs)) {
-      if (ok(h.x, h.z)) continue;
-      search: for (let r = 0.5; r <= 12; r += 0.5) for (let a = 0; a < 24; a++) {
-        const x = h.x + Math.cos((a / 24) * Math.PI * 2) * r, z = h.z + Math.sin((a / 24) * Math.PI * 2) * r;
-        if (ok(x, z)) { h.x = x; h.z = z; break search; }
-      }
-    }
-  }
-  heightAt(x, z, r = 0) {
-    const H = this.hmap;
-    let m = 0;
-    for (let j = Math.floor(z - r - H.z0); j <= Math.floor(z + r - H.z0); j++) for (let i = Math.floor(x - r - H.x0); i <= Math.floor(x + r - H.x0); i++) {
-      if (i >= 0 && j >= 0 && i < H.w && j < H.h) m = Math.max(m, H.y[j * H.w + i]);
-    }
-    return m;
-  }
-
-  // a conduit's path: straight up from each hub, then an arch that stays at least 2 m above anything it crosses
-  conduitCurve(a, b) {
-    const d = Math.hypot(b.x - a.x, b.z - a.z), n = Math.max(12, Math.ceil(d / 1.5)), step = d / n;
-    const arch = 3 + d * 0.16, need = [];
-    for (let k = 0; k <= n; k++) {
-      const t = k / n, x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
-      need.push(Math.min(t, 1 - t) * d < 0.6 ? 0 : this.heightAt(x, z, 1.2) + 2);
-    }
-    // spread each obstacle a few metres either way, then soften, so the cable eases over rather than steps
-    const W = Math.max(1, Math.round(5 / step));
-    const wide = need.map((_, k) => Math.max(...need.slice(Math.max(0, k - W), k + W + 1)));
-    const soft = wide.map((_, k) => { const w = wide.slice(Math.max(0, k - W), k + W + 1); return w.reduce((p, q) => p + q, 0) / w.length; });
-    const pts = [a.clone()];
-    for (let k = 0; k <= n; k++) {
-      const t = k / n, base = a.y + (b.y - a.y) * t + arch * 4 * t * (1 - t);
-      const y = Math.max(base, soft[k], need[k]);
-      if (k === 0) pts.push(new THREE.Vector3(a.x, Math.max(y, soft[1], need[1]), a.z));
-      else if (k === n) pts.push(new THREE.Vector3(b.x, Math.max(y, soft[n - 1], need[n - 1]), b.z));
-      else pts.push(new THREE.Vector3(a.x + (b.x - a.x) * t, y, a.z + (b.z - a.z) * t));
-    }
-    pts.push(b.clone());
-    return new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-  }
-
   buildNetwork(conduits) {
     this.net = new THREE.Group();
     this.scene.add(this.net);
     for (const c of conduits) {
       const a = this.hubs[c.a].clone(), b = this.hubs[c.b].clone();
-      const curve = this.conduitCurve(a, b);
+      const mid = a.clone().add(b).multiplyScalar(0.5);
+      mid.y += 3 + a.distanceTo(b) * 0.16;
+      const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
       const material = new THREE.MeshBasicMaterial({ color: NET_COLORS.ok, transparent: true, opacity: 0.85 });
-      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(64, Math.round(curve.getLength() / 1.5)), 0.17, 6), material);
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 64, 0.17, 6), material);
       const pm = new THREE.MeshBasicMaterial({ color: 0xffffff });
       const packets = [];
       for (let i = 0; i < 4; i++) {
