@@ -1,6 +1,6 @@
 // Game loop, economy, incidents and all HUD/panel UI.
 import { World } from './world.js';
-import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, CHAPTER_INTRO, UNLOCK, FEEDERS, PURDUE, SITE, PROCESS, INSTRUMENTS, instrumentRisk, HONEYPOT } from './data.js';
+import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, CHAPTER_INTRO, UNLOCK, FEEDERS, PURDUE, SITE, PROCESS, INSTRUMENTS, FACTORY_SYSTEMS, instrumentRisk, HONEYPOT } from './data.js';
 import { icon, hydrateIcons } from './icons.js';
 import { FALSE_ALARMS, NOISE, PLANT_EVENTS } from './events.js';
 
@@ -28,7 +28,7 @@ const CTRL = Object.fromEntries(CONTROLS.map(c => [c.id, c]));
 const GAME_MIN_PER_SEC = 2;   // at 1×
 const REV_PER_MIN = 230;      // $ per game minute at full load
 const BASE_DECIDE = 150;      // seconds to decide on an incident
-const INST = Object.fromEntries(INSTRUMENTS.map(i => [i.tag, i]));
+const INST = Object.fromEntries([...INSTRUMENTS, ...FACTORY_SYSTEMS.map(i => ({ ...i, site: 'factory' }))].map(i => [i.tag, i]));
 const FEEDER_OF = Object.fromEntries(Object.entries(FEEDERS).map(([f, F]) => [F.asset, f]));
 const ALL_SCENARIOS = [...SCENARIOS, ...FALSE_ALARMS];
 const scnById = id => ALL_SCENARIOS.find(sc => sc.id === id);
@@ -211,13 +211,13 @@ const lineEls = world.lineTags.map(({ text, pos, ch }) => {
   return { el, pos, ch };
 });
 
-const instEls = world.instruments.map(({ tag, pos }) => {
+const instEls = world.instruments.map(({ tag, pos, site }) => {
   const el = document.createElement('button');
   el.className = 'itag';
   el.dataset.act = `inst:${tag}`;
   el.textContent = tag;
   labelsEl.appendChild(el);
-  return { el, pos };
+  return { el, pos, site };
 });
 
 function refreshLabels() {
@@ -270,8 +270,9 @@ function positionOverlays() {
     el.style.display = '';
     el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`;
   }
-  for (const { el, pos } of instEls) {
-    const p = near && world.project(pos);
+  const nearF = assetLive('factory') && world.controls.target.distanceTo(world.centers.factory) < 60 && world.camera.position.distanceTo(world.centers.factory) < 170;
+  for (const { el, pos, site } of instEls) {
+    const p = (site === 'factory' ? nearF : near) && world.project(pos);
     if (!p || !p.vis) { el.style.display = 'none'; continue; }
     el.style.display = '';
     el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`;
@@ -571,6 +572,11 @@ function pickScenario(first) {
   const byId = scnById;
   let id = S.deck[0];
   if (first) id = S.deck.find(d => !byId(d).benign && !isBlocked(byId(d))) || id; // open with a real, unprevented attack
+  // while "Triage a factory alert" is the mission, the next alert comes from Mutiara Motor Works
+  if (QUESTS[S.questIdx]?.event === 'factoryAlarm') {
+    const fac = shuffle(FALSE_ALARMS.filter(sc => live(sc) && sc.targets.includes('factory')));
+    if (fac.length) { S.deck.unshift(fac[0].id); id = fac[0].id; }
+  }
   S.deck.splice(S.deck.indexOf(id), 1);
   return byId(id);
 }
@@ -787,6 +793,7 @@ function resolve(resp) {
   questEvent('incident');
   if (grade === 'A' || grade === 'B') questEvent('gradeB');
   if (grade === 'A' && !inc.drill) questEvent('gradeA');
+  if ((grade === 'A' || grade === 'B') && scn.targets.includes('factory')) questEvent('factoryAlarm');
   if ((grade === 'A' || grade === 'B') && !inc.drill) questEvent('finale');
   if (scn.benign && q === 'best') questEvent('benign');
   renderAction();
@@ -873,15 +880,15 @@ const PANELS = {
   },
 
   inst(tag) {
-    const i = INST[tag];
+    const i = INST[tag], fac = i.site === 'factory';
     return {
-      eyebrow: `Biogas plant · ${i.stage}`, title: `${i.tag} · ${i.name}`,
+      eyebrow: `${fac ? 'Mutiara Motor Works' : 'Biogas plant'} · ${i.stage}`, title: `${i.tag} · ${i.name}`,
       html: `<div class="box"><div class="kv" style="margin:0">
           <span>Measures / does</span><span>${esc(i.kind)}</span>
-          <span>Signal to PLC</span><span>${esc(i.signal)}</span>
-          <span>Process stage</span><span>${esc(i.stage)}</span></div></div>
-        <div class="box"><small>Why an attacker cares</small><p style="margin:5px 0 0">${esc(instrumentRisk(i))}</p></div>
-        <div class="row" style="margin-top:10px;gap:8px"><button class="btn" data-act="asset:biogas">${icon('arrow')} All plant instruments</button></div>`,
+          <span>${fac ? 'Network' : 'Signal to PLC'}</span><span>${esc(i.signal)}</span>
+          <span>${fac ? 'Area' : 'Process stage'}</span><span>${esc(i.stage)}</span></div></div>
+        <div class="box"><small>Why an attacker cares</small><p style="margin:5px 0 0">${esc(fac ? i.risk : instrumentRisk(i))}</p></div>
+        <div class="row" style="margin-top:10px;gap:8px"><button class="btn" data-act="asset:${fac ? 'factory' : 'biogas'}">${icon('arrow')} All ${fac ? 'factory systems' : 'plant instruments'}</button></div>`,
     };
   },
 
@@ -1060,7 +1067,10 @@ function westHTML(id) {
   const rows = id === 'hydro'
     ? [['Units', '3 × 20 MW Francis turbines'], ['Reservoir', S.storming ? 'Rising · spillway gates open' : '212.4 m · normal'], ['Dam', '21 m concrete gravity, 3 radial gates'], ['Export', '132 kV Line 4']]
     : [['Supply', S.feeders.E.on ? 'Line 4 tap · energized' : 'De-energized'], ['Output', '54 cars an hour on two lines'], ['People', '2,600 on three shifts'], ['Shipping', 'Ro-ro jetty · car carrier Mutiara Spirit']];
-  return `<div class="sec"><small>Plant</small></div><div class="box"><div class="kv" style="margin:0">${rows.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('')}</div></div>`;
+  return `<div class="sec"><small>Plant</small></div><div class="box"><div class="kv" style="margin:0">${rows.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('')}</div></div>
+    ${id === 'factory' ? `<div class="sec"><small>Control systems · attack surface</small></div>${FACTORY_SYSTEMS.map(i =>
+      `<button class="box row" style="width:100%;text-align:left;margin-bottom:5px;padding:8px 10px" data-act="inst:${i.tag}">
+        <span class="pill" style="font-family:var(--mono)">${esc(i.tag)}</span><span class="grow"><b style="font-size:12.5px">${esc(i.name)}</b><div class="tiny muted">${esc(i.stage)} · ${esc(i.signal)}</div></span>${icon('arrow')}</button>`).join('')}` : ''}`;
 }
 
 function sbspHTML() {
@@ -1266,6 +1276,7 @@ const ACTS = {
     const at = world.instruments.find(x => x.tag === tag);
     if (at) { world.walkTo(at.pos.x, at.pos.z + 1.6); world.animateTo(at.pos.clone().setY(0), { radius: 45, phi: 0.9, theta: world.spherical().theta }, 0.7); }
     openPanel('inst', tag);
+    if (INST[tag]?.site === 'factory') { (S.factorySeen = S.factorySeen || new Set()).add(tag); if (S.factorySeen.size >= 4) questEvent('factoryMap'); }
   },
   focus: id => world.focus(id),
   buy: id => buy(id),

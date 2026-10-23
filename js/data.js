@@ -87,8 +87,8 @@ export const ASSETS = {
   },
   factory: {
     name: 'Feeder E · Mutiara Motor Works', short: 'Car factory', level: 'Bulk load · 132/33 kV', icon: 'car',
-    desc: 'The vehicle assembly plant by the harbour: press shop, a body shop with 400 welding robots, the paint shop and final assembly, with a ro-ro jetty where the car carrier loads. 2,600 people on three shifts. Its own intake substation is tapped from Line 4, and one stopped production line costs the plant millions.',
-    protocols: [],
+    desc: 'The vehicle assembly plant by the harbour: an automated warehouse, the press shop, a body shop with 400 welding robots, the paint shop with its DCS and paint robots, and final assembly with cobots beside the workers, plus a ro-ro jetty where the car carrier loads. 2,600 people on three shifts. Its own intake substation is tapped from Line 4, and one stopped line costs the plant millions. Zoom in to see every control system.',
+    protocols: ['PROFINET', 'EtherNet/IP', 'OPC UA', 'IEC 104 (intake)', 'Wi-Fi (AGVs)'],
   },
 };
 
@@ -146,6 +146,21 @@ export const FEEDERS = {
   E: { asset: 'factory', share: 0.36, customers: 2600, label: 'car factory · 2,600 workers', ch: 2 },
 };
 
+// Mutiara Motor Works control systems, tagged in the 3D view. risk: why each one matters to defend.
+export const FACTORY_SYSTEMS = [
+  { tag: 'ASRS-01', stage: 'Warehouse', name: 'Automated storage & retrieval system', kind: 'High-bay cranes, 8,000 pallet slots, barcode tracking', signal: 'PROFINET to crane PLCs · OPC UA to MES', risk: 'Feeds every line with parts. Stop it and the plant stops within the hour. Its crane PLCs accept any command on the warehouse network.' },
+  { tag: 'MES-01', stage: 'Offices', name: 'Manufacturing execution system', kind: 'Work orders, build sequence and quality records for every car', signal: 'OPC UA / SQL to the shop floor · HTTPS to ERP', risk: 'Sits between the corporate network and the shop floor: the bridge an attacker would use to move from IT into production.' },
+  { tag: 'OLP-01', stage: 'Offices', name: 'Robot offline programming workstation', kind: 'Engineers write and simulate robot programs before downloading them', signal: 'Robot vendor software over EtherNet/IP · USB', risk: 'Whoever controls this PC can push programs to 400 robots. Program checksums and change control are the safety net.' },
+  { tag: 'PLC-PR1', stage: 'Press shop', name: 'Press line PLC and safety PLC', kind: '2,000-tonne press line, light curtains, two-hand controls', signal: 'PROFINET + PROFIsafe', risk: 'The safety PLC keeps people out of a closing press. It must stay separate from the network that runs production.' },
+  { tag: 'RC-BS1', stage: 'Body shop', name: 'Welding robot controllers', kind: '400 six-axis robots with spot-welding guns and vision checks', signal: 'PROFINET · vendor remote maintenance', risk: 'Robots move fast with tonnes of force. An unapproved program or parameter change can scrap bodies or endanger anyone in the cell, so vendor access must go through a recorded jump host.' },
+  { tag: 'DCS-PS1', stage: 'Paint shop', name: 'Paint shop distributed control system', kind: 'Booth humidity and airflow, curing ovens, the thermal oxidiser', signal: 'Redundant controllers · OPC UA', risk: 'Runs hot ovens and solvent-laden air. Its safety instrumented system must keep working even if the DCS network is compromised.' },
+  { tag: 'RC-PS1', stage: 'Paint shop', name: 'Paint robots', kind: '24 explosion-proof painting robots with rotary bell atomisers', signal: 'EtherNet/IP via the DCS', risk: 'Robots in a solvent atmosphere. Interlocks with booth ventilation must stop them if the airflow fails.' },
+  { tag: 'AGV-FM', stage: 'Logistics', name: 'AGV fleet manager', kind: '36 automated guided vehicles carrying parts between shops', signal: 'Wi-Fi (WPA2-Enterprise) · fleet server', risk: 'Wireless is the easiest network to reach from outside the fence. Fleet commands must be authenticated.' },
+  { tag: 'COBOT-FA', stage: 'Final assembly', name: 'Collaborative robots', kind: '60 cobots working beside people: screwdriving, glass fitting', signal: 'EtherNet/IP · safety-rated force limits', risk: 'Cobots are safe only because of their force and speed limits, and those limits are configuration. Protect who can change them.' },
+  { tag: 'EMS-E1', stage: 'Intake substation', name: 'Intake protection relay & energy meter', kind: '132/33 kV intake: protection, revenue meter, intertrip with ONSA', signal: 'IEC 61850 · IEC 104 to ONSA SCADA', risk: 'The one system ONSA and the factory share. A trip here takes the whole plant off Line 4.' },
+  { tag: 'UT-01', stage: 'Utilities', name: 'Chillers & compressed air', kind: 'Cooling for the paint shop and welders; 8 bar air for tools', signal: 'BACnet · Modbus TCP', risk: 'Building systems are often the least protected, and losing cooling or air stops every line.' },
+];
+
 // assets that only appear once their chapter is reached (0-based chapter index)
 export const UNLOCK = { hydro: 2, factory: 2 };
 
@@ -156,6 +171,7 @@ export const PURDUE = [
   { level: 'L3 Operations', ids: ['scc'] },
   { level: 'L2 Station control', ids: ['ctrl'] },
   { level: 'L1–0 Protection & process', ids: ['yard', 'biogas', 'wind', 'solar', 'hydro'] },
+  { level: 'Customer · Feeder E', ids: ['factory'] },
 ];
 
 // guard: the control that protects this conduit. exposedUntil: conduit disappears once that control is owned.
@@ -169,6 +185,8 @@ export const CONDUITS = [
   { id: 'scc-wind', a: 'scc', b: 'wind', name: 'Wind farm telecontrol', proto: 'IEC 61400-25 / IEC 104' },
   { id: 'scc-bio', a: 'scc', b: 'biogas', name: 'Generator telecontrol', proto: 'IEC 104 output setpoints' },
   { id: 'scc-hydro', a: 'scc', b: 'hydro', name: 'Hydro telecontrol', proto: 'IEC 104 gate & unit setpoints', guard: 'diode', ch: 2 },
+  { id: 'scc-factory', a: 'scc', b: 'factory', name: 'Factory intake telecontrol', proto: 'IEC 104 · revenue meter + intertrip', ch: 2 },
+  { id: 'inet-factory', a: 'internet', b: 'factory', name: 'Robot vendor remote maintenance', proto: 'Vendor VPN → robot controllers', guard: 'mfa', ch: 2 },
   { id: 'scc-ctrl', a: 'scc', b: 'ctrl', name: 'SCADA WAN', proto: 'IEC 60870-5-104, DNP3' },
   { id: 'ctrl-yard', a: 'ctrl', b: 'yard', name: 'Station bus', proto: 'IEC 61850 MMS + GOOSE', guard: 'portsec' },
   { id: 'inet-ctrl', a: 'internet', b: 'ctrl', name: 'Forgotten cellular modem', proto: 'IEC 104 on TCP/2404', exposedUntil: 'surface' },
@@ -819,7 +837,7 @@ export const CHAPTERS = ['First shift at Bukit Mutiara', 'Harden the station', '
 export const CHAPTER_INTRO = [
   null,
   null,
-  { focus: 'hydro', icon: 'droplet', text: 'The Sungai Mutiara hydro station is online: a 21 m dam in the hills, three turbines and a brand-new 132 kV Line 4. On its way to Bukit Mutiara the line feeds Mutiara Motor Works, the car factory by the harbour: 2,600 people, 400 welding robots and a ship of new cars leaving every week. A bigger grid means more revenue and more to defend.' },
+  { focus: 'hydro', icon: 'droplet', text: 'The Sungai Mutiara hydro station is online: a 21 m dam in the hills, three turbines and a brand-new 132 kV Line 4. On its way to Bukit Mutiara the line feeds Mutiara Motor Works, the car factory by the harbour: 2,600 people, 400 welding robots and a ship of new cars leaving every week. Its robots, paint shop DCS and automated warehouse now feed your alerts. A bigger grid means more revenue and more to defend.' },
   { focus: 'hydro', icon: 'cloud', text: 'The north-east monsoon has arrived. Storms roll in off the sea, the reservoir is rising and lightning hunts for your lines. In bad weather, real faults and real attacks look alike. Stay calm and read the evidence.' },
   { focus: 'rnd', icon: 'satellite', text: 'Prof. Dr. Hanafiya\u2019s SBSP-1 satellite is switching from tests to full power. For the first time, energy collected in space is sold to the grid, day and night. The beam never sleeps, so neither can your SOC.' },
   { focus: 'yard', icon: 'trophy', text: 'ONSA Power & Co. is shortlisted for Grid of the Year. The judges want a grid that is secure, reliable and profitable, and they will be watching your next incident. This is your final exam.' },
@@ -839,9 +857,10 @@ export const QUESTS = [
   // fresh: the event must happen while this quest is the current one
   { ch: 2, event: 'inspect:hydro', icon: 'droplet', reward: 20000, action: 'asset:hydro', title: 'Visit the hydro station', desc: 'Tap the Sungai Mutiara hydro station. Its turbines export on the new Line 4.' },
   { ch: 2, event: 'inspect:factory', icon: 'car', reward: 20000, action: 'asset:factory', title: 'Meet your biggest customer', desc: 'Tap Mutiara Motor Works. One stopped production line costs the plant millions.' },
+  { ch: 2, event: 'factoryMap', icon: 'cpu', reward: 25000, action: 'asset:factory', title: 'Map the factory\u2019s attack surface', desc: 'Open four of the factory\u2019s control systems (robots, the paint shop DCS, the warehouse…) and see how each could be reached.' },
   { ch: 2, event: 'buy:diode', icon: 'lock', reward: 25000, action: 'panel:shop', title: 'Protect the hydro telecontrol link', desc: 'Buy the one-way gateway in Upgrades. Dam gates and turbines must never take orders from just anywhere.' },
   { ch: 2, event: 'factoryDay', icon: 'car', reward: 60000, action: 'speed', title: 'Keep the factory running for a whole day', desc: 'Get through one full day, midnight to midnight, without Feeder E losing supply.' },
-  { ch: 2, event: 'gradeB', fresh: true, icon: 'chart', reward: 40000, action: 'panel:soc', title: 'Score B or better on the bigger grid', desc: 'Handle an incident with the factory online and score B or better.' },
+  { ch: 2, event: 'factoryAlarm', fresh: true, icon: 'radar', reward: 40000, action: 'incident', title: 'Triage a factory alert', desc: 'An alert from Mutiara Motor Works is on its way. Read the robot, DCS and warehouse logs and score B or better.' },
   { ch: 3, event: 'stormDay', icon: 'cloud', reward: 50000, action: 'speed', title: 'Ride out a stormy day', desc: 'Finish a day that had a storm with grid reliability at 70 or above.' },
   { ch: 3, event: 'buy:spares', icon: 'zap', reward: 20000, action: 'panel:shop', title: 'Put critical spares on contract', desc: 'Storms break things. Buy critical spares in Upgrades to halve repair bills.' },
   { ch: 3, event: 'benign', fresh: true, icon: 'check', reward: 30000, action: 'panel:soc', title: 'Tell the weather from an attack', desc: 'Close a false alarm without escalating. In a storm, most alarms are the weather.' },

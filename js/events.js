@@ -336,6 +336,106 @@ const FA = [
     best: ['Confirm the handover and close', 'A view-only session during handover. Remind staff to log out of spare consoles.', 'Closed. The handover finishes at 19:30.'],
     lesson: 'Shared or doubled sessions are worth checking. Here, the roster and badges explain it.',
   },
+  // ---------- Mutiara Motor Works systems (chapter 3) ----------
+  {
+    id: 'fa-robot-program', ch: 2, title: 'Programs changed on six welding robots', short: 'Robot program', targets: ['factory'], feeders: ['E'],
+    alert: { asset: 'factory', src: 'Robot controllers RC-BS1', text: 'PROGRAM CHANGED R204–R209 · checksum 7A1C -> 9E42 · 21:40', why: 'A robot program change outside production hours deserves a check: programs decide where the welding guns go.' },
+    clues: [
+      { asset: 'factory', src: 'Change management', text: 'MMW-CHG-131 APPROVED · new EV body variant · weld path update R204–R209', chips: ['Approved change'], why: 'The plant approved new weld paths for the new EV model.' },
+      { asset: 'factory', src: 'OLP-01', text: 'eng_lim: download R204–R209 from offline programming · signed package', chips: ['Known engineer', 'Signed package'], why: 'The programs came from the robot programming workstation, signed by a known engineer.' },
+      { asset: 'factory', src: 'Program repository', text: 'checksum 9E42 matches approved release v12.3', chips: ['Checksum matches'], why: 'The new checksum is exactly the approved release, so nothing else was changed.' },
+    ],
+    best: ['Verify the checksums against the release and close', 'Approved change, signed package, checksums match the release.', 'Closed. The new body variant runs at the start of the morning shift.'],
+    lesson: 'Robot programs are code that moves heavy machinery. A change record, a signed package and a matching checksum together prove the change is the approved one.',
+  },
+  {
+    id: 'fa-cobot-stop', ch: 2, title: 'Cobots in final assembly stopped on force limit', short: 'Cobot stop', targets: ['factory'], feeders: ['E'],
+    alert: { asset: 'factory', src: 'Cobot safety controller', text: 'PROTECTIVE STOP COBOT-FA-17 · contact force 152 N > 140 N', why: 'A safety stop on a robot working beside people always needs a look.' },
+    clues: [
+      { asset: 'factory', src: 'Line supervisor log', text: 'operator leaned into cell 17 to free a trim clip · 10:12', chips: ['Person in the cell'], why: 'A worker reached into the cobot\u2019s path. Stopping is exactly what the cobot is built to do.' },
+      { asset: 'factory', src: 'Cobot config audit', text: 'force/speed limits unchanged since commissioning · last edit 2026-03-02', chips: ['Limits unchanged'], why: 'Nobody changed the safety limits.' },
+      { asset: 'factory', src: 'Cobot safety controller', text: 'restart acknowledged by supervisor · cycle resumed 10:16', chips: ['Resumed'], why: 'The supervisor checked the cell and restarted it.' },
+    ],
+    best: ['Confirm it was a normal safety stop and close', 'The cobot did its job: it stopped when it touched a person. Limits are unchanged.', 'Closed. Cell 17 is back in production four minutes later.'],
+    lesson: 'Cobot safety stops are the safety system working. What would worry you is a change to the force limits themselves, and the config audit rules that out.',
+  },
+  {
+    id: 'fa-robot-vendor', ch: 2, title: 'Remote session into the body shop robots', short: 'Vendor session', targets: ['factory', 'internet'], feeders: ['E'],
+    alert: { asset: 'factory', src: 'Factory firewall', text: 'VPN session vendor_kr02 -> RC-BS1 maintenance port · 14:00', why: 'Remote access into robot controllers is a big attack surface. Every session needs a reason.' },
+    clues: [
+      { asset: 'factory', src: 'Factory jump host', text: 'vendor_kr02 MFA OK · session recorded · time-boxed 14:00–16:00', chips: ['MFA', 'Recorded'], why: 'The vendor came in through the factory\u2019s own recorded jump host with MFA.' },
+      { asset: 'factory', src: 'Maintenance ticket', text: 'MMW-T-5520: servo diagnostics R110–R118 · vendor booked 14:00', chips: ['Booked work'], why: 'The visit was booked in advance for named robots.' },
+      { asset: 'factory', src: 'RC-BS1', text: 'read-only diagnostics · no program downloads', chips: ['Read only'], why: 'The session only read diagnostics; no programs were sent.' },
+    ],
+    best: ['Match the session to the ticket and close', 'Booked work, MFA, a recorded jump host and read-only access.', 'Closed. The vendor finds a worn servo on R114 and ships a spare.'],
+    lesson: 'Vendor remote access is normal and risky. MFA, recording, time limits and a ticket for every session make it easy to tell good sessions from bad ones.',
+  },
+  {
+    id: 'fa-asrs-fault', ch: 2, title: 'Warehouse cranes stopped: unexpected movement', short: 'AS/RS stop', targets: ['factory'], feeders: ['E'],
+    alert: { asset: 'factory', src: 'ASRS-01', text: 'CRANE 3 EMERGENCY STOP · position mismatch aisle 3 slot 4-17', why: 'An automated crane moving somewhere unexpected could be a fault or a command nobody sent.' },
+    clues: [
+      { asset: 'factory', src: 'ASRS-01 log', text: 'barcode read 4-71 decoded as 4-17 · label damaged', chips: ['Bad label'], why: 'A damaged barcode label sent the crane to the wrong slot.' },
+      { asset: 'factory', src: 'OT monitoring', text: 'no new connections to crane PLCs · commands only from WMS server', chips: ['Normal traffic'], why: 'Only the normal warehouse server talked to the cranes.' },
+      { asset: 'factory', src: 'Maintenance', text: 'label replaced · crane 3 homed and restarted 09:40', chips: ['Fixed'], why: 'Maintenance fixed the label and restarted the crane.' },
+    ],
+    best: ['Close as a barcode fault', 'A damaged label explains the mismatch, and the network shows nothing unusual.', 'Closed. The warehouse catches up within the hour.'],
+    lesson: 'Automation stops for physical reasons all the time. "Commands only from the usual server" is the clue that rules out an outsider.',
+  },
+  {
+    id: 'fa-dcs-failover', ch: 2, title: 'Paint shop DCS switched controllers', short: 'DCS failover', targets: ['factory'], feeders: ['E'],
+    alert: { asset: 'factory', src: 'DCS-PS1', text: 'CONTROLLER A OFFLINE · controller B now primary · ovens unaffected', why: 'A controller dropping out of a DCS can be a failure, tampering or planned work.' },
+    clues: [
+      { asset: 'factory', src: 'Change management', text: 'MMW-CHG-127 APPROVED · DCS firmware update controller A · {win}', chips: ['Approved change'], why: 'Firmware on controller A was being updated, so B took over as designed.' },
+      { asset: 'factory', src: 'DCS-PS1', text: 'firmware 9.4.2 signature VALID · controller A rejoining as standby', chips: ['Signed firmware'], why: 'The new firmware is signed by the vendor.' },
+      { asset: 'factory', src: 'Paint shop SIS', text: 'oven temperatures and booth airflow in range throughout', chips: ['Process stable'], why: 'The process never noticed. That is what redundancy is for.' },
+    ],
+    best: ['Match it to the firmware change and close', 'A planned update with signed firmware; the redundant controller carried the process.', 'Closed. Controller A is back as standby.'],
+    lesson: 'Redundant controllers fail over during maintenance. Signed firmware and a change record tell you it was planned.',
+  },
+  {
+    id: 'fa-mes-logins', ch: 2, title: '58 logins to the MES in two minutes', short: 'MES logins', targets: ['factory'], feeders: [],
+    alert: { asset: 'factory', src: 'MES-01', text: 'LOGIN BURST 58 users in 120 s · 22:00', why: 'Lots of logins at once can be password spraying, or just a shift starting.' },
+    clues: [
+      { asset: 'factory', src: 'Shift roster', text: 'night shift starts 22:00 · 61 line leaders and inspectors', chips: ['Shift change'], why: 'The night shift logs in at 22:00 every day.' },
+      { asset: 'factory', src: 'Badge system', text: '61 badges IN at the staff gate 21:45–21:58', chips: ['People on site'], why: 'The people logging in are physically in the plant.' },
+      { asset: 'factory', src: 'MES-01', text: 'failed logins 2 · from shop-floor terminals only', chips: ['Few failures'], why: 'Almost no failures, and all from the plant\u2019s own terminals.' },
+    ],
+    best: ['Match the logins to the shift change and close', 'The roster, the badges and the terminals all line up.', 'Closed. The night shift is building cars.'],
+    lesson: 'Login bursts at shift change are normal. Password spraying shows many failures from unusual places.',
+  },
+  {
+    id: 'fa-agv-wifi', ch: 2, title: 'All AGVs stopped: fleet lost Wi-Fi', short: 'AGV Wi-Fi', targets: ['factory'], feeders: ['E'],
+    alert: { asset: 'factory', src: 'AGV-FM', text: '36/36 AGVs SAFE STOP · link lost to fleet manager · 15:20', why: 'A whole wireless fleet dropping at once could be jamming or a network change.' },
+    clues: [
+      { asset: 'factory', src: 'IT change log', text: 'wireless controller firmware upgrade · plant Wi-Fi restart 15:20–15:30', chips: ['Planned restart'], why: 'The plant\u2019s Wi-Fi was restarted for a planned upgrade.' },
+      { asset: 'factory', src: 'Wi-Fi controller', text: 'all access points back 15:27 · no rogue APs detected', chips: ['No rogue APs'], why: 'No unknown access points appeared.' },
+      { asset: 'factory', src: 'AGV-FM', text: 'fleet reconnected · missions resumed 15:28', chips: ['Recovered'], why: 'The AGVs reconnected and carried on.' },
+    ],
+    best: ['Match it to the Wi-Fi upgrade and close', 'A planned restart, no rogue access points, and the fleet recovered.', 'Closed. Ask IT to warn the logistics team before the next upgrade.'],
+    lesson: 'AGVs stop safely when they lose their link: good design. Rule out rogue access points, then check the change log.',
+  },
+  {
+    id: 'fa-intake-test', ch: 2, title: 'Intertrip signal from the factory intake', short: 'Intertrip test', targets: ['factory', 'yard'], feeders: ['E'],
+    alert: { asset: 'yard', src: 'Line 4 protection', text: 'INTERTRIP RECEIVED from EMS-E1 · Feeder E breaker blocked (test mode)', why: 'An intertrip from a customer intake can open breakers on your side.' },
+    clues: [
+      { asset: 'factory', src: 'Joint test plan', text: 'annual intake protection test · ONSA + MMW · Sunday 08:00–12:00', chips: ['Joint test'], why: 'ONSA and the factory planned this test together.' },
+      { asset: 'scc', src: 'Shift log', text: 'ops_day: Feeder E in TEST · trip outputs blocked', chips: ['Bay in test'], why: 'The control room put the feeder in test, so nothing could trip.' },
+      { asset: 'factory', src: 'EMS-E1', text: 'relay in test mode · technician badge IN intake substation', chips: ['Technician on site'], why: 'A technician is at the intake running the test.' },
+    ],
+    best: ['Confirm the joint test and close', 'A planned joint protection test with the bay in test mode.', 'Closed. The intertrip works and is back in service at 11:40.'],
+    lesson: 'Shared systems need shared test plans. Both sides logging the same test is the evidence.',
+  },
+  {
+    id: 'fa-press-safety', ch: 2, title: 'Press line stopped by its safety PLC', short: 'Press stop', targets: ['factory'], feeders: ['E'],
+    alert: { asset: 'factory', src: 'PLC-PR1', text: 'SAFETY STOP press line 1 · light curtain LC-3 interrupted', why: 'A safety system stopping a 2,000-tonne press needs explaining.' },
+    clues: [
+      { asset: 'factory', src: 'Press camera', text: 'forklift mast crossed LC-3 at 11:05', chips: ['Physical cause'], why: 'A forklift broke the light beam.' },
+      { asset: 'factory', src: 'Safety PLC', text: 'safety program CRC unchanged · PROFIsafe watchdog OK', chips: ['Safety logic intact'], why: 'The safety logic itself is untouched.' },
+      { asset: 'factory', src: 'Line supervisor log', text: 'area cleared, reset 11:09 · forklift route re-marked', chips: ['Reset'], why: 'The area was cleared and the press restarted.' },
+    ],
+    best: ['Close as a correct safety stop', 'A forklift broke the light curtain and the safety PLC did its job.', 'Closed. Forklift routes are re-marked away from the press.'],
+    lesson: 'A safety stop with a physical cause and an unchanged safety program is the system working. Tampering would show in the safety program CRC.',
+  },
   // ---------- from chapter 3 (ch = 0-based chapter that adds them) ----------
   {
     id: 'fa-spillway-test', ch: 2, title: 'Spillway gate moved in the middle of the night', short: 'Gate test', targets: ['hydro'], feeders: [],
@@ -482,6 +582,12 @@ export const NOISE = [
   { asset: 'hydro', ch: 2, src: 'Unit 2 governor', text: '18.0 MW · speed 428.6 rpm · auto', why: 'A turbine running steadily under automatic control.' },
   { asset: 'factory', ch: 2, src: 'Body shop MES', text: 'line 2 · 54 bodies/hour · OEE 87%', why: 'Normal production reporting.' },
   { asset: 'factory', ch: 2, src: 'Paint oven 1', text: '180 °C · conveyor 4.2 m/min · normal', why: 'A paint oven at its normal temperature.' },
+  { asset: 'factory', ch: 2, src: 'RC-BS1', text: 'body shop robots 400/400 in AUTO · weld quality 99.6%', why: 'All welding robots running normally.' },
+  { asset: 'factory', ch: 2, src: 'DCS-PS1', text: 'booth 2 humidity 65% · airflow 0.4 m/s · normal', why: 'Paint booth conditions in range.' },
+  { asset: 'factory', ch: 2, src: 'ASRS-01', text: '1,240 pallet moves today · 0 faults', why: 'The warehouse is running smoothly.' },
+  { asset: 'factory', ch: 2, src: 'AGV-FM', text: '34 AGVs on mission · 2 charging', why: 'Normal fleet status.' },
+  { asset: 'factory', ch: 2, src: 'COBOT-FA', text: 'cobot cell 9 · 412 screws driven this hour', why: 'Cobots working normally.' },
+  { asset: 'factory', ch: 2, src: 'EMS-E1', text: 'Feeder E 27.6 MW · power factor 0.97', why: 'Normal factory load.' },
 ];
 
 // ---------- random plant events ----------

@@ -351,6 +351,8 @@ export class World {
     this.buildSiteLights();
     this.initDamageFx();
     this.buildRain();
+    this.buildHeightMap();
+    this.settleHubs();
     this.batchStatic();
     this.setUnlocked(false);
     this.setQuality(this.quality);
@@ -649,7 +651,7 @@ export class World {
       return i >= 0 && j >= 0 && i < G.w && j < G.h && !G.block[j * G.w + i];
     };
     const clearOf = (x, z) => free(x, z) && !this.roadSegs.some(q => nearestOnSeg(x, z, q)[2] < 3.2)
-      && !this.lineSegs.some(q => nearestOnSeg(x, z, q)[2] < 3) && !this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 1.6)
+      && !this.lineSegs.some(q => nearestOnSeg(x, z, q)[2] < 5.5) && !this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 1.6)
       && !this.towerFeet.some(([tx, tz]) => Math.hypot(tx - x, tz - z) < 5.5);
     const wp = this.areas.wind.position;
     const sites = {
@@ -720,7 +722,7 @@ export class World {
         const len = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / len, uz = (bz - az) / len, half = i < 2 ? 2.5 : 2;
         for (let t = 10, k = 0; t < len - 6; t += 24, k++) {
           const sd = k % 2 ? 1 : -1, x = ax + ux * t - uz * (half + 0.9) * sd, z = az + uz * t + ux * (half + 0.9) * sd;
-          if (!free(x, z) || this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 2.2) || this.lineSegs.some(q => nearestOnSeg(x, z, q)[2] < 3)) continue;
+          if (!free(x, z) || this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 2.2) || this.lineSegs.some(q => nearestOnSeg(x, z, q)[2] < 5.5)) continue;
           if (all.some((q, j) => nearestOnSeg(x, z, q)[2] < (j < 2 || q === this.westRoads[0] ? 2.5 : 2) + 0.4)) continue;
           spots.push({ x, z, ry: Math.atan2(uz * sd, -ux * sd) });
         }
@@ -822,7 +824,7 @@ export class World {
     const dynamic = new Set();
     const keep = o => { if (o) o.traverse(c => dynamic.add(c)); };
     for (const sp of this.spinners) keep(sp.obj);
-    [this.modem, this.honeypot, this.flame, this.pilot, this.dish, this.rectGlow, ...Object.values(this.lamps), ...this.gates, ...this.movers.map(m => m.obj)].forEach(keep);
+    [this.modem, this.honeypot, this.flame, this.pilot, this.dish, this.rectGlow, ...Object.values(this.lamps), ...this.gates, ...this.movers.map(m => m.obj), ...this.robots.map(r => r.root)].forEach(keep);
     for (const root of [...Object.values(this.areas), ...this.blockers]) {
       root.updateMatrixWorld(true);
       const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
@@ -2360,17 +2362,23 @@ export class World {
 
   buildFactory() {
     const g = this.group('factory');
+    this.movers = [];
     box(g, 76, 0.12, 58, 0x8a9096, -194, 0, -37);                                     // paved yard
     for (const [w, d, x, z] of [[76, 0.25, -194, -24], [76, 0.25, -194, -46.5], [0.25, 58, -186, -37]]) box(g, w, 0.02, d, 0xf1ead8, x, 0.12, z); // lane markings
     const glazing = this.feederMats.E;
     this.feederFacades.E.push(glazing);
 
     // offices with the plant name on the roof
-    const offTop = this.curtainTower(g, { x: -210, z: -15, w: 22, d: 9, h: 9.75, seed: 31 });
-    this.sign(-210, offTop + 0.5, -10.7, 15, 2.6, 0, [
+    const offTop = this.curtainTower(g, { x: -210, z: -15, w: 18, d: 9, h: 9.75, seed: 31 });
+    this.sign(-210, offTop + 0.5, -10.7, 14, 2.5, 0, [
       { text: 'MUTIARA MOTOR WORKS', size: 150, y: 110, color: '#ffffff' },
       { text: 'VEHICLE ASSEMBLY PLANT', size: 56, y: 222, color: BRAND.amber, weight: 800 },
     ], false, g);
+    // high-bay automated warehouse (AS/RS): parts in from the road side, out to the shops on the yard side
+    this.structure(g, {
+      x: -226.5, z: -16.5, w: 9, d: 12, h: 18, cladding: 0xb7c4cc,
+      doors: [{ side: 's', at: 0, w: 3.6, h: 4.2, canopy: false }, { side: 'n', at: 0, w: 2.4, h: 2.6, canopy: false }],
+    });
     // gatehouse and barrier
     this.structure(g, { x: -180.5, z: -12, w: 3, d: 3, h: 2.8, wall: 0xe9e0d0, windows: [{ side: 'w', y: 1.1, at: [0], ww: 1.4, wh: 0.9 }, { side: 'n', y: 1.1, at: [0], ww: 1.4, wh: 0.9 }] });
     box(g, 0.4, 1.1, 0.4, 0xd8d0c0, -182.6, 0.1, -9);
@@ -2383,11 +2391,57 @@ export class World {
       windows: [{ side: 'n', y: [9.5], count: 5, ww: 2, wh: 1.6 }, { side: 's', y: [9.5], count: 5, ww: 2, wh: 1.6 }],
       doors: [{ side: 'e', at: 0, w: 4, h: 5, canopy: false }],
     });
-    const bsTop = this.structure(g, {
-      x: -201, z: -36, w: 20, d: 16, h: 8, cladding: 0xd5dade,
-      windows: [{ side: 's', y: [3.2], count: 6, ww: 1.8, wh: 1.4 }],
-      doors: [{ side: 'n', at: -4, w: 4, h: 4.5, canopy: false }],
-    });
+    // body shop: glazed along the yard side so the robot welding line inside can be seen
+    const clad = surface('metal', 0xd5dade, { metalness: 0.45, roughness: 0.5 }), bsTop = 7.95;
+    box(g, 20.5, 0.3, 16.5, COL.concrete, -201, 0, -36);
+    box(g, 20, 8, 0.3, clad, -201, 0.3, -43.85);
+    for (const x of [-210.85, -191.15]) box(g, 0.3, 8, 16, clad, x, 0.3, -36);
+    box(g, 20, 0.9, 0.3, clad, -201, 0.3, -28.15);
+    box(g, 20, 1.9, 0.3, clad, -201, 6.4, -28.15);
+    for (let x = -208.5; x <= -193.4; x += 2.5) box(g, 0.16, 5.2, 0.34, 0x2e3338, x, 1.2, -28.15);
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(19.4, 5.2), new THREE.MeshStandardMaterial({ color: 0xa9cddb, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0.3, depthWrite: false }));
+    pane.position.set(-201, 3.8, -28.08);
+    g.add(pane);
+    box(g, 20, 0.25, 16, 0x5b6166, -201, 8.3, -36);
+    box(g, 19.4, 0.04, 15.4, 0xa3a9ad, -201, 0.3, -36);                                // epoxy floor
+    for (const x of [-208, -201, -194]) box(g, 1.2, 0.12, 15, 0xf2c230, x, 8.05, -36);  // high-bay lights
+    // welding line: car bodies ride the conveyor between two rows of six-axis robots
+    box(g, 18.6, 0.6, 1.6, 0x4b5359, -201, 0.3, -34.5);
+    const line = new THREE.LineCurve3(new THREE.Vector3(-209.5, 0, -34.5), new THREE.Vector3(-192.5, 0, -34.5));
+    for (let i = 0; i < 3; i++) {
+      const b = car(0xc9cdd0);
+      b.rotation.y = Math.PI / 2;
+      g.add(b);
+      this.movers.push({ obj: b, curve: line, t: i / 3, speed: 0.45 / 17, level: () => 0.9, fixed: true });
+    }
+    this.robots = [];
+    const orange = mat(0xf28c28, { roughness: 0.45 }), dark = mat(0x2e3338);
+    const spark = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+    for (const [x, z, face] of [[-206, -31.6, 1], [-201, -31.6, 1], [-196, -31.6, 1], [-206, -37.4, -1], [-201, -37.4, -1], [-196, -37.4, -1]]) {
+      const root = new THREE.Group();
+      root.position.set(x, 0.3, z);
+      cyl(root, 0.36, 0.45, dark, 0, 0, 0);
+      const turret = new THREE.Group();
+      turret.position.y = 0.45;
+      turret.rotation.y = (face * Math.PI) / 2;
+      box(turret, 0.62, 0.42, 0.62, orange, 0, 0, 0);
+      const shoulder = new THREE.Group();
+      shoulder.position.y = 0.4;
+      box(shoulder, 0.3, 1.35, 0.32, orange, 0, 0, 0);
+      const elbow = new THREE.Group();
+      elbow.position.y = 1.3;
+      add(elbow, BOX, orange, 0.55, 0, 0, 1.15, 0.26, 0.26);
+      box(elbow, 0.22, 0.42, 0.22, dark, 1.15, -0.4, 0);                               // weld gun
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), spark);
+      tip.position.set(1.15, -0.5, 0);
+      elbow.add(tip);
+      shoulder.add(elbow);
+      turret.add(shoulder);
+      root.add(turret);
+      g.add(root);
+      this.robots.push({ root, turret, shoulder, elbow, face, phase: x * 0.7 + z });
+    }
+    this.sparkMat = spark;
     const roofSheet = surface('metal', 0xb9c1c5, { metalness: 0.5, roughness: 0.5 });
     for (let k = 0; k < 4; k++) {
       const z0 = -44 + k * 4;
@@ -2410,6 +2464,7 @@ export class World {
     });
     box(g, 40.12, 1.3, 15.12, 0x1f4e8c, -211, 8.3, -56.5);                           // brand stripe
     for (let x = -227; x <= -195; x += 8) add(g, BOX, glazing, x, faTop + 0.12, -56.5, 5, 0.25, 9);   // roof lights
+    for (const x of [-225, -219, -213]) this.roofUnit(g, x, faTop + 0.05, -51.4, 2.4, 1.6, true);   // utility chillers
 
     // the 132/33 kV intake substation, fed by the Line 4 tap
     box(g, 14, 0.15, 12, COL.gravel, -165, 0, -16);
@@ -2445,9 +2500,13 @@ export class World {
       }
     }
     // ro-ro jetty and the car carrier alongside it
-    box(g, 7, 0.6, 32, COL.concrete, -186, 0.6, -80);
+    const JY = 1.2;                                                                     // jetty deck level
+    box(g, 7, 0.6, 24, COL.concrete, -186, JY - 0.6, -84);
+    const ramp = add(g, BOX, surface('concrete', 0xc9c3b6), -186, (0.12 + JY) / 2 - 0.15, -68, 7, 0.3, Math.hypot(8, JY - 0.12));
+    ramp.rotation.x = Math.atan2(JY - 0.12, 8);
+    for (const x of [-189.4, -182.6]) box(g, 0.25, 0.3, 24, 0xd4d0c8, x, JY, -84);           // deck kerbs
     for (let z = -94; z <= -76; z += 4) for (const x of [-189, -183]) cyl(g, 0.35, 2.4, 0x8a8f93, x, -1.2, z);
-    for (let z = -94; z <= -70; z += 6) cyl(g, 0.22, 0.5, 0x2e3338, -189.2, 1.2, z);
+    for (let z = -94; z <= -76; z += 6) cyl(g, 0.22, 0.5, 0x2e3338, -182.9, JY, z);
     box(g, 10, 13, 44, 0x1d3b5c, -197, -2, -102);
     box(g, 10.08, 1.2, 44.08, 0x9e2a2a, -197, -2, -102);
     box(g, 10.1, 0.4, 44.1, 0xf2f2f2, -197, 10.6, -102);
@@ -2457,21 +2516,37 @@ export class World {
     this.structure(bridge, { x: -197, z: -119.5, w: 9.6, d: 4, h: 3, wall: 0xf2f2f2, windows: [{ side: 'n', y: 1.4, count: 6, ww: 1, wh: 0.8 }] });
     box(g, 3, 4.2, 3, 0xf2f2f2, -197, 11, -86);
     box(g, 3.05, 1, 3.05, 0x1f4e8c, -197, 13.6, -86);
-    const ramp = add(g, BOX, mat(0x6d757b), -190.6, 1.6, -92, 4.6, 0.3, 6);
-    ramp.rotation.z = -0.2;
+    const board = add(g, BOX, mat(0x6d757b), -190.85, (JY + 2.1) / 2 - 0.15, -92, Math.hypot(2.9, 2.1 - JY) + 0.3, 0.3, 5);
+    board.rotation.z = -Math.atan2(2.1 - JY, 2.9);
+    box(g, 0.1, 3.6, 5.4, 0x1b2228, -191.98, 1.9, -92);                                // vehicle door in the hull
     const hullName = new THREE.Mesh(new THREE.PlaneGeometry(14, 1.6), new THREE.MeshBasicMaterial({ map: textTexture([{ text: 'MUTIARA SPIRIT', size: 120, y: 80, color: '#ffffff' }], 1024, 160), transparent: true, depthWrite: false }));
     hullName.position.set(-191.94, 7.6, -110);
     hullName.rotation.y = Math.PI / 2;
     g.add(hullName);
 
     // new cars shuttling from final assembly down the jetty and onto the ship
-    this.movers = [];
-    const loop = new THREE.CatmullRomCurve3([[-191, -57.5], [-184.8, -57.5], [-184.8, -90], [-186, -93], [-187.2, -90], [-187.2, -57.5]].map(([x, z]) => new THREE.Vector3(x, 0.12, z)), true);
+    const level = (x, z) => (z > -64 ? 0.12 : z > -72 ? 0.12 + (JY - 0.12) * (-64 - z) / 8 : x > -189.5 ? JY : JY + (2.1 - JY) * Math.min(1, (-189.5 - x) / 2.9));
+    const drive = new THREE.CatmullRomCurve3([[-191.6, -55.5], [-187.4, -55.8], [-185.6, -58.5], [-185.6, -88], [-186.4, -91.4], [-188.6, -92], [-194, -92]].map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
+    const len = drive.getLength();
     for (let i = 0; i < 4; i++) {
       const c = car(paints[i + 1]);
+      c.rotation.order = 'YXZ';
       g.add(c);
-      this.movers.push({ obj: c, curve: loop, t: i / 4, speed: 0.018 });
+      this.movers.push({ obj: c, curve: drive, t: i / 4, speed: 3 / len, level });
     }
+    // an AGV shuttling parts from the warehouse to the press shop and back
+    const agv = new THREE.Group();
+    box(agv, 1.2, 0.45, 2, 0xf28c28, 0, 0, 0);
+    box(agv, 1, 0.5, 1.2, 0x8a9096, 0, 0.45, 0);
+    for (const sx of [-1, 1]) cyl(agv, 0.1, 0.12, 0x2e3338, sx * 0.4, 0.9, 0.7);
+    g.add(agv);
+    const agvPath = new THREE.CatmullRomCurve3([[-226.5, -23.6], [-226, -26], [-219, -26.2], [-212.6, -27.5], [-212.6, -35], [-213.7, -36]].map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
+    this.movers.push({ obj: agv, curve: agvPath, t: 0, speed: 1.4 / agvPath.getLength(), level: () => 0.12, pingpong: true });
+
+    // control systems on the factory floor, tagged in the 3D view (they show up in detections)
+    for (const [t, x, y, z] of [['ASRS-01', -226.5, 20, -16.5], ['MES-01', -213.5, 12.5, -15], ['OLP-01', -205.5, 12.5, -15], ['PLC-PR1', -222.5, 15, -36],
+      ['RC-BS1', -201, 11, -30], ['DCS-PS1', -168, 17.5, -32], ['RC-PS1', -176, 17.5, -41], ['AGV-FM', -219, 3.2, -26],
+      ['COBOT-FA', -205, 13.5, -59], ['EMS-E1', -165, 11, -16], ['UT-01', -219, 14.2, -51.4]]) this.instruments.push({ tag: t, pos: new THREE.Vector3(x, y, z), site: 'factory' });
   }
 
   buildLine4() {
@@ -2572,11 +2647,25 @@ export class World {
       if (k >= 1) this.revealT = null;
     }
     for (const m of this.movers) {
-      m.t = (m.t + dt * m.speed) % 1;
-      m.curve.getPointAt(m.t, m.obj.position);
-      const ahead = m.curve.getPointAt((m.t + 0.002) % 1);
-      m.obj.rotation.y = Math.atan2(ahead.x - m.obj.position.x, ahead.z - m.obj.position.z);
+      if (m.pingpong) { m.dir = m.dir || 1; m.t += dt * m.speed * m.dir; if (m.t > 1 || m.t < 0) { m.dir *= -1; m.t = THREE.MathUtils.clamp(m.t, 0, 1); } }
+      else m.t = (m.t + dt * m.speed) % 1;
+      const p = m.curve.getPointAt(m.t, m.obj.position), q = m.curve.getPointAt(Math.min(1, m.t + 0.004)), back = m.t + 0.004 > 1;
+      p.y = m.level(p.x, p.z);
+      const qy = m.level(q.x, q.z), dx = q.x - p.x, dz = q.z - p.z, dh = Math.hypot(dx, dz);
+      if (dh > 1e-4 && !back) {
+        m.obj.rotation.y = Math.atan2(dx, dz) + (m.pingpong && m.dir < 0 ? Math.PI : 0);
+        m.obj.rotation.x = m.pingpong ? 0 : -Math.atan2(qy - p.y, dh);
+      }
+      if (!m.pingpong) m.obj.visible = m.t < 0.985;
+      if (m.fixed) m.obj.rotation.set(0, Math.PI / 2, 0);
     }
+    const t = this._t;
+    for (const r of this.robots) {
+      r.turret.rotation.y = (r.face * Math.PI) / 2 + 0.45 * Math.sin(t * 1.1 + r.phase);
+      r.shoulder.rotation.z = -0.25 - 0.22 * Math.sin(t * 1.6 + r.phase);
+      r.elbow.rotation.z = -0.55 + 0.3 * Math.sin(t * 2.0 + r.phase * 1.3);
+    }
+    this.sparkMat.opacity = Math.max(0, Math.sin(t * 9)) * (Math.sin(t * 2.3) > 0 ? 0.9 : 0.15);
     // spillway gates open in a storm and the chute turns white
     this.spill += ((this.storm > 0.5 ? 1 : 0) - this.spill) * Math.min(1, dt * 0.4);
     for (const gt of this.gates) gt.rotation.z = -this.spill * 0.55;
@@ -2800,7 +2889,7 @@ export class World {
     for (let i = 0; i < 3000 && spots.length < 240; i++) {
       const x = -165 + rand() * 325, z = -71 + rand() * 200;
       if (boxes.some(bx => x > bx.min.x && x < bx.max.x && z > bx.min.z && z < bx.max.z)) continue;
-      if (near(x, z, this.roadSegs, 5) || near(x, z, this.westRoads, 5) || near(x, z, this.walkSegs, 3) || near(x, z, this.lineSegs, 4)) continue;
+      if (near(x, z, this.roadSegs, 5) || near(x, z, this.westRoads, 5) || near(x, z, this.walkSegs, 3) || near(x, z, this.lineSegs, 7)) continue;
       if (Math.abs(x) < 26 && Math.abs(z) < 20) continue; // substation yard
       if (spots.some(([sx, sz]) => (sx - x) ** 2 + (sz - z) ** 2 < 3.5 * 3.5)) continue; // no trunks growing into each other
       spots.push([x, z, 0.7 + rand() * 0.7]);
@@ -2808,7 +2897,7 @@ export class World {
     // an oil palm plantation in the west, rows 8 m apart
     for (let z = -66; z <= -22; z += 7) {
       for (let x = -160 + ((z / 7) % 2 ? 4 : 0); x <= -98; x += 8) {
-        if (near(x, z, this.roadSegs, 5) || near(x, z, this.lineSegs, 4)) continue;
+        if (near(x, z, this.roadSegs, 5) || near(x, z, this.lineSegs, 7)) continue;
         if (boxes.some(bx => x > bx.min.x && x < bx.max.x && z > bx.min.z && z < bx.max.z)) continue;
         spots.push([x, z, 0.9 + rand() * 0.25, true]);
       }
@@ -2820,9 +2909,13 @@ export class World {
     const trunkP = trunkGeometry(5.5, 0.42, 0.3, 2);
     const byLeaf = leaf.map(() => []), byPalm = palms.map(() => []);
     spots.push(...this.hillTrees);
+    // crown half-widths, so no crown reaches the power-line conductors (outermost 3.2 m from the line)
+    const spread = g => { g.computeBoundingBox(); const bx = g.boundingBox; return Math.max(bx.max.x - bx.min.x, bx.max.z - bx.min.z) / 2; };
+    const leafR = leaf.map(v => spread(v.cards)), palmR = palms.map(spread);
     for (const [x, z, sc, isPalm, y0 = 0] of spots) {
-      const palm = isPalm || rand() < 0.28;
-      (palm ? byPalm : byLeaf)[Math.floor(rand() * (palm ? palms.length : leaf.length))].push([x, z, sc, rand() * Math.PI * 2, y0]);
+      const palm = isPalm || rand() < 0.28, kind = Math.floor(rand() * (palm ? palms.length : leaf.length)), rot = rand() * Math.PI * 2;
+      if (near(x, z, this.lineSegs, 3.6 + (palm ? palmR : leafR)[kind] * sc)) continue;
+      (palm ? byPalm : byLeaf)[kind].push([x, z, sc, rot, y0]);
     }
     const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), S3 = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0);
     const inst = (geo, material, list, lift) => {
@@ -2857,16 +2950,95 @@ export class World {
   }
 
   // ---------- network overlay ----------
+  // highest solid point in every 1 m cell: buildings, equipment, towers, trees, lamps, power conductors and the hills.
+  // Network conduits are routed over it (taken before static batching, while every mesh still has its own bounds).
+  buildHeightMap() {
+    const H = (this.hmap = { x0: -270, z0: -130, w: 440, h: 270 });
+    H.y = new Float32Array(H.w * H.h);
+    const raise = (x1, z1, x2, z2, y) => {
+      const i1 = Math.max(0, Math.floor(x1 - H.x0)), i2 = Math.min(H.w - 1, Math.floor(x2 - H.x0));
+      const j1 = Math.max(0, Math.floor(z1 - H.z0)), j2 = Math.min(H.h - 1, Math.floor(z2 - H.z0));
+      for (let j = j1; j <= j2; j++) for (let i = i1; i <= i2; i++) { const k = j * H.w + i; if (y > H.y[k]) H.y[k] = y; }
+    };
+    this.scene.updateMatrixWorld(true);
+    const skip = new Set([this.water.mesh, this.beam, ...this.pulses]);
+    for (const who of [this.persona, this.researcher, this.satellite]) who?.traverse(o => skip.add(o));
+    const bb = new THREE.Box3(), m4 = new THREE.Matrix4();
+    const mark = () => {
+      if (bb.max.y < 0.4 || bb.min.y > 30 || bb.max.x - bb.min.x > 70 || bb.max.z - bb.min.z > 70) return;
+      raise(bb.min.x, bb.min.z, bb.max.x, bb.max.z, bb.max.y);
+    };
+    this.scene.traverse(o => {
+      if (!o.isMesh || skip.has(o)) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      if (o.isInstancedMesh) {
+        for (let k = 0; k < o.count; k++) { o.getMatrixAt(k, m4); bb.copy(o.geometry.boundingBox).applyMatrix4(m4.premultiply(o.matrixWorld)); mark(); }
+      } else { bb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld); mark(); }
+    });
+    for (const [ax, az, bx, bz] of this.lineSegs) {          // conductors hang between tower tops
+      const n = Math.ceil(Math.hypot(bx - ax, bz - az));
+      for (let k = 0; k <= n; k++) { const x = ax + ((bx - ax) * k) / n, z = az + ((bz - az) * k) / n; raise(x - 3.5, z - 3.5, x + 3.5, z + 3.5, 15.6); }
+    }
+    for (let j = 0; j < H.h; j++) for (let i = 0; i < 40; i++) {     // hills
+      const k = j * H.w + i, y = westHeight(H.x0 + i + 0.5, H.z0 + j + 0.5);
+      if (y > H.y[k]) H.y[k] = y;
+    }
+  }
+  // a conduit rises straight up from its hub, so every hub must stand on open ground: nudge any hub that sits
+  // under a canopy, inside equipment or beside a wall to the nearest clear spot off roads and walkways
+  settleHubs() {
+    const roads = [...this.roadSegs.map((q, j) => [q, j < 2 ? 2.5 : 2]), ...this.westRoads.map((q, j) => [q, j ? 2 : 2.5])];
+    const ok = (x, z) => this.heightAt(x, z, 0.9) <= 0.45
+      && !roads.some(([q, h]) => nearestOnSeg(x, z, q)[2] < h + 0.6) && !this.walkSegs.some(q => nearestOnSeg(x, z, q)[2] < 1.4);
+    for (const h of Object.values(this.hubs)) {
+      if (ok(h.x, h.z)) continue;
+      search: for (let r = 0.5; r <= 12; r += 0.5) for (let a = 0; a < 24; a++) {
+        const x = h.x + Math.cos((a / 24) * Math.PI * 2) * r, z = h.z + Math.sin((a / 24) * Math.PI * 2) * r;
+        if (ok(x, z)) { h.x = x; h.z = z; break search; }
+      }
+    }
+  }
+  heightAt(x, z, r = 0) {
+    const H = this.hmap;
+    let m = 0;
+    for (let j = Math.floor(z - r - H.z0); j <= Math.floor(z + r - H.z0); j++) for (let i = Math.floor(x - r - H.x0); i <= Math.floor(x + r - H.x0); i++) {
+      if (i >= 0 && j >= 0 && i < H.w && j < H.h) m = Math.max(m, H.y[j * H.w + i]);
+    }
+    return m;
+  }
+
+  // a conduit's path: straight up from each hub, then an arch that stays at least 2 m above anything it crosses
+  conduitCurve(a, b) {
+    const d = Math.hypot(b.x - a.x, b.z - a.z), n = Math.max(12, Math.ceil(d / 1.5)), step = d / n;
+    const arch = 3 + d * 0.16, need = [];
+    for (let k = 0; k <= n; k++) {
+      const t = k / n, x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
+      need.push(Math.min(t, 1 - t) * d < 0.6 ? 0 : this.heightAt(x, z, 1.2) + 2);
+    }
+    // spread each obstacle a few metres either way, then soften, so the cable eases over rather than steps
+    const W = Math.max(1, Math.round(5 / step));
+    const wide = need.map((_, k) => Math.max(...need.slice(Math.max(0, k - W), k + W + 1)));
+    const soft = wide.map((_, k) => { const w = wide.slice(Math.max(0, k - W), k + W + 1); return w.reduce((p, q) => p + q, 0) / w.length; });
+    const pts = [a.clone()];
+    for (let k = 0; k <= n; k++) {
+      const t = k / n, base = a.y + (b.y - a.y) * t + arch * 4 * t * (1 - t);
+      const y = Math.max(base, soft[k], need[k]);
+      if (k === 0) pts.push(new THREE.Vector3(a.x, Math.max(y, soft[1], need[1]), a.z));
+      else if (k === n) pts.push(new THREE.Vector3(b.x, Math.max(y, soft[n - 1], need[n - 1]), b.z));
+      else pts.push(new THREE.Vector3(a.x + (b.x - a.x) * t, y, a.z + (b.z - a.z) * t));
+    }
+    pts.push(b.clone());
+    return new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+  }
+
   buildNetwork(conduits) {
     this.net = new THREE.Group();
     this.scene.add(this.net);
     for (const c of conduits) {
       const a = this.hubs[c.a].clone(), b = this.hubs[c.b].clone();
-      const mid = a.clone().add(b).multiplyScalar(0.5);
-      mid.y += 3 + a.distanceTo(b) * 0.16;
-      const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
+      const curve = this.conduitCurve(a, b);
       const material = new THREE.MeshBasicMaterial({ color: NET_COLORS.ok, transparent: true, opacity: 0.85 });
-      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 64, 0.17, 6), material);
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(64, Math.round(curve.getLength() / 1.5)), 0.17, 6), material);
       const pm = new THREE.MeshBasicMaterial({ color: 0xffffff });
       const packets = [];
       for (let i = 0; i < 4; i++) {
