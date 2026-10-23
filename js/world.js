@@ -1119,7 +1119,18 @@ export class World {
     }
 
     // circuit breakers
-    for (let x = -12; x <= 12; x += 4) this.breaker(g, x, -3);
+    this.breakers = [];
+    for (let x = -12; x <= 12; x += 4) {
+      for (const lx of [-0.55, 0.55]) this.lattice(g, x + lx, -3, 1.9, 0.14, 0.12).position.y = 0.15;
+      box(g, 1.6, 0.14, 0.5, COL.steel, x, 2.05, -3);                 // cross beam
+      const cab = box(g, 0.7, 0.9, 0.6, 0xb9c1c5, x, 0.9, -3.55);     // operating mechanism
+      this.breakers.push(cab);
+      for (const bz of [-0.55, 0, 0.55]) {
+        cyl(g, 0.16, 1.6, COL.porcelain, x + bz, 2.19, -3);            // support insulator
+        add(g, CYL, mat(0xc9cdd0), x + bz, 3.95, -3, 0.2, 0.32, 0.2);  // interrupter head
+        cyl(g, 0.13, 0.9, COL.porcelain, x + bz, 4.11, -3);            // interrupter chamber
+      }
+    }
 
     // busbar gantry (north) and outgoing gantry (east)
     for (const x of [-14, 0.5, 15]) this.lattice(g, x, -9, 9.2, 0.4, 0.3).position.y = 0.15;
@@ -1401,24 +1412,17 @@ export class World {
     for (const bx of [-0.7, 0, 0.7]) cyl(g, 0.11, 0.9, COL.porcelain, x + bx, 3.85, z - 0.55);
   }
 
-  // dead-tank SF6 circuit breaker: one sealed steel tank per phase on a galvanised frame, an entry and an exit
-  // bushing on each tank, the operating-mechanism cabinet in front, on a concrete pad
+  // live-tank circuit breaker as in the main switchyard: steel stand, cross beam, operating mechanism and
+  // three phases of support insulator, interrupter head and chamber
   breaker(g, x, z) {
-    box(g, 3.2, 0.2, 2.6, COL.concrete, x, 0, z);
-    for (const sx of [-1.25, 1.25]) for (const sz of [-0.7, 0.7]) box(g, 0.14, 1.0, 0.14, COL.steel, x + sx, 0.2, z + sz);
-    box(g, 2.8, 0.12, 1.6, COL.steel, x, 1.15, z);                                     // frame deck
-    const tankM = mat(0x9aa5ab, { metalness: 0.55, roughness: 0.45 });
-    for (const px of [-0.95, 0, 0.95]) {
-      const tank = add(g, CYL, tankM, x + px, 1.62, z, 0.36, 1.9, 0.36);
-      tank.rotation.x = Math.PI / 2;
-      for (const ez of [-0.95, 0.95]) add(g, JOINT, tankM, x + px, 1.62, z + ez, 0.36, 0.36, 0.2);   // dished ends
-      for (const bz of [-0.55, 0.55]) {                                                // entry and exit bushings, splayed apart
-        const b = cyl(g, 0.12, 1.6, COL.porcelain, x + px, 1.9, z + bz);
-        b.rotation.x = bz * 0.4;
-        add(g, CYL, mat(0xc9cdd0), x + px, 3.45, z + bz * 1.6, 0.13, 0.18, 0.13);
-      }
+    for (const lx of [-0.55, 0.55]) this.lattice(g, x + lx, z, 1.9, 0.14, 0.12).position.y = 0.15;
+    box(g, 1.6, 0.14, 0.5, COL.steel, x, 2.05, z);
+    box(g, 0.7, 0.9, 0.6, 0xb9c1c5, x, 0.9, z - 0.55);
+    for (const bz of [-0.55, 0, 0.55]) {
+      cyl(g, 0.16, 1.6, COL.porcelain, x + bz, 2.19, z);
+      add(g, CYL, mat(0xc9cdd0), x + bz, 3.95, z, 0.2, 0.32, 0.2);
+      cyl(g, 0.13, 0.9, COL.porcelain, x + bz, 4.11, z);
     }
-    this.cabinet(g, x, 0.2, z - 1.3, 1.0, 1.3, 0.5, 0xb9c1c5, Math.PI);                // operating mechanism
   }
 
   // pad-mounted step-up transformer with radiator fins and HV bushings
