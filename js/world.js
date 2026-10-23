@@ -32,9 +32,9 @@ const LAYOUT = {
   townC: { c: [74, 62], r: 24, hub: [52, 1.2, 50], label: [71, 13, 56] },
   townD: { c: [14, 75], r: 25, hub: [8, 1.2, 52], label: [8, 14, 70] },
   solar: { c: [-84, 70], r: 26, hub: [-62, 1.2, 56], label: [-84, 7, 70] },
-  rnd: { c: [-45, 74], r: 16, hub: [-45, 1.2, 62], label: [-46, 20, 84] },
+  rnd: { c: [-45, 74], r: 16, hub: [-59, 1.2, 66], label: [-46, 20, 84] },            // west of the rectenna field, clear of the access road
   // chapter 3: in the far west, not offset
-  hydro: { c: [-248, 36], r: 30, hub: [-222, 1.2, 22], label: [-262, 31, 36] },
+  hydro: { c: [-248, 36], r: 30, hub: [-218.4, 1.2, 22], label: [-262, 31, 36] },
   factory: { c: [-194, -37], r: 38, hub: [-186, 1.2, -6], label: [-196, 20, -37] },
 };
 
@@ -208,7 +208,7 @@ const valleyZ = x => 36 + 5 * Math.sin((x - DAM_X) * 0.035);
 const RIVER = (() => {
   const ctrl = [];
   for (let x = -352; x <= -262; x += 10) ctrl.push(new THREE.Vector3(x, 0, valleyZ(x)));
-  for (const [x, z] of [[-256, 36], [-249, 34.5], [-243.5, 30], [-240.5, 22], [-240, 8], [-240.5, -10], [-242, -30], [-244, -50], [-245.5, -66], [-246.5, -82]]) ctrl.push(new THREE.Vector3(x, 0, z));
+  for (const [x, z] of [[-256, 36], [-249, 34.5], [-243.5, 30], [-240.5, 22], [-240, 8], [-240.5, -10], [-242, -30], [-244, -50], [-245.5, -64], [-246, -74.6]]) ctrl.push(new THREE.Vector3(x, 0, z));   // mouth at the waterline
   return new THREE.CatmullRomCurve3(ctrl).getSpacedPoints(200).map(p => [p.x, p.z]);
 })();
 function riverDist(x, z) {
@@ -223,7 +223,7 @@ function riverDist(x, z) {
 // ground height in the west: hills rise from x = -236; the valley is carved around the river with a flat floor
 // (reservoir basin upstream, a gorge at the dam, a wide basin below it for the powerhouse, then a river channel)
 function westHeight(x, z) {
-  const ridge = smoothstep(-236, -258, x);
+  const ridge = smoothstep(-236, -258, x) * smoothstep(-79, -58, z);   // the hills slope down to the beach, not into the sea
   if (ridge <= 0) return 0;
   const reservoir = 18 + 14 * smoothstep(-280, -300, x) - 24 * smoothstep(-335, -360, x);
   let w = reservoir + (10 - reservoir) * smoothstep(-284, -276, x);
@@ -2075,10 +2075,6 @@ export class World {
       { pos: at(-59, 0, 70), look: at(-54, 1.2, 68), task: 'Scanning panel temperatures' },
       { pos: at(-56, 0, 82.5), look: at(-53, 2.2, 82.5), task: 'Uploading data to the lab server' },
     ];
-    // data pulses that stream from the equipment into her tablet while she works
-    const pm = new THREE.MeshBasicMaterial({ color: 0x9ff0ff, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
-    this.rData = Array.from({ length: 7 }, (_, i) => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), pm); m.userData.t = i / 7; m.visible = false; this.scene.add(m); return m; });
-    this.rDataMat = pm;
     this.rWork = 0;
     this.rTask = null;
     this.researcherStatus = '';
@@ -2149,7 +2145,7 @@ export class World {
         r.rotation.y += diff * Math.min(1, dt * 8);
       }
     }
-    // working at a stop: turn to the equipment, tablet up, head down, data streaming in
+    // working at a stop: turn to the equipment, tablet up, head down, swiping and tapping the screen
     const task = !moving && this.rWait > 0 ? this.rTask : null;
     if (task) {
       task.t += dt;
@@ -2166,17 +2162,7 @@ export class World {
       if (this.rWork > 0.01) this.poseReading(this.researcherRig, r, this.rWork);
       if (this.researcherRig.screen) this.researcherRig.screen.material.color.setHex(0x7fe3ff).multiplyScalar(0.8 + 0.6 * this.rWork * (0.5 + 0.5 * Math.sin(this._t * 6)));
     }
-    const streaming = task && task.t < task.dur * 0.9 && this.researcherRig;
-    const hand = streaming ? this.researcherRig.bone('RightHand').getWorldPosition(new THREE.Vector3()) : null;
-    for (const d of this.rData) {
-      d.visible = !!streaming;
-      if (!streaming) continue;
-      d.userData.t = (d.userData.t + dt * 0.7) % 1;
-      const t = d.userData.t;
-      d.position.copy(task.look).lerp(hand, t);
-      d.position.y += Math.sin(Math.PI * t) * 1.2;
-      d.scale.setScalar(0.6 + 0.6 * Math.sin(Math.PI * t));
-    }
+
     this.rPhase += dt * (moving ? 9 : 0);
     const swing = moving ? Math.sin(this.rPhase) * 0.55 : 0;
     const k = Math.min(1, dt * 8);
@@ -2191,8 +2177,8 @@ export class World {
     });
   }
 
-  // overlay a "reading the tablet" pose on the animated skeleton: upper arm down by her side, forearm raised
-  // in front of her chest, head tipped down to the screen. Directions are in her own frame (+z ahead, -x right).
+  // overlay a "working on the tablet" pose on the animated skeleton: tablet raised in front of her chest, the
+  // other hand swiping and tapping the screen, head tipped down to read it. Directions are in her own frame (+z ahead, -x right).
   poseReading(rig, holder, k) {
     const q = holder.getWorldQuaternion(new THREE.Quaternion());
     // turn a joint so the segment to its child joint points along dir (the skeleton's bone axes don't follow the limbs)
@@ -2206,9 +2192,13 @@ export class World {
       b.quaternion.copy(b.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(qw));
       b.updateMatrixWorld(true);
     };
-    aim('RightArm', 'RightForeArm', new THREE.Vector3(0.15, -1, 0.25));
-    aim('RightForeArm', 'RightHand', new THREE.Vector3(0.6, 0.35, 1));
-    aim('Head', 'HeadTop_End', new THREE.Vector3(0, 1, 0.45));
+    const t = this._t, swipe = Math.sin(t * 2.6), tap = Math.max(0, Math.sin(t * 7.3)) * (Math.sin(t * 0.9) > 0 ? 1 : 0);
+    aim('RightArm', 'RightForeArm', new THREE.Vector3(0.1, -0.7, 0.7));                              // elbow forward
+    aim('RightForeArm', 'RightHand', new THREE.Vector3(0.5, 0.75 + 0.04 * Math.sin(t * 1.3), 0.45));  // tablet up in front of her
+    // the other hand works the screen: swipes across it, with the odd tap
+    aim('LeftArm', 'LeftForeArm', new THREE.Vector3(-0.2, -0.72, 0.66));
+    aim('LeftForeArm', 'LeftHand', new THREE.Vector3(-0.25 + 0.28 * swipe, 0.62 - 0.12 * tap, 0.62));
+    aim('Head', 'HeadTop_End', new THREE.Vector3(0.04 * swipe, 1, 0.45 + 0.06 * Math.sin(t * 1.7)));     // reading, a small nod
   }
 
   lattice(parent, x, z, h, base, top) {
@@ -2418,7 +2408,7 @@ export class World {
     this.riverMat = new THREE.MeshStandardMaterial({ color: 0x356f73, roughness: 0.1, metalness: 0.15, normalMap: this.riverNormals, normalScale: new THREE.Vector2(0.5, 0.5), side: THREE.DoubleSide });
     const river = RIVER;
     this.riverPts = river;
-    const wAt = t => (t < 0.55 ? 5 : 5 + 4 * smoothstep(0.55, 0.62, t));
+    const wAt = t => (t < 0.55 ? 5 : 5 + 4 * smoothstep(0.55, 0.62, t)) + 7 * smoothstep(0.93, 1, t);   // widening into its mouth
     const bank = this.strip(river, t => wAt(t) + 3, (x, z) => westHeight(x, z) + 0.09, surface('sand', 0xcbb894, { side: THREE.DoubleSide }));
     const water = this.strip(river, wAt, (x, z) => westHeight(x, z) + 0.16, this.riverMat);
     this.scene.add(bank, water);
@@ -2496,15 +2486,15 @@ export class World {
     // through a channel along the powerhouse, the turbine discharge; the river leaves over an end sill.
     for (const z of [29.6, 42.4]) box(g, 18, 2.2, 0.6, conc, -263, 0, z);
     const TW = 0.32;                                                                    // tailwater level
-    const poolShape = new THREE.Shape([[-256, -29.6], [-246, -29.6], [-238.8, -29.6], [-238.8, -57.2], [-245, -57.2], [-245, -43], [-256, -43]].map(([x, z]) => new THREE.Vector2(x, z)));
+    const poolShape = new THREE.Shape([[-256, -29.6], [-238.8, -29.6], [-238.8, -40.6], [-256, -40.6]].map(([x, z]) => new THREE.Vector2(x, z)));
     const tailwater = new THREE.Mesh(new THREE.ShapeGeometry(poolShape).rotateX(-Math.PI / 2), this.riverMat);
     tailwater.position.y = TW;
     tailwater.receiveShadow = true;
     g.add(tailwater);
     box(g, 10.2, 1.8, 0.4, conc, -251, -0.5, 29.4);                                    // basin south wall
-    box(g, 1.2, 1.8, 0.4, conc, -255.6, -0.5, 43);                                     // basin north wall, beside the powerhouse
-    box(g, 0.4, 1.8, 28.4, conc, -238.6, -0.5, 43.2);                                  // channel east wall
-    box(g, 6.8, 1.8, 0.4, conc, -241.8, -0.5, 57.4);                                   // channel head wall
+    box(g, 0.4, 1.8, 11.6, conc, -238.6, -0.5, 35.1);                                  // basin east wall
+    box(g, 17.6, 0.9, 2.2, conc, -247.4, -0.5, 41.7);                                  // tailrace deck: the powerhouse stands on dry ground
+    for (const x of [-253, -250, -247]) box(g, 2.4, 0.5, 0.1, 0x1b2228, x, 0, 40.56);  // draft-tube portals under the deck
     box(g, 7.6, TW + 0.06, 0.7, conc, -242.4, -0.05, 29.4);                            // end sill: the river leaves here
     const fc = document.createElement('canvas');
     fc.width = 64; fc.height = 256;
@@ -2522,7 +2512,7 @@ export class World {
     chute.lookAt(chute.position.clone().add(new THREE.Vector3(0.71, 0.7, 0)));
     chute.rotateZ(Math.PI / 2);
     g.add(chute);
-    const pool = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape([[-256, -29.6], [-246, -29.6], [-246, -43], [-256, -43]].map(([x, z]) => new THREE.Vector2(x, z)))).rotateX(-Math.PI / 2), this.foamMat);
+    const pool = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape([[-256, -29.6], [-246, -29.6], [-246, -40.6], [-256, -40.6]].map(([x, z]) => new THREE.Vector2(x, z)))).rotateX(-Math.PI / 2), this.foamMat);
     pool.position.y = TW + 0.02;                                                       // white water in the basin in a flood
     g.add(pool);
     // name on the downstream face
@@ -2551,7 +2541,6 @@ export class World {
     });
     for (const x of [-253.5, -246.5]) box(g, 0.4, 0.5, 14, steel, x, phTop + 0.6, 50);
     box(g, 7.6, 0.8, 1.2, 0xf2b33d, -250, phTop + 1.1, 47);                            // crane bridge
-    for (const z of [45.5, 50, 54.5]) box(g, 0.2, 1.6, 2.6, dark, -244.9, 0.2, z);    // draft-tube outlets
 
     // dam control room on the north abutment
     const cr = new THREE.Group();
@@ -3232,6 +3221,9 @@ export class World {
       const mid = a.clone().add(b).multiplyScalar(0.5);
       mid.y += 3 + a.distanceTo(b) * 0.16;
       const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
+      // where it crosses a road the cable must clear 5.5 m: raise the arch until it does
+      const lowOverRoad = () => { for (let k = 0; k <= 400; k++) { const q = curve.getPoint(k / 400); if (q.y < 5.8 && this.onRoad(q.x, q.z)) return true; } return false; };
+      for (let n = 0; n < 60 && lowOverRoad(); n++) mid.y += 1;
       const material = new THREE.MeshBasicMaterial({ color: NET_COLORS.ok, transparent: true, opacity: 0.85 });
       const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 64, 0.17, 6), material);
       const pm = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -3244,6 +3236,10 @@ export class World {
       this.net.add(tube);
       this.conduits[c.id] = { curve, tube, material, pm, packets, state: 'ok', len: curve.getLength() };
     }
+  }
+  onRoad(x, z) {
+    return [...this.roadSegs.map((q, i) => [q, i < 2 ? 2.5 : 2]), [this.westRoads[0], 2.5], [this.westRoads[1], 2]]
+      .some(([q, h]) => nearestOnSeg(x, z, q)[2] < h + 0.3);
   }
   setConduit(id, state) {
     const c = this.conduits[id];
