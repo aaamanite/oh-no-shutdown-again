@@ -734,37 +734,55 @@ export class World {
       parent.add(pool);
     }
 
-    // kerbs: concrete edge strips, broken where roads meet and where walkpaths reach the road
-    const kerbGeos = [];
-    this.roadSegs.forEach(([ax, az, bx, bz], i) => {
-      const len = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / len, uz = (bz - az) / len, half = i < 2 ? 2.5 : 2;
+    // kerbs: concrete edge strips along both edges of every road. Each kerb stops exactly at the edge of any road
+    // that crosses or joins it, so corners close into clean L's; free ends run on to cover the corner square.
+    // Walkpaths reaching a road open a gap in the kerb on their side only.
+    const kerbGeos = [], KO = 0.15, KW = 0.25;
+    const halfOf = j => (j < 2 ? 2.5 : 2);
+    const frame = ([ax, az, bx, bz]) => { const len = Math.hypot(bx - ax, bz - az); return { ax, az, len, ux: (bx - ax) / len, uz: (bz - az) / len }; };
+    const F = this.roadSegs.map(frame);
+    // t-range where the line P(t) = (px, pz) + (dx, dz)·t lies on road j's surface
+    const onRoad = (j, px, pz, dx, dz) => {
+      const { ax, az, len, ux, uz } = F[j], h = halfOf(j);
+      let lo = -Infinity, hi = Infinity;
+      for (const [c0, c1, mn, mx] of [
+        [(px - ax) * ux + (pz - az) * uz, dx * ux + dz * uz, 0, len],
+        [(px - ax) * -uz + (pz - az) * ux, dx * -uz + dz * ux, -h, h],
+      ]) {
+        if (Math.abs(c1) < 1e-9) { if (c0 <= mn || c0 >= mx) return null; continue; }
+        let a = (mn - c0) / c1, b = (mx - c0) / c1;
+        if (a > b) [a, b] = [b, a];
+        lo = Math.max(lo, a);
+        hi = Math.min(hi, b);
+      }
+      return hi > lo ? [lo, hi] : null;
+    };
+    F.forEach(({ ax, az, len, ux, uz }, i) => {
+      const half = halfOf(i);
       for (const sd of [-1, 1]) {
-        const ox = -uz * (half + 0.15) * sd, oz = ux * (half + 0.15) * sd;
+        const off = half + KO, ox = -uz * off * sd, oz = ux * off * sd, px = ax + ox, pz = az + oz;
         const gaps = [];
-        this.roadSegs.forEach((q, j) => {
-          if (j === i) return;
-          for (const [px, pz] of [[q[0], q[1]], [q[2], q[3]]]) {
-            const t = (px - ax) * ux + (pz - az) * uz, off = Math.abs((px - ax) * -uz + (pz - az) * ux);
-            if (off < half + 3 && t > -3 && t < len + 3) gaps.push([t - 3.2, t + 3.2]);
-          }
-          const hit = (() => { const rx = bx - ax, rz = bz - az, sx = q[2] - q[0], sz = q[3] - q[1], den = rx * sz - rz * sx; if (Math.abs(den) < 1e-9) return null; const t = ((q[0] - ax) * sz - (q[1] - az) * sx) / den, u = ((q[0] - ax) * rz - (q[1] - az) * rx) / den; return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t * len : null; })();
-          if (hit !== null) gaps.push([hit - 3.2, hit + 3.2]);
-        });
-        for (const q of this.walkSegs) for (const [px, pz] of [[q[0], q[1]], [q[2], q[3]]]) {
-          const t = (px - ax) * ux + (pz - az) * uz, off = Math.abs((px - ax) * -uz + (pz - az) * ux);
-          if (off < half + 1.5 && t > 0 && t < len) gaps.push([t - 1.4, t + 1.4]);
+        F.forEach((_, j) => { if (j !== i) { const r = onRoad(j, px, pz, ux, uz); if (r) gaps.push(r); } });
+        for (const q of this.walkSegs) for (const [wx, wz] of [[q[0], q[1]], [q[2], q[3]]]) {
+          const t = (wx - ax) * ux + (wz - az) * uz, o = ((wx - ax) * -uz + (wz - az) * ux) * sd;
+          if (o > half - 0.5 && o < half + 1.5 && t > 0 && t < len) gaps.push([t - 1.2, t + 1.2]);
         }
         gaps.sort((p, q) => p[0] - q[0]);
-        let t0 = 0;
+        const on = (j, x, z) => { const f = F[j], s2 = (x - f.ax) * f.ux + (z - f.az) * f.uz, d = (x - f.ax) * -f.uz + (z - f.az) * f.ux; return s2 > 0 && s2 < f.len && Math.abs(d) < halfOf(j); };
+        const free = t => !F.some((_, j) => j !== i && on(j, px + ux * t, pz + uz * t));
         const piece = (a, b) => {
-          if (b - a < 0.6) return;
-          const geo = new THREE.BoxGeometry(b - a, 0.16, 0.25);
+          const ext = KO + KW / 2;
+          if (a <= 0 && free(-ext - 0.05)) a = -ext;
+          if (b >= len && free(len + ext + 0.05)) b = len + ext;
+          if (b - a < 0.4) return;
+          const geo = new THREE.BoxGeometry(b - a, 0.16, KW);
           geo.rotateY(-Math.atan2(uz, ux));
-          geo.translate(ax + ux * (a + b) / 2 + ox, 0.08, az + uz * (a + b) / 2 + oz);
+          geo.translate(px + ux * (a + b) / 2, 0.08, pz + uz * (a + b) / 2);
           kerbGeos.push(geo);
         };
-        for (const [a, b] of gaps) { piece(t0, Math.min(a, len)); t0 = Math.max(t0, b); }
-        piece(t0, len);
+        let t0 = 0;
+        for (const [a, b] of gaps) { if (a > t0) piece(t0, Math.min(a, len)); t0 = Math.max(t0, b); }
+        if (t0 < len) piece(t0, len);
       }
     });
     if (kerbGeos.length) {
@@ -925,7 +943,7 @@ export class World {
       [-50, -57.2, -50, 125],                       // IT spine, down to the biogas plant
       [105, -41, 105, 91], [123, -41, 123, 41],     // town streets · Feeders A, B, C
       [-48, 64, 103, 64],                           // southern road · Feeder D
-      [-16, 66, -16, 112], [-14, 109, -8, 109],     // mall access + car park entrance
+      [-16, 66, -16, 111], [-18, 109, -8, 109],     // mall access + car park entrance (meeting in an L)
       [-48, 87.5, -84, 87.5],                       // R&D centre access
     ];
     const road = (ax, az, bx, bz, w) => {
@@ -936,7 +954,8 @@ export class World {
     road(-125, 0, -20, 0, 5);
     road(20, 0, 150, 0, 5);
     for (const q of this.roadSegs.slice(2)) road(...q, 4);
-    for (let x = -122; x < 148; x += 6) if (x < -22 || x > 22) flat(2.2, 0.25, 0xf1ead8, x, 0, 0.09);
+    const junction = x => this.roadSegs.slice(2).some(([ax, az, bx, bz]) => Math.abs(ax - bx) < 0.01 && Math.min(az, bz) <= 0 && Math.max(az, bz) >= 0 && Math.abs(ax - x) < 3.9);
+    for (let x = -122; x < 148; x += 6) if ((x < -22 || x > 22) && !junction(x)) flat(2.2, 0.25, 0xf1ead8, x, 0, 0.09);
 
     // parked cars at HQ
     const rand = rng(7);
