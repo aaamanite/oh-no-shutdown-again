@@ -9,7 +9,8 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
-export const CDN = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/';
+// three.js r160 example assets, self-hosted (textures resized to 1024 px, model trimmed to the clips we play)
+export const CDN = './assets/three-examples/';
 const loader = new THREE.TextureLoader();
 
 // ---------- generated textures ----------

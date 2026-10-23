@@ -6,6 +6,8 @@ A 3D, browser-based OT/ICS security training game. You are the OT Security Lead 
 
 **Play:** https://oh-no-shutdown-again.boringproject.workers.dev — free on Cloudflare, redeployed automatically on every push to `main`. It also runs from any static web server (or GitHub Pages). No build step, no install.
 
+**Self-hosted, crowd-ready:** everything a player needs is served from this site, about 5.5 MB per player. That includes three.js 0.160.0 (`vendor/three/`, copied from the npm package after checking its published SHA-512, MIT licence in `vendor/three/LICENSE`) and the r160 example textures and Xbot model (`assets/three-examples/`). Grass textures are resized to 1024 px and unused animation clips are removed. Only the Google Fonts stylesheet is external.
+
 ## The site
 
 - **Substation** — 132/33 kV switchyard, control house, SCADA control center, OT DMZ and corporate HQ, with four 33 kV feeders.
