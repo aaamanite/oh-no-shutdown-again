@@ -32,9 +32,9 @@ const LAYOUT = {
   townC: { c: [74, 62], r: 24, hub: [52, 1.2, 50], label: [71, 13, 56] },
   townD: { c: [14, 75], r: 25, hub: [8, 1.2, 52], label: [8, 14, 70] },
   solar: { c: [-84, 70], r: 26, hub: [-62, 1.2, 56], label: [-84, 7, 70] },
-  rnd: { c: [-45, 74], r: 16, hub: [-59, 1.2, 66], label: [-46, 20, 84] },            // west of the rectenna field, clear of the access road
+  rnd: { c: [-45, 74], r: 16, hub: [-45, 1.2, 62], label: [-46, 20, 84] },
   // chapter 3: in the far west, not offset
-  hydro: { c: [-248, 36], r: 30, hub: [-218.4, 1.2, 22], label: [-262, 31, 36] },
+  hydro: { c: [-248, 36], r: 30, hub: [-222, 1.2, 22], label: [-262, 31, 36] },
   factory: { c: [-194, -37], r: 38, hub: [-186, 1.2, -6], label: [-196, 20, -37] },
 };
 
@@ -208,7 +208,7 @@ const valleyZ = x => 36 + 5 * Math.sin((x - DAM_X) * 0.035);
 const RIVER = (() => {
   const ctrl = [];
   for (let x = -352; x <= -262; x += 10) ctrl.push(new THREE.Vector3(x, 0, valleyZ(x)));
-  for (const [x, z] of [[-256, 36], [-249, 34.5], [-243.5, 30], [-240.5, 22], [-240, 8], [-240.5, -10], [-242, -30], [-244, -50], [-245.5, -64], [-246, -74.6]]) ctrl.push(new THREE.Vector3(x, 0, z));   // mouth at the waterline
+  for (const [x, z] of [[-256, 36], [-249, 34.5], [-243.5, 30], [-240.5, 22], [-240, 8], [-240.5, -10], [-242, -30], [-244, -50], [-245.5, -64], [-246, -74.6], [-246.4, -81]]) ctrl.push(new THREE.Vector3(x, 0, z));   // runs on under the sea
   return new THREE.CatmullRomCurve3(ctrl).getSpacedPoints(200).map(p => [p.x, p.z]);
 })();
 function riverDist(x, z) {
@@ -1391,6 +1391,40 @@ export class World {
     cyl(g, 0.32, 0.08, 0x50585e, x - 2.5, y0 + H + 2.45, z);
   }
 
+  // power transformer as in the main switchyard: plinth, tank and lid, radiator banks with fans on both
+  // long sides, conservator tank, HV and LV bushings and a control cabinet
+  powerTransformer(g, x, z) {
+    box(g, 4.4, 0.5, 3.4, COL.concrete, x, 0.15, z);
+    box(g, 3.6, 3.1, 2.4, COL.xfmr, x, 0.65, z);
+    box(g, 3.8, 0.12, 2.6, COL.xfmr, x, 3.75, z);
+    this._fin = this._fin || new THREE.BoxGeometry(0.04, 2.5, 1.0);
+    for (const sz of [-1, 1]) {
+      for (let k = -1.5; k <= 1.5; k += 0.22) add(g, this._fin, mat(0x6f7c82), x + k, 2.3, z + sz * 1.85);
+      for (const yy of [1.1, 3.5]) { const hdr = add(g, CYL, mat(0x6f7c82), x, yy, z + sz * 1.85, 0.07, 3.3, 0.07); hdr.rotation.z = Math.PI / 2; }
+      for (const fx of [-0.9, 0.9]) { const fan = add(g, CYL, mat(0x3c444a), x + fx, 0.75, z + sz * 1.85, 0.42, 0.12, 0.42); fan.rotation.x = Math.PI / 2; }
+    }
+    const tank = add(g, CYL, mat(0x8a979c), x + 0.3, 4.75, z - 1.1, 0.42, 2.6, 0.42);    // conservator
+    tank.rotation.z = Math.PI / 2;
+    for (const ex of [-1, 1]) add(g, new THREE.SphereGeometry(0.42, 20, 12), mat(0x8a979c), x + 0.3 + ex * 1.3, 4.75, z - 1.1, 0.35, 1, 1);
+    for (const px of [-0.8, 1.4]) cyl(g, 0.06, 0.95, COL.steelDark, x + px, 3.8, z - 1.1);
+    box(g, 0.7, 1.1, 0.5, 0x9aa3a8, x + 2.2, 0.65, z - 1.4);                              // control cabinet
+    for (const bx of [-1, 0, 1]) { cyl(g, 0.17, 1.9, COL.porcelain, x + bx, 3.85, z + 0.5); add(g, CYL, mat(0xc9cdd0), x + bx, 5.85, z + 0.5, 0.12, 0.2, 0.12); }
+    for (const bx of [-0.7, 0, 0.7]) cyl(g, 0.11, 0.9, COL.porcelain, x + bx, 3.85, z - 0.55);
+  }
+
+  // live-tank circuit breaker as in the main switchyard: steel stand, cross beam, operating mechanism and
+  // three phases of support insulator, interrupter head and chamber
+  breaker(g, x, z) {
+    for (const lx of [-0.55, 0.55]) this.lattice(g, x + lx, z, 1.9, 0.14, 0.12).position.y = 0.15;
+    box(g, 1.6, 0.14, 0.5, COL.steel, x, 2.05, z);
+    box(g, 0.7, 0.9, 0.6, 0xb9c1c5, x, 0.9, z - 0.55);
+    for (const bz of [-0.55, 0, 0.55]) {
+      cyl(g, 0.16, 1.6, COL.porcelain, x + bz, 2.19, z);
+      add(g, CYL, mat(0xc9cdd0), x + bz, 3.95, z, 0.2, 0.32, 0.2);
+      cyl(g, 0.13, 0.9, COL.porcelain, x + bz, 4.11, z);
+    }
+  }
+
   // pad-mounted step-up transformer with radiator fins and HV bushings
   padTransformer(g, x, z, small = false) {
     const w = small ? 1.8 : 2.2, d = small ? 1.3 : 1.5;
@@ -2354,21 +2388,22 @@ export class World {
 
   // ---------- chapter 3: the west — hills and river, Sungai Mutiara hydro, Line 4 and Mutiara Motor Works ----------
   // water surface that follows a centreline: per-point width and height, UVs running along the flow
-  strip(pts, width, yAt, material) {
-    const pos = [], uv = [], nrm = [], idx = [];
+  strip(pts, width, yAt, material, tint = null) {
+    const pos = [], uv = [], nrm = [], idx = [], col = [];
     let run = 0;
     pts.forEach(([x, z], i) => {
       const [px, pz] = pts[Math.max(0, i - 1)], [nx, nz] = pts[Math.min(pts.length - 1, i + 1)];
       const L = Math.hypot(nx - px, nz - pz) || 1, ux = (nx - px) / L, uz = (nz - pz) / L;
       if (i) run += Math.hypot(x - pts[i - 1][0], z - pts[i - 1][1]);
       const w = typeof width === 'function' ? width(i / (pts.length - 1)) : width, y = yAt(x, z);
-      for (const sd of [-1, 1]) { pos.push(x + uz * (w / 2) * sd, y, z - ux * (w / 2) * sd); uv.push((sd + 1) / 2, run / 10); nrm.push(0, 1, 0); }
+      for (const sd of [-1, 1]) { pos.push(x + uz * (w / 2) * sd, y, z - ux * (w / 2) * sd); uv.push((sd + 1) / 2, run / 10); nrm.push(0, 1, 0); if (tint) col.push(...tint(x, z)); }
       if (i) { const a = (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
     });
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    if (tint) geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
     geo.setIndex(idx);
     const m = new THREE.Mesh(geo, material);
     m.receiveShadow = true;
@@ -2391,7 +2426,7 @@ export class World {
     const c = new THREE.Color(), meadow = new THREE.Color(0xa6b97c), forest = new THREE.Color(0x5b7d44), rock = new THREE.Color(0x9d968a);
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), z = pos.getZ(i), y = westHeight(x, z);
-      pos.setY(i, y - 0.06);
+      pos.setY(i, z < -74 ? -3 : y - 0.06);                       // seabed offshore, well under the wave troughs
       const slope = Math.hypot(westHeight(x + 1, z) - y, westHeight(x, z + 1) - y);
       c.copy(meadow).lerp(forest, smoothstep(1.5, 9, y)).lerp(rock, smoothstep(0.8, 1.6, slope) * 0.8);
       c.toArray(col, i * 3);
@@ -2409,8 +2444,14 @@ export class World {
     const river = RIVER;
     this.riverPts = river;
     const wAt = t => (t < 0.55 ? 5 : 5 + 4 * smoothstep(0.55, 0.62, t)) + 7 * smoothstep(0.93, 1, t);   // widening into its mouth
-    const bank = this.strip(river, t => wAt(t) + 3, (x, z) => westHeight(x, z) + 0.09, surface('sand', 0xcbb894, { side: THREE.DoubleSide }));
-    const water = this.strip(river, wAt, (x, z) => westHeight(x, z) + 0.16, this.riverMat);
+    // sandy banks stop where the beach begins; past the waterline the river surface slopes under the sea, so
+    // river and sea meet with no edge between them
+    const onLand = river.findIndex(([, z]) => z < -67), bankPts = river.slice(0, onLand);
+    const bank = this.strip(bankPts, t => wAt((t * (bankPts.length - 1)) / (river.length - 1)) + 3, (x, z) => westHeight(x, z) + 0.09, surface('sand', 0xcbb894, { side: THREE.DoubleSide }));
+    const mouthMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.1, metalness: 0.15, normalMap: this.riverNormals, normalScale: new THREE.Vector2(0.5, 0.5), side: THREE.DoubleSide, vertexColors: true, transparent: true, depthWrite: false });
+    const riverC = new THREE.Color(0x356f73), seaC = new THREE.Color(0x5aa9a6), cc = new THREE.Color();
+    const tint = (x, z) => { cc.copy(riverC).lerp(seaC, smoothstep(-58, -75, z)); return [cc.r, cc.g, cc.b, 1 - smoothstep(-75.2, -81, z)]; };
+    const water = this.strip(river, wAt, (x, z) => westHeight(x, z) + 0.16 - Math.max(0, -75.8 - z) * 0.07, mouthMat, tint);
     this.scene.add(bank, water);
 
     // rainforest on the slopes, kept off the dam site and below-water ground
@@ -2533,14 +2574,35 @@ export class World {
       add(g, JOINT, mat(0x5a6a73), toe.x, toe.y, toe.z, 1.05, 1.05, 1.05);
       for (let t = 0.15; t < 1; t += 0.28) { const p = top.clone().lerp(toe, t); box(g, 1.4, 1.2, 2.6, conc, p.x - 0.4, p.y - 2.3, z); }   // anchor saddles
     }
-    // powerhouse at the toe: three 20 MW Francis units, gantry crane rails on the roof, tailrace to the river
-    const phTop = this.structure(g, {
-      x: -250, z: 50, w: 10, d: 14, h: 11, cladding: 0xbfc6ca,
-      windows: [{ side: 'e', y: [2.6, 6.6], count: 4, ww: 1.6, wh: 2.4 }, { side: 'n', y: [6.6], count: 3, ww: 1.6, wh: 2 }],
-      doors: [{ side: 'n', at: 0, w: 3.6, h: 4.4, canopy: false }],
-    });
-    for (const x of [-253.5, -246.5]) box(g, 0.4, 0.5, 14, steel, x, phTop + 0.6, 50);
-    box(g, 7.6, 0.8, 1.2, 0xf2b33d, -250, phTop + 1.1, 47);                            // crane bridge
+    // powerhouse at the toe: a generator hall glazed on its east side, so the three 20 MW units can be seen —
+    // each generator sits on its concrete pit above the Francis turbine its penstock feeds
+    const clad = surface('metal', 0xbfc6ca, { metalness: 0.45, roughness: 0.5 });
+    box(g, 10.5, 0.3, 14.5, COL.concrete, -250, 0, 50);
+    box(g, 0.3, 11, 14, clad, -254.85, 0.3, 50);                                      // west wall (penstocks enter here)
+    for (const z of [43.15, 56.85]) box(g, 10, 11, 0.3, clad, -250, 0.3, z);           // south and north walls
+    box(g, 0.3, 1.2, 14, clad, -245.15, 0.3, 50);                                     // east sill
+    box(g, 0.3, 2.2, 14, clad, -245.15, 9.1, 50);                                     // east top band
+    for (let z = 43.2; z <= 56.85; z += 13.6 / 6) box(g, 0.34, 7.6, 0.16, 0x2e3338, -245.15, 1.5, z);
+    const hallGlass = new THREE.Mesh(new THREE.PlaneGeometry(13.6, 7.6), new THREE.MeshStandardMaterial({ color: 0xa9cddb, transparent: true, opacity: 0.2, roughness: 0.05, metalness: 0.3, depthWrite: false }));
+    hallGlass.position.set(-245.06, 5.3, 50);
+    hallGlass.rotation.y = Math.PI / 2;
+    g.add(hallGlass);
+    box(g, 10, 0.3, 14, 0x5b6166, -250, 11.3, 50);                                    // roof
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) cyl(g, 0.025, 1.0, 0xb87333, -250 + sx * 4.7, 11.6, 50 + sz * 6.7);
+    box(g, 3.6, 4.4, 0.08, 0x5d666d, -250, 0.3, 57.05);                                 // roller door on the north wall
+    box(g, 9.4, 0.04, 13.4, 0xa3a9ad, -250, 0.3, 50);                                 // hall floor
+    for (const x of [-254.35, -245.65]) box(g, 0.3, 0.4, 13.4, steel, x, 9.2, 50);     // crane rails
+    box(g, 8.4, 0.8, 1.2, 0xf2b33d, -250, 9.6, 48.2);                                 // overhead crane
+    cyl(g, 0.04, 2.2, COL.steelDark, -250, 7.4, 48.2);
+    for (const z of [45, 50, 55]) box(g, 1.2, 0.12, 8, 0xf2c230, -250, 11.05, z);      // high-bay lights
+    for (const z of [46.5, 50, 53.5]) {
+      cyl(g, 1.95, 0.5, COL.concrete, -249.6, 0.3, z);                                 // generator pit
+      cyl(g, 1.7, 1.6, 0x1f4e8c, -249.6, 0.8, z);                                       // stator housing
+      cyl(g, 1.72, 0.25, 0xf2b33d, -249.6, 2.0, z);                                     // ONSA band
+      cyl(g, 1.2, 0.35, 0x2e5e9e, -249.6, 2.4, z);                                      // top bracket cover
+      cyl(g, 0.55, 0.7, 0xc9cdd0, -249.6, 2.75, z);                                     // exciter
+      this.cabinet(g, -246.6, 0.34, z, 0.9, 1.7, 0.6, 0x9aa3a8, -Math.PI / 2);          // unit control cabinet
+    }
 
     // dam control room on the north abutment
     const cr = new THREE.Group();
@@ -2551,24 +2613,12 @@ export class World {
     // switchyard on the east bank: three 11/132 kV step-up transformers, breakers, the Line 4 gantry
     box(g, 20, 0.15, 18, COL.gravel, -222, 0, 37);
     this.hvFence(g, -232, 28, -212, 46, { side: 'zmin', at: -222, w: 4 });
-    const finGeo = new THREE.BoxGeometry(0.04, 2, 0.8);
-    for (const x of [-227, -221, -215]) {
-      box(g, 3.6, 0.4, 3, COL.concrete, x, 0.15, 33);
-      box(g, 2.8, 2.6, 2, COL.xfmr, x, 0.55, 33);
-      for (const sd of [-1, 1]) for (let k = -1.1; k <= 1.1; k += 0.22) add(g, finGeo, mat(0x6f7c82), x + k, 1.9, 33 + sd * 1.45);
-      for (const bx of [-0.7, 0, 0.7]) cyl(g, 0.14, 1.5, COL.porcelain, x + bx, 3.15, 33.4);
-      this.cabinet(g, x + 1.9, 0.15, 31.2, 0.6, 1, 0.45, 0x9aa3a8);
-    }
-    for (const x of [-227, -221, -215]) {
-      this.lattice(g, x, 39.5, 1.9, 0.14, 0.12).position.y = 0.15;
-      for (const bz of [-0.55, 0, 0.55]) { cyl(g, 0.15, 1.5, COL.porcelain, x + bz, 2.1, 39.5); cyl(g, 0.12, 0.9, COL.porcelain, x + bz, 3.8, 39.5); }
-    }
+    for (const x of [-228, -222.5, -217]) { this.powerTransformer(g, x, 33); this.breaker(g, x, 40); }
     for (const z of [31, 43]) this.lattice(g, -213.5, z, 9.6, 0.4, 0.3).position.y = 0.15;
     this.girder(g, new THREE.Vector3(-213.5, 9.6, 30.7), new THREE.Vector3(-213.5, 9.6, 43.3), 0.3);
     this.hydroGantry = [[-213.5, 8.9, 39.6], [-213.5, 8.9, 34.4], [-213.5, 8.2, 38.1], [-213.5, 8.2, 35.9]].map(p => new THREE.Vector3(...p));
-    // generator cables cross the tailrace on a cable bridge from the powerhouse
-    for (const x of [-236.6, -233.2]) this.lattice(g, x, 44, 5.6, 0.3, 0.25).position.y = 0.15;  // clear of the tailrace channel
-    box(g, 12.6, 0.7, 1.1, steel, -238.6, 5.75, 44);                                    // between the two window rows
+    // the generator cables run underground: a buried trench with concrete covers from the powerhouse to the switchyard
+    for (let x = -244.4; x < -232.4; x += 1.2) box(g, 1.15, 0.08, 1.0, 0xbdb7aa, x + 0.6, 0.02, 44);
     box(g, 20, 0.12, 3, 0x6f767c, -222, 0.15, 25.5);                               // apron at the gate
     this.sign(-216, 1.4, 26.4, 7, 2.2, 0, [
       { text: 'ONSA Power & Co.', size: 124, y: 105, color: BRAND.amber },
@@ -2736,11 +2786,7 @@ export class World {
     // the 132/33 kV intake substation, fed by the Line 4 tap
     box(g, 14, 0.15, 12, COL.gravel, -165, 0, -16);
     this.hvFence(g, -172, -22, -158, -10, { side: 'zmax', at: -165, w: 4 });
-    for (const x of [-168.5, -161.5]) {
-      box(g, 4, 0.4, 3.4, COL.concrete, x, 0.15, -18.5);
-      box(g, 3, 2.8, 2.2, COL.xfmr, x, 0.55, -18.5);
-      for (const bx of [-0.7, 0, 0.7]) cyl(g, 0.14, 1.5, COL.porcelain, x + bx, 3.35, -18);
-    }
+    for (const x of [-168.5, -161.5]) this.powerTransformer(g, x, -18);
     for (const x of [-169.5, -160.5]) this.lattice(g, x, -12, 9, 0.35, 0.28).position.y = 0.15;
     this.girder(g, new THREE.Vector3(-169.8, 9, -12), new THREE.Vector3(-160.2, 9, -12), 0.28);
     this.intakeGantry = [[-162, 8.3, -12], [-168, 8.3, -12], [-163.5, 7.6, -12], [-166.5, 7.6, -12]].map(p => new THREE.Vector3(...p));
@@ -3221,9 +3267,6 @@ export class World {
       const mid = a.clone().add(b).multiplyScalar(0.5);
       mid.y += 3 + a.distanceTo(b) * 0.16;
       const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
-      // where it crosses a road the cable must clear 5.5 m: raise the arch until it does
-      const lowOverRoad = () => { for (let k = 0; k <= 400; k++) { const q = curve.getPoint(k / 400); if (q.y < 5.8 && this.onRoad(q.x, q.z)) return true; } return false; };
-      for (let n = 0; n < 60 && lowOverRoad(); n++) mid.y += 1;
       const material = new THREE.MeshBasicMaterial({ color: NET_COLORS.ok, transparent: true, opacity: 0.85 });
       const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 64, 0.17, 6), material);
       const pm = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -3236,10 +3279,6 @@ export class World {
       this.net.add(tube);
       this.conduits[c.id] = { curve, tube, material, pm, packets, state: 'ok', len: curve.getLength() };
     }
-  }
-  onRoad(x, z) {
-    return [...this.roadSegs.map((q, i) => [q, i < 2 ? 2.5 : 2]), [this.westRoads[0], 2.5], [this.westRoads[1], 2]]
-      .some(([q, h]) => nearestOnSeg(x, z, q)[2] < h + 0.3);
   }
   setConduit(id, state) {
     const c = this.conduits[id];

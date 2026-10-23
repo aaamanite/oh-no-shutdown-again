@@ -1086,7 +1086,7 @@ const protoButtons = ids => `<div class="row" style="flex-wrap:wrap;gap:5px">${i
 // plant facts for the chapter 3 sites
 function westHTML(id) {
   const rows = id === 'hydro'
-    ? [['Units', '3 × 20 MW Francis turbines'], ['Reservoir', S.storming ? 'Rising · spillway gates open' : '212.4 m · normal'], ['Dam', '21 m concrete gravity, 3 radial gates'], ['Export', '132 kV Line 4']]
+    ? [['Units', '3 × 20 MW Francis turbines'], ['Generators', '3 × 22 MVA, 11 kV · in the glazed generator hall'], ['Reservoir', S.storming ? 'Rising · spillway gates open' : '212.4 m · normal'], ['Dam', '21 m concrete gravity, 3 radial gates'], ['Export', '132 kV Line 4']]
     : [['Supply', S.feeders.E.on ? 'Line 4 tap · energized' : 'De-energized'], ['Output', '54 cars an hour on two lines'], ['People', '2,600 on three shifts'], ['Shipping', 'Ro-ro jetty · car carrier Mutiara Spirit']];
   return `<div class="sec"><small>Plant</small></div><div class="box"><div class="kv" style="margin:0">${rows.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('')}</div></div>
     ${id === 'factory' ? `<div class="sec"><small>Protocols on the plant network · tap for security concerns</small></div>${protoButtons(FACTORY_PROTOCOLS.map(p => p.id))}` : ''}
