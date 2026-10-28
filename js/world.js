@@ -2527,15 +2527,15 @@ export class World {
     // through a channel along the powerhouse, the turbine discharge; the river leaves over an end sill.
     for (const z of [29.6, 42.4]) box(g, 18, 2.2, 0.6, conc, -263, 0, z);
     const TW = 0.32;                                                                    // tailwater level
-    const poolShape = new THREE.Shape([[-256, -29.6], [-238.8, -29.6], [-238.8, -40.6], [-256, -40.6]].map(([x, z]) => new THREE.Vector2(x, z)));
+    const poolShape = new THREE.Shape([[-256, -29.6], [-238.8, -29.6], [-238.8, -42.1], [-256, -42.1]].map(([x, z]) => new THREE.Vector2(x, z)));
     const tailwater = new THREE.Mesh(new THREE.ShapeGeometry(poolShape).rotateX(-Math.PI / 2), this.riverMat);
     tailwater.position.y = TW;
     tailwater.receiveShadow = true;
     g.add(tailwater);
     box(g, 10.2, 1.8, 0.4, conc, -251, -0.5, 29.4);                                    // basin south wall
-    box(g, 0.4, 1.8, 11.6, conc, -238.6, -0.5, 35.1);                                  // basin east wall
-    box(g, 17.6, 0.9, 2.2, conc, -247.4, -0.5, 41.7);                                  // tailrace deck: the powerhouse stands on dry ground
-    for (const x of [-253, -250, -247]) box(g, 2.4, 0.5, 0.1, 0x1b2228, x, 0, 40.56);  // draft-tube portals under the deck
+    box(g, 0.4, 1.8, 13.3, conc, -238.6, -0.5, 35.95);                                 // basin east wall
+    box(g, 17.6, 0.9, 0.7, conc, -247.4, -0.5, 42.45);                                 // tailrace edge: the basin runs under the whole chute, up to the powerhouse
+    for (const x of [-253, -250, -247]) box(g, 2.4, 0.5, 0.1, 0x1b2228, x, 0, 42.06);  // draft-tube portals under the edge
     box(g, 7.6, TW + 0.06, 0.7, conc, -242.4, -0.05, 29.4);                            // end sill: the river leaves here
     box(g, 5, 0.14, 32, conc, -255.5, 0, 42);                                          // concrete toe apron along the dam foot, both sides of the spillway
     // flood flow, shown when the gates open in a storm: a sheet of streaky white water through each gate bay, down
@@ -2585,9 +2585,9 @@ export class World {
     foamTex.wrapS = foamTex.wrapT = THREE.RepeatWrapping;
     foamTex.repeat.set(2, 1.4);
     this.foamMat = new THREE.MeshStandardMaterial({ map: foamTex, transparent: true, opacity: 0, roughness: 0.4, depthWrite: false, vertexColors: true });
-    const pool = new THREE.PlaneGeometry(15, 10.4, 15, 4).rotateX(-Math.PI / 2).translate(-248.6, TW + 0.03, 35.1);
+    const pool = new THREE.PlaneGeometry(15, 12.2, 15, 5).rotateX(-Math.PI / 2).translate(-248.6, TW + 0.03, 36);
     const pp = pool.attributes.position, pc = [];
-    for (let i = 0; i < pp.count; i++) { const x = pp.getX(i), z = pp.getZ(i); pc.push(1, 1, 1, (1 - smoothstep(-254.5, -242, x)) * smoothstep(29.6, 31.2, z) * (1 - smoothstep(39, 40.5, z))); }
+    for (let i = 0; i < pp.count; i++) { const x = pp.getX(i), z = pp.getZ(i); pc.push(1, 1, 1, (1 - smoothstep(-254.5, -242, x)) * smoothstep(29.6, 31.2, z) * (1 - smoothstep(40.6, 42, z))); }
     pool.setAttribute('color', new THREE.Float32BufferAttribute(pc, 4));
     g.add(new THREE.Mesh(pool, this.foamMat));
     // spray thrown up where the jet leaves the flip bucket
