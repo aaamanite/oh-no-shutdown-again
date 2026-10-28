@@ -57,6 +57,7 @@ const S = {
   stats: { revenue: 0, fines: 0, spent: 0, response: 0, outageMin: 0, prevented: 0, customerMin: 0 },
   questIdx: 0, seen: new Set(), fresh: new Set(),
   alarmsSeen: new Set(), threatsSeen: new Set(),   // false alarms already played; chapter threats already met
+  badges: new Map(),                 // detection badges earned: scenario id -> { day, clock }
   chapter: 0,                        // highest chapter reached (0-based); unlocks sites, feeders, controls, events
   eFrom: 0, eLost: false,            // Feeder E (the factory): when it came online, lost supply today?
   night: null,                       // 20:00-06:00 watch: { ok } while it runs
@@ -440,11 +441,6 @@ function applyChapter(reveal) {
   refreshLabels();
   renderHUD();
 }
-function threatHTML(ch) {
-  const t = SCENARIOS.filter(sc => !sc.benign && (sc.ch || 0) === ch);
-  if (t.length) return `<p class="cc-threat">${icon('radar')}<span><b>New threat:</b> ${t.map(sc => esc(sc.title)).join(' · ')}</span></p>`;
-  return ch === CHAPTERS.length - 1 ? `<p class="cc-threat">${icon('radar')}<span><b>The judges’ exam:</b> all ${SCENARIOS.filter(sc => !sc.benign).length} threats are in play</span></p>` : '';
-}
 function showChapterCard(ch) {
   const c = CHAPTER_INTRO[ch];
   if (!S.card) S.cardSpeed = S.speed;
@@ -456,7 +452,6 @@ function showChapterCard(ch) {
     <h3>${esc(CHAPTERS[ch])}</h3>
     <p>${esc(c.text)}</p>
     <div class="cc-list">${QUESTS.filter(q => q.ch === ch).map(q => `<span>${icon(q.icon)}${esc(q.title)}</span>`).join('')}</div>
-    ${threatHTML(ch)}
     <div class="modal-foot"><button class="btn primary big" data-act="chapter-go:${ch}">${icon('arrow')} Let’s go</button></div></div>`);
   Snd.fanfare();
 }
@@ -480,6 +475,8 @@ function finale() {
       <div class="kpi"><small>Security level</small><b>${securityLevel()}</b></div>
       <div class="kpi"><small>XP</small><b>${S.xp}</b></div>
     </div>
+    <div class="cert-badges"><small>Detection badges · ${S.badges.size}/${Object.keys(BADGES).length}</small>
+      <div>${Object.keys(BADGES).map(id => `<span class="b-medal${S.badges.has(id) ? ' on' : ''}" title="${S.badges.has(id) ? esc(BADGES[id].name) : 'Not earned'}">${icon(S.badges.has(id) ? BADGES[id].icon : 'lock')}</span>`).join('')}</div></div>
     <div class="modal-foot"><button class="btn ghost" data-act="restart">Start a new career</button><button class="btn primary" data-act="sandbox">Keep running the grid</button></div></div>`);
   Snd.fanfare();
 }
@@ -610,10 +607,7 @@ function triggerScheduled(now) {
   const scn = pickScenario(first);
   S.recent = [scn.id, ...S.recent].slice(0, 2);
   if (scn.benign) S.alarmsSeen.add(scn.id);
-  else if (!S.threatsSeen.has(scn.id)) {
-    S.threatsSeen.add(scn.id);
-    if (scn.ch) toast(`New threat in Chapter ${pad(scn.ch + 1)}: ${esc(scn.short)}`, 'warn', 'radar');
-  }
+  else S.threatsSeen.add(scn.id);
   if (isBlocked(scn)) {
     S.stats.prevented++;
     S.reliability = clamp(S.reliability + 2, 0, 100);
@@ -706,6 +700,21 @@ function markClue(i, kind) {
 const LETTERS = ['A', 'B', 'C', 'D', 'F'];
 const letterOf = s => (s >= 85 ? 'A' : s >= 70 ? 'B' : s >= 55 ? 'C' : s >= 40 ? 'D' : 'F');
 
+// one detection badge per real attack, for classifying every attack line as True Positive with no wrong calls
+const BADGES = {
+  'vendor-rdp': { icon: 'lock', name: 'Remote Access Watcher' },
+  'exposed-rtu': { icon: 'globe', name: 'Exposure Hunter' },
+  'ransomware': { icon: 'shield', name: 'Boundary Guardian' },
+  'goose-trip': { icon: 'zap', name: 'Station Bus Sentinel' },
+  'usb-relay': { icon: 'search', name: 'Settings Detective' },
+};
+function badgeHTML(id, big = false) {
+  const b = BADGES[id], got = S.badges.get(id), scn = scnById(id);
+  return got
+    ? `<div class="badge got${big ? ' big' : ''}"><span class="b-medal">${icon(b.icon)}</span><div class="grow"><small>${big ? 'Badge earned' : `Day ${got.day} · ${got.clock}`}</small><b>${esc(b.name)}</b><div class="tiny">Detected: ${esc(scn.title)}</div></div></div>`
+    : `<div class="badge"><span class="b-medal">${icon('lock')}</span><div class="grow"><small>Not earned yet</small><b>Hidden threat</b><div class="tiny muted">Detect a real attack to unlock</div></div></div>`;
+}
+
 function resolve(resp) {
   const inc = S.incident;
   if (!inc) return;
@@ -717,6 +726,8 @@ function resolve(resp) {
   const fpOk = [...inc.fps].filter(i => !scn.clues[i].attack).length; // noise correctly called False Positive
   const miss = [...inc.fps].filter(i => scn.clues[i].attack).length;  // attack lines wrongly dismissed
   const n = attackIdx.length, m = scn.clues.length - n;
+  const badge = BADGES[scn.id] && !S.badges.has(scn.id) && n && hit === n && !fp && !miss;
+  if (badge) S.badges.set(scn.id, { day: dayOf(S.T), clock: clockOf(S.T) });
 
   const respPts = scn.benign
     ? { best: 60, weak: 24, overreact: 8, timeout: 20 }[q] ?? 20
@@ -802,7 +813,7 @@ function resolve(resp) {
     scnId: scn.id, title: scn.title, drill: inc.drill, grade, score, q,
     respId: resp?.id || null, hit, n, fp, used: Math.round(inc.total - inc.left),
     feeders, hours, fine, cost, rel: Math.round(rel), note, damage, xp, streak: S.streak,
-    tags: [...inc.tags], fps: [...inc.fps], fpOk, miss, m, clues: scn.clues, day: dayOf(S.T), clock: clockOf(S.T), startT: inc.startT,
+    tags: [...inc.tags], fps: [...inc.fps], fpOk, miss, m, badge, clues: scn.clues, day: dayOf(S.T), clock: clockOf(S.T), startT: inc.startT,
   };
   S.history.push(record);
 
@@ -818,6 +829,7 @@ function resolve(resp) {
   toast(`${inc.drill ? 'Drill' : 'Incident'} closed · grade ${grade}`, grade <= 'B' ? 'good' : 'bad', 'shield');
   alertLog(`${inc.drill ? 'Drill' : 'Incident'} closed: ${scn.title} · grade ${grade}`, grade <= 'B' ? 'good' : 'bad');
   openPanel('debrief', S.history.length - 1);
+  if (badge) { toast(`Badge earned: ${esc(BADGES[scn.id].name)}`, 'good', 'trophy'); Snd.fanfare(); }
   questEvent('incident');
   if (grade === 'A' || grade === 'B') questEvent('gradeB');
   if (grade === 'A' && !inc.drill) questEvent('gradeA');
@@ -1008,6 +1020,8 @@ const PANELS = {
           <div class="kpi"><small>Streak · damaged assets</small><b>${S.streak} · ${Object.keys(S.damaged).length}</b></div>
         </div>
         <div class="box"><small>Grid reliability</small><p style="margin:4px 0 0">${Math.round(S.reliability)}/100 — drops during outages and bad calls, recovers while every feeder is energized.</p></div>
+        <div class="sec"><small>Detection badges · ${S.badges.size}/${Object.keys(BADGES).length}</small></div>
+        <div class="badges">${Object.keys(BADGES).map(id => badgeHTML(id)).join('')}</div>
         ${historyHTML()}`,
     };
   },
@@ -1061,7 +1075,7 @@ const PANELS = {
     const outage = r.hours > 0 ? `Feeder ${r.feeders.join(' + ')} · ${dur(r.hours * 60)}` : 'None';
     return {
       eyebrow: `${r.drill ? 'Drill' : 'Incident'} debrief · Day ${r.day} · ${r.clock}`, title: `Shift grade ${r.grade}`,
-      html: `<div class="row"><div class="grade ${r.grade}">${r.grade}</div><div class="grow"><b>${esc(scn.title)}</b><div class="tiny muted">Score ${r.score}/100${r.drill ? ' · drill, no costs applied' : ''}</div></div></div>
+      html: `${r.badge ? badgeHTML(r.scnId, true) : ''}<div class="row"><div class="grade ${r.grade}">${r.grade}</div><div class="grow"><b>${esc(scn.title)}</b><div class="tiny muted">Score ${r.score}/100${r.drill ? ' · drill, no costs applied' : ''}</div></div></div>
         <div class="kv">
           <span>Attack lines → True Positive</span><span class="${r.n && r.hit < r.n ? 'bad' : 'good'}">${scn.benign ? '— (no attack)' : `${r.hit}/${r.n}`}</span>
           <span>Benign lines → False Positive</span><span class="${(r.fpOk ?? 0) < (r.m ?? 0) ? 'bad' : 'good'}">${r.fpOk ?? 0}/${r.m ?? 0}</span>

@@ -342,9 +342,25 @@ body:has(#sheet:not([hidden])) #action { display: none; }
 .cc-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .cc-list span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(255, 255, 255, .05); box-shadow: inset 0 0 0 1px var(--line); font-size: 12.5px; }
 .cc-list .ic { width: 14px; height: 14px; color: var(--lime); }
-.chapter-card .cc-threat { display: inline-flex; align-items: center; gap: 8px; margin: 16px auto 4px; padding: 8px 12px; border-radius: 10px; background: rgba(255, 107, 94, .1); box-shadow: inset 0 0 0 1px rgba(255, 107, 94, .35); color: #ffd2cc; font-size: 13px; }
-.cc-threat .ic { width: 15px; height: 15px; color: #ff8a7e; flex: none; }
 .chapter-card .modal-foot, .certificate .modal-foot { justify-content: center; }
+/* detection badges: earned once per real attack */
+.badges { display: grid; gap: 8px; margin-bottom: 10px; }
+.badge { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, .03); box-shadow: inset 0 0 0 1px var(--line); }
+.badge b { display: block; font-family: var(--head); font-size: 15px; margin: 1px 0; }
+.badge small { color: var(--muted, #8fa3a0); }
+.b-medal { flex: none; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: rgba(255, 255, 255, .06); box-shadow: inset 0 0 0 1px var(--line); color: #7d8c8a; }
+.b-medal .ic { width: 20px; height: 20px; }
+.badge.got { background: linear-gradient(135deg, rgba(200, 238, 58, .14), rgba(200, 238, 58, .03)); box-shadow: inset 0 0 0 1px rgba(200, 238, 58, .45); }
+.badge.got small { color: var(--lime); }
+.badge.got .b-medal { background: radial-gradient(circle at 35% 30%, #f3ff9a, var(--lime) 55%, #8fb21c); color: #142019; box-shadow: 0 0 18px rgba(200, 238, 58, .45), inset 0 0 0 2px rgba(255, 255, 255, .35); }
+.badge.big { margin-bottom: 12px; padding: 14px; animation: badge-in .6s cubic-bezier(.2, 1.4, .4, 1) both; }
+.badge.big .b-medal { width: 56px; height: 56px; }
+.badge.big .b-medal .ic { width: 26px; height: 26px; }
+.badge.big b { font-size: 18px; }
+.cert-badges { margin: 4px 0 14px; }
+.cert-badges > div { display: flex; justify-content: center; gap: 10px; margin-top: 8px; }
+.b-medal.on { background: radial-gradient(circle at 35% 30%, #f3ff9a, var(--lime) 55%, #8fb21c); color: #142019; box-shadow: 0 0 18px rgba(200, 238, 58, .45), inset 0 0 0 2px rgba(255, 255, 255, .35); }
+@keyframes badge-in { from { transform: scale(.85); opacity: 0; } to { transform: none; opacity: 1; } }
 .certificate { position: relative; padding: 18px 10px 4px; border-radius: 18px; box-shadow: inset 0 0 0 2px var(--edge), 0 0 40px rgba(200, 238, 58, .12); }
 .certificate img { display: block; height: 54px; margin: 0 auto 10px; }
 .certificate > small { display: block; }
