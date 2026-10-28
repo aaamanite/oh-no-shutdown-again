@@ -868,7 +868,7 @@ export const CHAPTERS = ['First shift at Bukit Mutiara', 'Harden the station', '
 // shown on the title card when a chapter opens; focus = where the camera flies
 export const CHAPTER_INTRO = [
   null,
-  null,
+  { focus: 'ctrl', icon: 'shield', text: 'You kept the lights on through your first day. Now the board gives you a budget to harden PMU Bukit Mutiara: more controls, fewer ways in. Internet scanners never sleep, so find anything in the station that answers from outside.' },
   { focus: 'hydro', icon: 'droplet', text: 'The Sungai Mutiara hydro station is online: a 21 m dam in the hills, three turbines and a brand-new 132 kV Line 4. On its way to Bukit Mutiara the line feeds Mutiara Motor Works, the car factory by the harbour: 2,600 people, 400 welding robots and a ship of new cars leaving every week. Its robots, paint shop DCS and automated warehouse now feed your alerts. A bigger grid means more revenue and more to defend.' },
   { focus: 'hydro', icon: 'cloud', text: 'The north-east monsoon has arrived. Storms roll in off the sea, the reservoir is rising and lightning hunts for your lines. In bad weather, real faults and real attacks look alike. Stay calm and read the evidence.' },
   { focus: 'rnd', icon: 'satellite', text: 'Prof. Dr. Hanafiya\u2019s SBSP-1 satellite is switching from tests to full power. For the first time, energy collected in space is sold to the grid, day and night. The beam never sleeps, so neither can your SOC.' },
