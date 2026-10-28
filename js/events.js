@@ -7,7 +7,7 @@
 // feeders: what an overreaction (isolating the asset) would switch off.
 const FA = [
   {
-    id: 'fa-lightning', title: 'Feeder A breaker tripped during a thunderstorm', short: 'Lightning trip', targets: ['yard', 'townA'], feeders: ['A'],
+    id: 'fa-lightning', ch: 3, title: 'Feeder A breaker tripped during a thunderstorm', short: 'Lightning trip', targets: ['yard', 'townA'], feeders: ['A'],
     alert: { asset: 'yard', src: 'Relay 21-A', text: 'TRIP distance zone 1 · auto-reclose SUCCESSFUL after 1.2 s', why: 'A trip followed by a successful auto-reclose is the textbook signature of a transient fault.' },
     clues: [
       { asset: 'yard', src: 'Lightning detection', text: 'strike 0.8 km from Feeder A line · 31 kA', chips: ['Strike near the line'], why: 'A strike right next to the line explains the fault.' },
@@ -40,7 +40,7 @@ const FA = [
     lesson: 'Cross-check one strange reading against neighbouring instruments. One wild value with everything else steady is usually the instrument.',
   },
   {
-    id: 'fa-vendor-ok', title: 'Remote vendor session opened to the wind farm controller', short: 'Vendor support', targets: ['wind', 'dmz'], feeders: [],
+    id: 'fa-vendor-ok', ch: 1, title: 'Remote vendor session opened to the wind farm controller', short: 'Vendor support', targets: ['wind', 'dmz'], feeders: [],
     alert: { asset: 'dmz', src: 'Remote access gateway', text: 'session vendor_wtg01 → turbine controller WTG-3', why: 'Remote vendor sessions are worth checking every time — most are booked support.' },
     clues: [
       { asset: 'corp', src: 'Ticketing', text: 'TKT-8812 · WTG-3 pitch fault · vendor support booked {win}', chips: ['Booked support'], why: 'Support was booked for this turbine and time.' },
@@ -51,7 +51,7 @@ const FA = [
     lesson: 'Remote access through a jump host with a ticket, approval, MFA and recording is how vendor support should look.',
   },
   {
-    id: 'fa-clock', title: 'Event logs show time jumping on station devices', short: 'GPS clock resync', targets: ['ctrl'], feeders: ['A', 'B'],
+    id: 'fa-clock', ch: 1, title: 'Event logs show time jumping on station devices', short: 'GPS clock resync', targets: ['ctrl'], feeders: ['A', 'B'],
     alert: { asset: 'ctrl', src: 'SIEM', text: 'time discontinuity +1.8 s on 14 IEDs at 03:00', why: 'Time jumps can hide activity, but many devices shifting together points to a shared clock source.' },
     clues: [
       { asset: 'ctrl', src: 'GPS clock', text: 'antenna replaced · resync to satellite time · offset corrected 1.8 s', chips: ['Clock maintenance'], why: 'The station clock was resynchronised after maintenance.' },
@@ -62,7 +62,7 @@ const FA = [
     lesson: 'When every device shifts by the same amount at once, look at the shared time source first.',
   },
   {
-    id: 'fa-solar-cloud', title: 'Solar output dropped by 70% in two minutes', short: 'Cloud front', targets: ['solar'], feeders: [],
+    id: 'fa-solar-cloud', ch: 3, title: 'Solar output dropped by 70% in two minutes', short: 'Cloud front', targets: ['solar'], feeders: [],
     alert: { asset: 'solar', src: 'SCADA', text: 'solar farm export 12.4 MW → 3.6 MW', why: 'A big drop in output can be weather, a fault or a curtailment command.' },
     clues: [
       { asset: 'solar', src: 'Irradiance sensor', text: 'irradiance 940 → 260 W/m² · cloud front', chips: ['Cloud cover'], why: 'Sunlight dropped by the same amount as the output.' },
@@ -73,7 +73,7 @@ const FA = [
     lesson: 'For renewables, compare output with the weather sensors before suspecting a command.',
   },
   {
-    id: 'fa-wind-cutout', title: 'All four wind turbines stopped at once', short: 'High-wind cut-out', targets: ['wind'], feeders: [],
+    id: 'fa-wind-cutout', ch: 3, title: 'All four wind turbines stopped at once', short: 'High-wind cut-out', targets: ['wind'], feeders: [],
     alert: { asset: 'wind', src: 'SCADA', text: 'WTG-1..4 STOPPED · export 0 MW', why: 'All turbines stopping together could be a command — or the weather.' },
     clues: [
       { asset: 'wind', src: 'Met mast', text: 'wind speed 27 m/s · gusts 31 m/s', chips: ['Above cut-out speed'], why: 'Turbines shut down automatically above 25 m/s to protect themselves.' },
@@ -84,7 +84,7 @@ const FA = [
     lesson: 'Turbines protect themselves in storms. Compare the stop with the met mast before suspecting a command.',
   },
   {
-    id: 'fa-backup', title: 'Large data transfer out of the control center at night', short: 'Backup job', targets: ['scc', 'dmz'], feeders: [],
+    id: 'fa-backup', ch: 1, title: 'Large data transfer out of the control center at night', short: 'Backup job', targets: ['scc', 'dmz'], feeders: [],
     alert: { asset: 'scc', src: 'Network monitor', text: '48 GB outbound SCADA-SRV → 10.20.5.10 · 01:00', why: 'Big night-time transfers deserve a look: backups and data theft look alike at first.' },
     clues: [
       { asset: 'dmz', src: 'Backup server', text: 'job NIGHTLY-SCADA completed · 48.2 GB · checksum OK', chips: ['Scheduled backup'], why: 'The scheduled backup moved exactly this much data.' },
@@ -117,7 +117,7 @@ const FA = [
     lesson: 'Heat plus heavy load plus working cooling is an operations problem, not a security one.',
   },
   {
-    id: 'fa-usb-approved', title: 'USB drive plugged into an engineering workstation', short: 'Approved USB', targets: ['ctrl'], feeders: ['A', 'B'],
+    id: 'fa-usb-approved', ch: 1, title: 'USB drive plugged into an engineering workstation', short: 'Approved USB', targets: ['ctrl'], feeders: ['A', 'B'],
     alert: { asset: 'ctrl', src: 'Endpoint agent', text: 'USB mass storage inserted on EWS-02', why: 'Removable media is a real risk, so every insertion gets checked.' },
     clues: [
       { asset: 'ctrl', src: 'Media kiosk', text: 'drive SN 4A7F scanned CLEAN · 2 files · signed', chips: ['Scanned at the kiosk'], why: 'The drive went through the scanning kiosk first.' },
@@ -128,7 +128,7 @@ const FA = [
     lesson: 'Removable media done right: registered drives, a scanning kiosk and a log of what was opened.',
   },
   {
-    id: 'fa-scan-it', title: 'Port scan detected on the corporate network', short: 'IT vulnerability scan', targets: ['corp'], feeders: [],
+    id: 'fa-scan-it', ch: 1, title: 'Port scan detected on the corporate network', short: 'IT vulnerability scan', targets: ['corp'], feeders: [],
     alert: { asset: 'corp', src: 'IDS', text: 'TCP scan from 10.10.9.5 → 1,200 hosts', why: 'Scans can be attacker reconnaissance or your own security team.' },
     clues: [
       { asset: 'corp', src: 'Asset inventory', text: '10.10.9.5 = VULN-SCAN-01 (IT security)', chips: ['Own scanner'], why: 'The source is your own vulnerability scanner.' },
@@ -172,7 +172,7 @@ const FA = [
     lesson: 'Flaring is the safe route for surplus gas. Tie it to the genset status before raising an alarm.',
   },
   {
-    id: 'fa-firewall-rule', title: 'New firewall rule appeared on the IT/OT boundary', short: 'Firewall change', targets: ['dmz'], feeders: [],
+    id: 'fa-firewall-rule', ch: 1, title: 'New firewall rule appeared on the IT/OT boundary', short: 'Firewall change', targets: ['dmz'], feeders: [],
     alert: { asset: 'dmz', src: 'Firewall audit', text: 'rule 112 added: HIST-01 → CORP-BI TCP/443', why: 'Boundary rule changes must always be checked.' },
     clues: [
       { asset: 'corp', src: 'Change management', text: 'CHG-3160 APPROVED · historian reports to BI dashboard', chips: ['Approved change'], why: 'The rule was requested and approved.' },
@@ -183,7 +183,7 @@ const FA = [
     lesson: 'A good firewall change is approved, narrow, one-way and set to expire.',
   },
   {
-    id: 'fa-cert', title: 'Certificate errors on the SCADA web console', short: 'Expired certificate', targets: ['scc'], feeders: [],
+    id: 'fa-cert', ch: 1, title: 'Certificate errors on the SCADA web console', short: 'Expired certificate', targets: ['scc'], feeders: [],
     alert: { asset: 'scc', src: 'Browser warnings', text: 'TLS: certificate expired · SCADA-WEB', why: 'Certificate warnings can mean interception — or just an expired certificate.' },
     clues: [
       { asset: 'scc', src: 'Certificate store', text: 'SCADA-WEB cert expired yesterday 23:59', chips: ['Expired, not replaced'], why: 'The certificate simply expired.' },
@@ -227,7 +227,7 @@ const FA = [
     lesson: 'Critical customers test their backup power. Keep their test calendar handy.',
   },
   {
-    id: 'fa-rnd-beam', title: 'Rectenna output dropped to zero', short: 'Satellite pass', targets: ['rnd'], feeders: [],
+    id: 'fa-rnd-beam', ch: 4, title: 'Rectenna output dropped to zero', short: 'Satellite pass', targets: ['rnd'], feeders: [],
     alert: { asset: 'rnd', src: 'R&D telemetry', text: 'rectenna DC output 0 kW', why: 'The test beam stopping could be a fault, a command or orbital mechanics.' },
     clues: [
       { asset: 'rnd', src: 'Ground station', text: 'satellite below 10° elevation · beam paused by design', chips: ['Out of view'], why: 'The beam pauses when the satellite is too low in the sky.' },
@@ -238,7 +238,7 @@ const FA = [
     lesson: 'Know the physics of your system. Orbital passes and weather explain most gaps in a space power beam.',
   },
   {
-    id: 'fa-relay-test', title: 'Protection relay reports a trip in bay 3', short: 'Relay testing', targets: ['yard'], feeders: ['A', 'B', 'C', 'D'],
+    id: 'fa-relay-test', ch: 1, title: 'Protection relay reports a trip in bay 3', short: 'Relay testing', targets: ['yard'], feeders: ['A', 'B', 'C', 'D'],
     alert: { asset: 'yard', src: 'Relay 50-3', text: 'TRIP signal asserted · bay 3', why: 'Trip signals always get attention.' },
     clues: [
       { asset: 'yard', src: 'Relay 50-3', text: 'TEST mode · trip outputs blocked · injection test', chips: ['Bay in test'], why: 'The relay is in test mode; its trip cannot open a breaker.' },
@@ -249,7 +249,7 @@ const FA = [
     lesson: 'Test mode, tags and work orders tell you when a trip signal is an exercise.',
   },
   {
-    id: 'fa-config-backup', title: 'Mass configuration download from all relays', short: 'Config backup', targets: ['ctrl', 'yard'], feeders: ['A', 'B'],
+    id: 'fa-config-backup', ch: 1, title: 'Mass configuration download from all relays', short: 'Config backup', targets: ['ctrl', 'yard'], feeders: ['A', 'B'],
     alert: { asset: 'ctrl', src: 'OT monitor', text: 'settings read from 24 IEDs by EWS-01', why: 'Reading every relay’s settings is either backup work or reconnaissance.' },
     clues: [
       { asset: 'ctrl', src: 'Backup tool', text: 'monthly config backup job · 24/24 OK', chips: ['Backup job'], why: 'It is the monthly configuration backup.' },
@@ -260,7 +260,7 @@ const FA = [
     lesson: 'Regular configuration backups look busy on the network. Recognise them so real reconnaissance stands out.',
   },
   {
-    id: 'fa-dnp3-retry', title: 'Communication errors with the RTU', short: 'Radio link fade', targets: ['ctrl', 'scc'], feeders: ['A', 'B'],
+    id: 'fa-dnp3-retry', ch: 3, title: 'Communication errors with the RTU', short: 'Radio link fade', targets: ['ctrl', 'scc'], feeders: ['A', 'B'],
     alert: { asset: 'scc', src: 'SCADA master', text: 'RTU-1 comms FAIL · 6 retries · then OK', why: 'Lost comms can be noise, a failing link or interference.' },
     clues: [
       { asset: 'scc', src: 'Radio link', text: 'signal −89 dBm · heavy rain fade', chips: ['Rain fade'], why: 'Heavy rain weakens the radio link.' },
@@ -271,7 +271,7 @@ const FA = [
     lesson: 'Radio links fade in heavy rain. Buffers and retries are the design working.',
   },
   {
-    id: 'fa-ntp-drift', title: 'Corporate login failures spike', short: 'Password expiry', targets: ['corp'], feeders: [],
+    id: 'fa-ntp-drift', ch: 1, title: 'Corporate login failures spike', short: 'Password expiry', targets: ['corp'], feeders: [],
     alert: { asset: 'corp', src: 'Identity', text: '220 failed logins in 30 min · 180 users', why: 'Login failure spikes can be password guessing or an expiry wave.' },
     clues: [
       { asset: 'corp', src: 'Identity policy', text: '90-day password expiry hit 180 accounts this morning', chips: ['Mass expiry'], why: 'Many passwords expired at the same time.' },
@@ -293,7 +293,7 @@ const FA = [
     lesson: 'Physical security matters in OT. Cover gaps with patrols while equipment is repaired.',
   },
   {
-    id: 'fa-inverter-fw', title: 'Solar inverters rebooting one by one', short: 'Inverter update', targets: ['solar'], feeders: [],
+    id: 'fa-inverter-fw', ch: 1, title: 'Solar inverters rebooting one by one', short: 'Inverter update', targets: ['solar'], feeders: [],
     alert: { asset: 'solar', src: 'SCADA', text: 'inverter INV-01..22 restarting sequentially', why: 'Rolling restarts could be an update or something spreading.' },
     clues: [
       { asset: 'solar', src: 'Vendor portal', text: 'firmware 2.8.4 signed · staged rollout 1 inverter / 5 min', chips: ['Signed staged update'], why: 'A signed update rolled out one inverter at a time.' },
@@ -304,7 +304,7 @@ const FA = [
     lesson: 'Staged, signed and approved updates are how firmware changes should look.',
   },
   {
-    id: 'fa-ews-av', title: 'Antivirus alert on the engineering workstation', short: 'Known false hit', targets: ['ctrl'], feeders: ['A', 'B'],
+    id: 'fa-ews-av', ch: 1, title: 'Antivirus alert on the engineering workstation', short: 'Known false hit', targets: ['ctrl'], feeders: ['A', 'B'],
     alert: { asset: 'ctrl', src: 'Antivirus', text: 'EWS-01: suspicious behaviour · RelayConfig.exe', why: 'Antivirus alerts on an engineering workstation are always taken seriously.' },
     clues: [
       { asset: 'ctrl', src: 'File reputation', text: 'RelayConfig.exe signed by relay vendor · hash on allowlist', chips: ['Signed vendor tool'], why: 'It is the relay vendor’s signed tool.' },
@@ -579,6 +579,118 @@ const FA = [
     ],
     best: ['Match it to the calibration and close', 'A planned calibration with signed commands and a lab log entry.', 'Closed. Beam power is back to normal.'],
     lesson: 'Signed commands and a mission plan let you tell a planned manoeuvre from a hijacked link.',
+  },
+  // chapter 5: the full-power beam and its ground station
+  {
+    id: 'fa-beam-aircraft', ch: 4, title: 'Power beam paused for 40 seconds', short: 'Aircraft interlock', targets: ['rnd'], feeders: [],
+    alert: { asset: 'rnd', src: 'Rectenna', text: 'received power 0 kW for 40 s · then full power', why: 'A beam that stops and restarts by itself needs an explanation.' },
+    clues: [
+      { asset: 'rnd', src: 'Beam safety interlock', text: 'AUTO-PAUSE · aircraft within 2 km of the beam corridor · resume after clear', chips: ['Safety interlock'], why: 'The interlock pauses the beam whenever an aircraft comes near it.' },
+      { asset: 'rnd', src: 'ADS-B receiver', text: 'light aircraft 9M-BKT crossing at 1,200 m · 14:02', chips: ['Aircraft seen'], why: 'The aircraft’s own transponder shows it crossing at that minute.' },
+      { asset: 'rnd', src: 'Ground station', text: 'no TT&C commands sent 13:55–14:10', chips: ['No commands'], why: 'Nobody commanded the satellite: the pause came from the ground interlock.' },
+    ],
+    best: ['Match it to the aircraft interlock and close', 'An aircraft crossed, the interlock paused the beam, then resumed it. Safety working as designed.', 'Closed. The pause is logged for the beam safety report.'],
+    lesson: 'Safety interlocks act on their own. Check what they watch before suspecting a command.',
+  },
+  {
+    id: 'fa-dish-stow', ch: 4, title: 'Ground station dish stopped tracking the satellite', short: 'Wind stow', targets: ['rnd'], feeders: [],
+    alert: { asset: 'rnd', src: 'Antenna control unit', text: 'tracking OFF · dish at stow position 90° · beam paused', why: 'A dish that stops tracking cuts the link to the satellite.' },
+    clues: [
+      { asset: 'rnd', src: 'Wind sensor', text: 'gusts 86 km/h at the dish · stow limit 80 km/h', chips: ['High wind'], why: 'The gusts passed the dish’s safe tracking limit.' },
+      { asset: 'rnd', src: 'Antenna control unit', text: 'AUTO-STOW reason: WIND · operator: none', chips: ['Automatic stow'], why: 'The controller stowed itself and logged the reason.' },
+      { asset: 'scc', src: 'Weather feed', text: 'squall line passing Bukit Mutiara · 30 min', chips: ['Squall'], why: 'A short squall matches the timing.' },
+    ],
+    best: ['Confirm the wind stow and close', 'High wind made the dish stow itself. It resumes tracking when the gusts drop.', 'Closed. Tracking resumes 25 minutes later.'],
+    lesson: 'Big antennas protect themselves from wind. The controller’s own reason code is the first thing to read.',
+  },
+  {
+    id: 'fa-key-rollover', ch: 4, title: 'Satellite rejected commands from the ground station', short: 'Key rollover', targets: ['rnd'], feeders: [],
+    alert: { asset: 'rnd', src: 'Ground station', text: '3 TT&C commands REJECTED by SBSP-1 · authentication failed', why: 'Rejected commands can mean a wrong key, a fault or someone else sending them.' },
+    clues: [
+      { asset: 'rnd', src: 'Mission plan', text: 'scheduled command key rollover 02:00 · key ID 7 → key ID 8', chips: ['Planned key change'], why: 'The command keys were changed on schedule.' },
+      { asset: 'rnd', src: 'Ground station', text: 'rejected commands signed with key ID 7 · resent with key ID 8 · accepted', chips: ['Old key, then new key'], why: 'The commands used the old key and were accepted once re-signed.' },
+      { asset: 'rnd', src: 'Lab log', text: 'ops team: queued commands not re-signed after rollover · procedure updated', chips: ['Explained'], why: 'The team found and fixed the step they missed.' },
+    ],
+    best: ['Confirm the key rollover and close', 'Old-key commands were refused, which is command authentication working. Re-signed commands went through.', 'Closed. The rollover checklist now re-signs queued commands.'],
+    lesson: 'A rejected command is the authentication doing its job. Ask which key signed it before raising the alarm.',
+  },
+  {
+    id: 'fa-rain-fade-ttc', ch: 4, title: 'Telemetry from the satellite stopped for 8 minutes', short: 'Rain fade', targets: ['rnd'], feeders: [],
+    alert: { asset: 'rnd', src: 'Ground station', text: 'TT&C downlink LOST 8 min · then telemetry backlog received', why: 'A silent satellite could be a fault, interference or a problem on board.' },
+    clues: [
+      { asset: 'rnd', src: 'Link budget', text: 'downlink margin −4 dB during cloudburst 15:10–15:18', chips: ['Rain fade'], why: 'Very heavy rain absorbs the radio signal for a few minutes.' },
+      { asset: 'rnd', src: 'SBSP-1 telemetry', text: 'on-board log: autonomous mode, all systems nominal, beam held on rectenna', chips: ['Satellite healthy'], why: 'The satellite kept working and stored its telemetry.' },
+      { asset: 'scc', src: 'Weather feed', text: 'cloudburst 80 mm/h over the R&D Centre', chips: ['Cloudburst'], why: 'The rain matches the outage minute for minute.' },
+    ],
+    best: ['Log it as rain fade and close', 'A cloudburst blocked the link; the satellite stayed healthy and sent its backlog.', 'Closed. A second ground station site is added to the wish list.'],
+    lesson: 'Radio links to space fade in heavy rain. A full backlog after the gap shows nothing was lost.',
+  },
+  {
+    id: 'fa-rnd-guests', ch: 4, title: '23 unknown laptops on the R&D Centre Wi-Fi', short: 'Visiting delegation', targets: ['rnd', 'corp'], feeders: [],
+    alert: { asset: 'rnd', src: 'Wireless controller', text: '23 new devices joined SSID ONSA-GUEST · 10:05', why: 'A burst of unknown devices needs to be explained.' },
+    clues: [
+      { asset: 'corp', src: 'Visitor system', text: 'university delegation · 24 guests · R&D Centre tour 10:00–12:00', chips: ['Booked visit'], why: 'A booked tour brought two dozen visitors.' },
+      { asset: 'rnd', src: 'Firewall', text: 'ONSA-GUEST: internet only · 0 flows to satellite ops VLAN', chips: ['Segmented'], why: 'The guest network cannot reach the satellite systems.' },
+      { asset: 'rnd', src: 'Wireless controller', text: 'guest sessions expire 18:00', chips: ['Time-limited'], why: 'Guest access ends by itself at the end of the day.' },
+    ],
+    best: ['Match it to the visit and close', 'Booked visitors on an isolated guest network with no path to satellite operations.', 'Closed. The guests leave impressed by the beam.'],
+    lesson: 'Segmentation makes visitors harmless. Check what a new device can reach, not just that it is new.',
+  },
+  // chapter 6: Grid of the Year, the judges and the audit
+  {
+    id: 'fa-audit-laptop', ch: 5, title: 'Unknown laptop connected in the control house', short: 'Judges’ auditor', targets: ['ctrl'], feeders: ['A', 'B'],
+    alert: { asset: 'ctrl', src: 'Switch SW-CH1', text: 'new MAC on port Gi1/0/22 · 09:30', why: 'A new device in the control house always needs an owner.' },
+    clues: [
+      { asset: 'corp', src: 'Visitor system', text: 'Grid of the Year auditor · escorted by the station manager · 09:15–12:00', chips: ['Escorted visitor'], why: 'The judges’ auditor signed in and was escorted.' },
+      { asset: 'ctrl', src: 'Switch SW-CH1', text: 'Gi1/0/22 in AUDIT VLAN · mirror port, receive only', chips: ['Listen-only port'], why: 'The port only receives a copy of traffic; the laptop cannot send to devices.' },
+      { asset: 'corp', src: 'Change management', text: 'CHG-4410 APPROVED · passive asset inventory for award audit', chips: ['Approved change'], why: 'The audit was approved in advance.' },
+    ],
+    best: ['Confirm the audit and close', 'An escorted auditor on a listen-only port under an approved change.', 'Closed. The auditor notes that the alert fired within a minute.'],
+    lesson: 'A fast alert on a new device is a good sign. Visitor records, port settings and the change ticket answer it.',
+  },
+  {
+    id: 'fa-restore-drill', ch: 5, title: 'Historian database wiped and rebuilt overnight', short: 'Restore drill', targets: ['dmz'], feeders: [],
+    alert: { asset: 'dmz', src: 'HIST-01', text: 'database dropped 01:10 · restored 01:52 · 41 min', why: 'A deleted database could be sabotage, ransomware or planned work.' },
+    clues: [
+      { asset: 'corp', src: 'Change management', text: 'CHG-4422 APPROVED · quarterly restore drill from offline backup', chips: ['Planned drill'], why: 'Restoring from backup is practised every quarter.' },
+      { asset: 'dmz', src: 'Backup vault', text: 'backup 2026-Q3 hash verified · restored by ops_restore', chips: ['Verified backup'], why: 'The backup was checked before it was used.' },
+      { asset: 'dmz', src: 'HIST-01', text: 'row counts match pre-drill snapshot · replication resumed', chips: ['Data complete'], why: 'Everything came back.' },
+    ],
+    best: ['Confirm the drill result and close', 'A planned restore drill with a verified backup and complete data.', 'Closed. Restore time of 41 minutes goes into the award file.'],
+    lesson: 'Restore drills look like disasters in the logs. They are how you know recovery works.',
+  },
+  {
+    id: 'fa-access-review', ch: 5, title: '40 user accounts disabled at once', short: 'Access review', targets: ['corp', 'scc'], feeders: [],
+    alert: { asset: 'corp', src: 'Identity', text: '40 accounts disabled in 3 min · 6 with SCADA rights', why: 'Mass account changes can lock operators out.' },
+    clues: [
+      { asset: 'corp', src: 'Access review', text: 'annual recertification closed · 40 accounts not confirmed by their managers', chips: ['Annual review'], why: 'Accounts nobody vouched for are switched off.' },
+      { asset: 'corp', src: 'HR system', text: '31 leavers, 9 contractors with ended contracts', chips: ['Leavers'], why: 'Every disabled account belongs to someone who has left.' },
+      { asset: 'scc', src: 'SCADA', text: 'all on-shift operators logged in normally', chips: ['Operations unaffected'], why: 'Nobody on shift lost access.' },
+    ],
+    best: ['Confirm the access review and close', 'Leavers’ accounts disabled by the annual review; operations unaffected.', 'Closed. Removing old accounts shrinks the attack surface.'],
+    lesson: 'Removing accounts nobody needs is good security. Check that active operators are unaffected, then close.',
+  },
+  {
+    id: 'fa-drone', ch: 5, title: 'Drone flying over the switchyard', short: 'Film crew drone', targets: ['yard'], feeders: ['A'],
+    alert: { asset: 'yard', src: 'Perimeter camera', text: 'drone over bay 2 · height 60 m · 15:20', why: 'A drone over critical equipment must be identified.' },
+    clues: [
+      { asset: 'corp', src: 'Permits', text: 'aviation authority permit · award film crew · 15:00–16:00', chips: ['Permitted flight'], why: 'The flight has a permit for this place and time.' },
+      { asset: 'yard', src: 'Drone ID receiver', text: 'remote ID matches registered drone of the film crew', chips: ['Registered drone'], why: 'The drone broadcasts the registered ID on the permit.' },
+      { asset: 'yard', src: 'Security guard', text: 'pilot on site at the gate with a station escort', chips: ['Pilot escorted'], why: 'The pilot is at the gate and escorted.' },
+    ],
+    best: ['Confirm the permit and close', 'A permitted, registered drone with an escorted pilot.', 'Closed. The award video has great shots of the switchyard.'],
+    lesson: 'Physical security alerts need the same evidence as cyber ones: permits, IDs and people on site.',
+  },
+  {
+    id: 'fa-siem-quiet', ch: 5, title: 'SIEM alert volume dropped by 80%', short: 'Rule tuning', targets: ['scc', 'dmz'], feeders: [],
+    alert: { asset: 'scc', src: 'SIEM', text: 'alerts per hour 120 → 24 since 08:00', why: 'A sudden quiet can mean blinded monitoring.' },
+    clues: [
+      { asset: 'corp', src: 'Change management', text: 'CHG-4431 APPROVED · tuned 14 noisy rules after review', chips: ['Approved tuning'], why: 'Noisy rules were tuned on purpose.' },
+      { asset: 'scc', src: 'Detection tests', text: 'test events for all 52 OT use cases fired and alerted at 08:30', chips: ['Detections tested'], why: 'Every detection still works after tuning.' },
+      { asset: 'dmz', src: 'Log collectors', text: 'all 18 sources reporting · no gaps', chips: ['Logs flowing'], why: 'No log source went silent.' },
+    ],
+    best: ['Confirm the tuning and close', 'Approved tuning, every detection tested, every source still reporting.', 'Closed. Analysts now see the alerts that matter.'],
+    lesson: 'After tuning, prove that detections still fire. Quiet is only good when the tests pass.',
   },
 ];
 

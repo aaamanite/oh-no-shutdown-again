@@ -56,6 +56,7 @@ const S = {
   alerts: [], unread: 0,
   stats: { revenue: 0, fines: 0, spent: 0, response: 0, outageMin: 0, prevented: 0, customerMin: 0 },
   questIdx: 0, seen: new Set(), fresh: new Set(),
+  alarmsSeen: new Set(), threatsSeen: new Set(),   // false alarms already played; chapter threats already met
   chapter: 0,                        // highest chapter reached (0-based); unlocks sites, feeders, controls, events
   eFrom: 0, eLost: false,            // Feeder E (the factory): when it came online, lost supply today?
   night: null,                       // 20:00-06:00 watch: { ok } while it runs
@@ -418,6 +419,7 @@ function checkQuests() {
 // ---------- chapters ----------
 function enterChapter(ch, card = true) {
   S.chapter = Math.max(S.chapter, ch);
+  S.deck = [];                         // deal a fresh round: this chapter's threat and false alarms
   applyChapter(true);
   if (card && CHAPTER_INTRO[ch]) showChapterCard(ch);
 }
@@ -438,6 +440,11 @@ function applyChapter(reveal) {
   refreshLabels();
   renderHUD();
 }
+function threatHTML(ch) {
+  const t = SCENARIOS.filter(sc => !sc.benign && (sc.ch || 0) === ch);
+  if (t.length) return `<p class="cc-threat">${icon('radar')}<span><b>New threat:</b> ${t.map(sc => esc(sc.title)).join(' · ')}</span></p>`;
+  return ch === CHAPTERS.length - 1 ? `<p class="cc-threat">${icon('radar')}<span><b>The judges’ exam:</b> all ${SCENARIOS.filter(sc => !sc.benign).length} threats are in play</span></p>` : '';
+}
 function showChapterCard(ch) {
   const c = CHAPTER_INTRO[ch];
   if (!S.card) S.cardSpeed = S.speed;
@@ -449,6 +456,7 @@ function showChapterCard(ch) {
     <h3>${esc(CHAPTERS[ch])}</h3>
     <p>${esc(c.text)}</p>
     <div class="cc-list">${QUESTS.filter(q => q.ch === ch).map(q => `<span>${icon(q.icon)}${esc(q.title)}</span>`).join('')}</div>
+    ${threatHTML(ch)}
     <div class="modal-foot"><button class="btn primary big" data-act="chapter-go:${ch}">${icon('arrow')} Let’s go</button></div></div>`);
   Snd.fanfare();
 }
@@ -566,10 +574,21 @@ function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
   return arr;
 }
+// False alarms never repeat while unplayed ones remain: the chapter's own come first, then any older ones not yet
+// seen. Real attacks unlock one per chapter and stay in the mix; a chapter's new threat comes early in its round.
+const BENIGN = [...SCENARIOS.filter(sc => sc.benign), ...FALSE_ALARMS];
+function dealAlarms(n) {
+  const unseen = () => BENIGN.filter(sc => live(sc) && !S.alarmsSeen.has(sc.id));
+  if (!unseen().length) S.alarmsSeen.clear();                    // every alarm has been played: start a new cycle
+  const pool = unseen(), own = pool.filter(sc => (sc.ch || 0) === S.chapter);
+  return [...shuffle(own), ...shuffle(pool.filter(sc => (sc.ch || 0) !== S.chapter))].slice(0, n).map(sc => sc.id);
+}
 function pickScenario(first) {
   if (!S.deck.length) {
-    const alarms = shuffle(FALSE_ALARMS.filter(live).map(sc => sc.id)).slice(0, S.chapter >= 2 ? 7 : 5);
-    S.deck = shuffle([...SCENARIOS.map(sc => sc.id), ...alarms]);
+    const attacks = SCENARIOS.filter(sc => !sc.benign && live(sc));
+    S.deck = shuffle([...attacks.map(sc => sc.id), ...dealAlarms(S.chapter >= 2 ? 7 : 5)]);
+    const fresh = attacks.find(sc => sc.ch && sc.ch === S.chapter && !S.threatsSeen.has(sc.id));
+    if (fresh) { S.deck.splice(S.deck.indexOf(fresh.id), 1); S.deck.splice(1, 0, fresh.id); }
     if (S.deck[0] === S.recent[0]) S.deck.push(S.deck.shift()); // no back-to-back repeat across rounds
   }
   const byId = scnById;
@@ -577,7 +596,8 @@ function pickScenario(first) {
   if (first) id = S.deck.find(d => !byId(d).benign && !isBlocked(byId(d))) || id; // open with a real, unprevented attack
   // while "Triage a factory alert" is the mission, the next alert comes from Mutiara Motor Works
   if (QUESTS[S.questIdx]?.event === 'factoryAlarm') {
-    const fac = shuffle(FALSE_ALARMS.filter(sc => live(sc) && sc.targets.includes('factory')));
+    const fac = shuffle(FALSE_ALARMS.filter(sc => live(sc) && sc.targets.includes('factory')))
+      .sort((a, b) => S.alarmsSeen.has(a.id) - S.alarmsSeen.has(b.id));
     if (fac.length) { S.deck.unshift(fac[0].id); id = fac[0].id; }
   }
   S.deck.splice(S.deck.indexOf(id), 1);
@@ -589,6 +609,11 @@ function triggerScheduled(now) {
   const first = !S.history.some(h => !h.drill);
   const scn = pickScenario(first);
   S.recent = [scn.id, ...S.recent].slice(0, 2);
+  if (scn.benign) S.alarmsSeen.add(scn.id);
+  else if (!S.threatsSeen.has(scn.id)) {
+    S.threatsSeen.add(scn.id);
+    if (scn.ch) toast(`New threat in Chapter ${pad(scn.ch + 1)}: ${esc(scn.short)}`, 'warn', 'radar');
+  }
   if (isBlocked(scn)) {
     S.stats.prevented++;
     S.reliability = clamp(S.reliability + 2, 0, 100);
@@ -957,7 +982,7 @@ const PANELS = {
           <button class="btn sm" data-act="skip">${icon('clock')} Skip to next alert</button></div>`}
         <div class="sec"><small>Drills</small></div>
         <p>Run any scenario as a tabletop drill. It is graded and debriefed, but costs, fines and outages are not applied. Drills bypass your preventive controls.</p>
-        ${SCENARIOS.map(s => `<div class="box row"><div class="grow"><b style="font-size:13.5px">${esc(s.short)}</b><div class="tiny muted">${esc(s.title)}</div></div>
+        ${SCENARIOS.filter(live).map(s => `<div class="box row"><div class="grow"><b style="font-size:13.5px">${esc(s.short)}</b><div class="tiny muted">${esc(s.title)}</div></div>
           <button class="btn sm" data-act="drill:${s.id}" ${inc ? 'disabled' : ''}>Run</button></div>`).join('')}
         ${historyHTML()}`,
     };

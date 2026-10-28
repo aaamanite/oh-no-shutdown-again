@@ -395,6 +395,7 @@ export const SCENARIOS = [
 
   {
     id: 'goose-trip',
+    ch: 3,                          // the new threat of chapter 4
     title: 'Transformer tripped with no fault on the line',
     short: 'Station bus',
     inspired: 'Industroyer / CrashOverride (Kyiv, 2016) and Industroyer2 (2022) — malware that speaks grid protocols natively to command switchgear.',
@@ -489,6 +490,7 @@ export const SCENARIOS = [
 
   {
     id: 'usb-relay',
+    ch: 4,                          // the new threat of chapter 5
     title: 'Protection settings changed on Feeder B',
     short: 'Engineering workstation',
     inspired: 'Stuxnet (2010) crossed an air gap on USB and quietly changed setpoints while operators saw normal values.',
@@ -583,6 +585,7 @@ export const SCENARIOS = [
 
   {
     id: 'ransomware',
+    ch: 2,                          // the new threat of chapter 3
     title: 'Ransomware spreading from corporate IT',
     short: 'IT/OT boundary',
     inspired: 'Colonial Pipeline (2021): ransomware hit IT, and operations were shut down as a precaution although the pipeline control system was not encrypted.',
@@ -677,6 +680,7 @@ export const SCENARIOS = [
 
   {
     id: 'exposed-rtu',
+    ch: 1,                          // the new threat of chapter 2
     title: 'Commands from an unknown IEC 104 master',
     short: 'Internet-exposed RTU',
     inspired: 'Internet-exposed OT such as the 2023 attacks on Unitronics PLCs at US water utilities — default passwords, found by scanners.',
@@ -772,6 +776,7 @@ export const SCENARIOS = [
 
   {
     id: 'firmware-ok',
+    ch: 1,
     benign: true,
     title: 'Firmware write detected on a transformer relay',
     short: 'Relay firmware',
