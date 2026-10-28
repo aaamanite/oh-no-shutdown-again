@@ -2571,15 +2571,22 @@ export class World {
     };
     // over the crest, one stream per gate bay between the piers, then the full chute down to the bucket lip
     for (const zc of [32, 36, 40]) sheet([[-276.2, 17.55], [-274.6, 18.1], [-272.8, 17.85], [-270.8, 16.45], [-268.8, 14.3]], zc - 1.5, zc + 1.5);
-    sheet([[-269.2, 14.7], [-264, 9.0], [-257.2, 1.35], [-255.4, 1.05], [-254.2, 2.35], [-253.4, 2.0], [-252.6, 0.9]], 30.05, 41.95);
-    // churning foam in the basin, strongest at the bucket and fading towards the outlet
+    sheet([[-269.2, 14.7], [-264, 9.0], [-257.2, 1.35], [-255.4, 1.05], [-254.2, 2.35]], 30.05, 41.95);
+    // the flip bucket throws the flow up and out as a jet that plunges into the basin
+    sheet([[-254.2, 2.35], [-253.2, 2.95], [-252, 3.1], [-250.9, 2.6], [-250, 1.6], [-249.3, 0.3]], 30.4, 41.6);
+    // whitewater in the basin where the jet lands, settling back to dark water towards the outlet
     const fc = document.createElement('canvas');
     fc.width = fc.height = 256;
     const fx = fc.getContext('2d');
     for (let i = 0; i < 520; i++) {
-      const x = fr() * 256, y = fr() * 256, r = 6 + fr() * 22, gr = fx.createRadialGradient(x, y, 0, x, y, r);
-      gr.addColorStop(0, `rgba(255,255,255,${0.5 + fr() * 0.5})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
-      fx.fillStyle = gr; fx.fillRect(x - r, y - r, r * 2, r * 2);
+      const x0 = fr() * 256, y0 = fr() * 256, r = 6 + fr() * 22, a = 0.5 + fr() * 0.5;
+      for (const ox of [-256, 0, 256]) for (const oy of [-256, 0, 256]) {           // drawn wrapped, so the tiles meet with no seam
+        const x = x0 + ox, y = y0 + oy;
+        if (x + r < 0 || x - r > 256 || y + r < 0 || y - r > 256) continue;
+        const gr = fx.createRadialGradient(x, y, 0, x, y, r);
+        gr.addColorStop(0, `rgba(255,255,255,${a})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
+        fx.fillStyle = gr; fx.fillRect(x - r, y - r, r * 2, r * 2);
+      }
     }
     const foamTex = new THREE.CanvasTexture(fc);
     foamTex.wrapS = foamTex.wrapT = THREE.RepeatWrapping;
@@ -2587,14 +2594,14 @@ export class World {
     this.foamMat = new THREE.MeshStandardMaterial({ map: foamTex, transparent: true, opacity: 0, roughness: 0.4, depthWrite: false, vertexColors: true });
     const pool = new THREE.PlaneGeometry(15, 10.4, 15, 4).rotateX(-Math.PI / 2).translate(-248.6, TW + 0.03, 35.1);
     const pp = pool.attributes.position, pc = [];
-    for (let i = 0; i < pp.count; i++) { const x = pp.getX(i), z = pp.getZ(i); pc.push(1, 1, 1, (1 - smoothstep(-254.5, -242, x)) * smoothstep(29.6, 31.2, z) * (1 - smoothstep(39, 40.5, z))); }
+    for (let i = 0; i < pp.count; i++) { const x = pp.getX(i), z = pp.getZ(i); pc.push(1, 1, 1, smoothstep(-253, -250.5, x) * (1 - smoothstep(-248.5, -241.5, x)) * smoothstep(29.6, 31.2, z) * (1 - smoothstep(39.4, 40.5, z))); }
     pool.setAttribute('color', new THREE.Float32BufferAttribute(pc, 4));
     g.add(new THREE.Mesh(pool, this.foamMat));
-    // spray thrown up where the jet leaves the flip bucket
+    // spray thrown up where the jet lands
     this.spray = [];
     for (let k = 0; k < 16; k++) {
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this._smokeTex || (this._smokeTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const cg = c.getContext('2d'), gr = cg.createRadialGradient(32, 32, 2, 32, 32, 30); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); cg.fillStyle = gr; cg.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })()), color: 0xeef6f8, transparent: true, depthWrite: false, opacity: 0 }));
-      sp.userData = { t: k / 16, z: 31 + (k % 8) * 1.4 };
+      sp.userData = { t: k / 16, z: 31 + (k % 8) * 1.4, x: -250.6 + ((k * 7) % 5) * 0.5 };
       g.add(sp);
       this.spray.push(sp);
     }
@@ -3027,10 +3034,10 @@ export class World {
     this.foamMat.map.offset.y += Math.sin(this._t * 0.7) * dt * 0.05;
     for (const sp of this.spray) {
       const d = sp.userData;
-      d.t = (d.t + dt * 0.35) % 1;
-      sp.position.set(-252.8 + d.t * 3.5, 1.2 + Math.sin(Math.PI * d.t) * 3.2, d.z);
-      sp.scale.setScalar(1.5 + d.t * 3.5);
-      sp.material.opacity = this.spill * 0.55 * Math.sin(Math.PI * d.t);
+      d.t = (d.t + dt * 0.45) % 1;
+      sp.position.set(d.x + d.t * 1.5, 0.5 + Math.sin(Math.PI * d.t * 0.8) * 2.6, d.z);
+      sp.scale.setScalar(1.2 + d.t * 3);
+      sp.material.opacity = this.spill * 0.5 * Math.sin(Math.PI * d.t);
     }
   }
 
