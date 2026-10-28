@@ -2537,6 +2537,7 @@ export class World {
     box(g, 17.6, 0.9, 2.2, conc, -247.4, -0.5, 41.7);                                  // tailrace deck: the powerhouse stands on dry ground
     for (const x of [-253, -250, -247]) box(g, 2.4, 0.5, 0.1, 0x1b2228, x, 0, 40.56);  // draft-tube portals under the deck
     box(g, 7.6, TW + 0.06, 0.7, conc, -242.4, -0.05, 29.4);                            // end sill: the river leaves here
+    box(g, 5, 0.14, 32, conc, -255.5, 0, 42);                                          // concrete toe apron along the dam foot, both sides of the spillway
     // flood flow, shown when the gates open in a storm: a sheet of streaky white water through each gate bay, down
     // the curved spillway face between the training walls and off the flip bucket; churning foam in the basin that
     // fades out towards the river, and spray thrown up at the bucket
