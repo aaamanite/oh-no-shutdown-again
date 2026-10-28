@@ -475,8 +475,8 @@ function finale() {
       <div class="kpi"><small>Security level</small><b>${securityLevel()}</b></div>
       <div class="kpi"><small>XP</small><b>${S.xp}</b></div>
     </div>
-    <div class="cert-badges"><small>Detection badges · ${S.badges.size}/${Object.keys(BADGES).length}</small>
-      <div>${Object.keys(BADGES).map(id => `<span class="b-medal${S.badges.has(id) ? ' on' : ''}" title="${S.badges.has(id) ? esc(BADGES[id].name) : 'Not earned'}">${icon(S.badges.has(id) ? BADGES[id].icon : 'lock')}</span>`).join('')}</div></div>
+    ${S.badges.size ? `<div class="cert-badges"><small>Detection badges · ${S.badges.size}</small>
+      <div>${[...S.badges.keys()].map(id => `<span class="b-medal on" title="${esc(BADGES[id].name)}">${icon(BADGES[id].icon)}</span>`).join('')}</div></div>` : ''}
     <div class="modal-foot"><button class="btn ghost" data-act="restart">Start a new career</button><button class="btn primary" data-act="sandbox">Keep running the grid</button></div></div>`);
   Snd.fanfare();
 }
@@ -710,9 +710,7 @@ const BADGES = {
 };
 function badgeHTML(id, big = false) {
   const b = BADGES[id], got = S.badges.get(id), scn = scnById(id);
-  return got
-    ? `<div class="badge got${big ? ' big' : ''}"><span class="b-medal">${icon(b.icon)}</span><div class="grow"><small>${big ? 'Badge earned' : `Day ${got.day} · ${got.clock}`}</small><b>${esc(b.name)}</b><div class="tiny">Detected: ${esc(scn.title)}</div></div></div>`
-    : `<div class="badge"><span class="b-medal">${icon('lock')}</span><div class="grow"><small>Not earned yet</small><b>Hidden threat</b><div class="tiny muted">Detect a real attack to unlock</div></div></div>`;
+  return `<div class="badge got${big ? ' big' : ''}"><span class="b-medal">${icon(b.icon)}</span><div class="grow"><small>${big ? 'Badge earned' : `Day ${got.day} · ${got.clock}`}</small><b>${esc(b.name)}</b><div class="tiny">Detected: ${esc(scn.title)}</div></div></div>`;
 }
 
 function resolve(resp) {
@@ -1020,8 +1018,8 @@ const PANELS = {
           <div class="kpi"><small>Streak · damaged assets</small><b>${S.streak} · ${Object.keys(S.damaged).length}</b></div>
         </div>
         <div class="box"><small>Grid reliability</small><p style="margin:4px 0 0">${Math.round(S.reliability)}/100 — drops during outages and bad calls, recovers while every feeder is energized.</p></div>
-        <div class="sec"><small>Detection badges · ${S.badges.size}/${Object.keys(BADGES).length}</small></div>
-        <div class="badges">${Object.keys(BADGES).map(id => badgeHTML(id)).join('')}</div>
+        ${S.badges.size ? `<div class="sec"><small>Detection badges · ${S.badges.size}</small></div>
+        <div class="badges">${[...S.badges.keys()].map(id => badgeHTML(id)).join('')}</div>` : ''}
         ${historyHTML()}`,
     };
   },
