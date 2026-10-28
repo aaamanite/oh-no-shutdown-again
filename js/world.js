@@ -2537,25 +2537,66 @@ export class World {
     box(g, 17.6, 0.9, 2.2, conc, -247.4, -0.5, 41.7);                                  // tailrace deck: the powerhouse stands on dry ground
     for (const x of [-253, -250, -247]) box(g, 2.4, 0.5, 0.1, 0x1b2228, x, 0, 40.56);  // draft-tube portals under the deck
     box(g, 7.6, TW + 0.06, 0.7, conc, -242.4, -0.05, 29.4);                            // end sill: the river leaves here
-    const fc = document.createElement('canvas');
-    fc.width = 64; fc.height = 256;
-    const fg = fc.getContext('2d');
-    fg.fillStyle = '#cfe2e6'; fg.fillRect(0, 0, 64, 256);
+    // flood flow, shown when the gates open in a storm: a sheet of streaky white water through each gate bay, down
+    // the curved spillway face between the training walls and off the flip bucket; churning foam in the basin that
+    // fades out towards the river, and spray thrown up at the bucket
+    const sc = document.createElement('canvas');
+    sc.width = 128; sc.height = 256;
+    const sg = sc.getContext('2d');
+    sg.fillStyle = 'rgba(150,205,212,0.6)'; sg.fillRect(0, 0, 128, 256);
     const fr = rng(55);
-    for (let i = 0; i < 260; i++) { fg.fillStyle = `rgba(255,255,255,${0.4 + fr() * 0.6})`; fg.fillRect(fr() * 64, fr() * 256, 1 + fr() * 3, 6 + fr() * 30); }
-    const ft = new THREE.CanvasTexture(fc);
-    ft.wrapS = ft.wrapT = THREE.RepeatWrapping;
-    ft.repeat.set(3, 2);
-    this.foamMat = new THREE.MeshStandardMaterial({ map: ft, transparent: true, opacity: 0, roughness: 0.3, depthWrite: false });
-    const a = new THREE.Vector3(-270.8, 16.4, 36), b = new THREE.Vector3(-256, 1.4, 36);
-    const chute = new THREE.Mesh(new THREE.PlaneGeometry(11.8, a.distanceTo(b)), this.foamMat);
-    chute.position.copy(a).lerp(b, 0.5).add(new THREE.Vector3(0.45, 0.35, 0));
-    chute.lookAt(chute.position.clone().add(new THREE.Vector3(0.71, 0.7, 0)));
-    chute.rotateZ(Math.PI / 2);
-    g.add(chute);
-    const pool = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape([[-256, -29.6], [-246, -29.6], [-246, -40.6], [-256, -40.6]].map(([x, z]) => new THREE.Vector2(x, z)))).rotateX(-Math.PI / 2), this.foamMat);
-    pool.position.y = TW + 0.02;                                                       // white water in the basin in a flood
-    g.add(pool);
+    for (let i = 0; i < 900; i++) { sg.fillStyle = `rgba(255,255,255,${0.3 + fr() * 0.7})`; sg.fillRect(fr() * 128, fr() * 256, 1 + fr() * 2.5, 8 + fr() * 42); }
+    const streaks = new THREE.CanvasTexture(sc);
+    streaks.wrapS = streaks.wrapT = THREE.RepeatWrapping;
+    streaks.colorSpace = THREE.SRGBColorSpace;
+    streaks.repeat.set(2, 3);
+    this.chuteMat = new THREE.MeshStandardMaterial({ map: streaks, transparent: true, opacity: 0, roughness: 0.25, depthWrite: false, side: THREE.DoubleSide });
+    // a sheet following a profile of (x, y) points across z0..z1, lifted just clear of the concrete
+    const sheet = (prof, z0, z1) => {
+      const pos = [], uv = [], idx = [];
+      let run = 0;
+      prof.forEach(([x, y], i) => {
+        if (i) run += Math.hypot(x - prof[i - 1][0], y - prof[i - 1][1]);
+        pos.push(x, y + 0.14, z0, x, y + 0.14, z1);
+        uv.push(0, run / 6, (z1 - z0) / 6, run / 6);
+        if (i) { const k = (i - 1) * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+      });
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      g.add(new THREE.Mesh(geo, this.chuteMat));
+    };
+    // over the crest, one stream per gate bay between the piers, then the full chute down to the bucket lip
+    for (const zc of [32, 36, 40]) sheet([[-276.2, 17.55], [-274.6, 18.1], [-272.8, 17.85], [-270.8, 16.45], [-268.8, 14.3]], zc - 1.5, zc + 1.5);
+    sheet([[-269.2, 14.7], [-264, 9.0], [-257.2, 1.35], [-255.4, 1.05], [-254.2, 2.35], [-253.4, 2.0], [-252.6, 0.9]], 30.05, 41.95);
+    // churning foam in the basin, strongest at the bucket and fading towards the outlet
+    const fc = document.createElement('canvas');
+    fc.width = fc.height = 256;
+    const fx = fc.getContext('2d');
+    for (let i = 0; i < 520; i++) {
+      const x = fr() * 256, y = fr() * 256, r = 6 + fr() * 22, gr = fx.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, `rgba(255,255,255,${0.5 + fr() * 0.5})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      fx.fillStyle = gr; fx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    const foamTex = new THREE.CanvasTexture(fc);
+    foamTex.wrapS = foamTex.wrapT = THREE.RepeatWrapping;
+    foamTex.repeat.set(2, 1.4);
+    this.foamMat = new THREE.MeshStandardMaterial({ map: foamTex, transparent: true, opacity: 0, roughness: 0.4, depthWrite: false, vertexColors: true });
+    const pool = new THREE.PlaneGeometry(15, 10.4, 15, 4).rotateX(-Math.PI / 2).translate(-248.6, TW + 0.03, 35.1);
+    const pp = pool.attributes.position, pc = [];
+    for (let i = 0; i < pp.count; i++) { const x = pp.getX(i), z = pp.getZ(i); pc.push(1, 1, 1, (1 - smoothstep(-254.5, -242, x)) * smoothstep(29.6, 31.2, z) * (1 - smoothstep(39, 40.5, z))); }
+    pool.setAttribute('color', new THREE.Float32BufferAttribute(pc, 4));
+    g.add(new THREE.Mesh(pool, this.foamMat));
+    // spray thrown up where the jet leaves the flip bucket
+    this.spray = [];
+    for (let k = 0; k < 16; k++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this._smokeTex || (this._smokeTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const cg = c.getContext('2d'), gr = cg.createRadialGradient(32, 32, 2, 32, 32, 30); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); cg.fillStyle = gr; cg.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })()), color: 0xeef6f8, transparent: true, depthWrite: false, opacity: 0 }));
+      sp.userData = { t: k / 16, z: 31 + (k % 8) * 1.4 };
+      g.add(sp);
+      this.spray.push(sp);
+    }
     // name on the downstream face
     const nameMat = new THREE.MeshBasicMaterial({ map: textTexture([{ text: 'EMPANGAN SUNGAI MUTIARA', size: 120, y: 80, color: '#f4f1e8' }], 2048, 160), transparent: true, depthWrite: false });
     const nm = new THREE.Mesh(new THREE.PlaneGeometry(19, 1.5), nameMat);
@@ -2978,8 +3019,18 @@ export class World {
     // spillway gates open in a storm and the chute turns white
     this.spill += ((this.storm > 0.5 ? 1 : 0) - this.spill) * Math.min(1, dt * 0.4);
     for (const gt of this.gates) gt.rotation.z = -this.spill * 0.55;
-    this.foamMat.opacity = this.spill * 0.92;
-    this.foamMat.map.offset.y -= dt * 1.6;
+    this.chuteMat.opacity = this.spill * 0.95;
+    this.chuteMat.map.offset.y -= dt * 2.2;                                          // streaks run down the chute
+    this.foamMat.opacity = this.spill * 0.9;
+    this.foamMat.map.offset.x -= dt * 0.12;                                          // foam drifts towards the outlet
+    this.foamMat.map.offset.y += Math.sin(this._t * 0.7) * dt * 0.05;
+    for (const sp of this.spray) {
+      const d = sp.userData;
+      d.t = (d.t + dt * 0.35) % 1;
+      sp.position.set(-252.8 + d.t * 3.5, 1.2 + Math.sin(Math.PI * d.t) * 3.2, d.z);
+      sp.scale.setScalar(1.5 + d.t * 3.5);
+      sp.material.opacity = this.spill * 0.55 * Math.sin(Math.PI * d.t);
+    }
   }
 
   // ---------- green safety walkpaths with yellow edges around the equipment ----------
