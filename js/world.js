@@ -223,7 +223,8 @@ function riverDist(x, z) {
 // ground height in the west: hills rise from x = -236; the valley is carved around the river with a flat floor
 // (reservoir basin upstream, a gorge at the dam, a wide basin below it for the powerhouse, then a river channel)
 function westHeight(x, z) {
-  const ridge = smoothstep(-236, -258, x) * smoothstep(-79, -58, z);   // the hills slope down to the beach, not into the sea
+  // the hills slope down to the beach, not into the sea, and down to the plain at the far north and west edges
+  const ridge = smoothstep(-236, -258, x) * smoothstep(-79, -58, z) * smoothstep(172, 132, z) * smoothstep(-451, -408, x);
   if (ridge <= 0) return 0;
   const reservoir = 18 + 14 * smoothstep(-280, -300, x) - 24 * smoothstep(-335, -360, x);
   let w = reservoir + (10 - reservoir) * smoothstep(-284, -276, x);
