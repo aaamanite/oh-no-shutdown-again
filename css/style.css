@@ -546,13 +546,9 @@ kbd { font-family: var(--mono); font-size: 11px; background: rgba(255, 255, 255,
 #chat-send .ic { width: 16px; height: 16px; }
 @media (max-width: 640px) { #chat { bottom: 92px; } #chat-list { height: 150px; } }
 
-/* role badge on the HUD and shared-log lines */
+/* role badge on the incident card and the Analyst's calls as others see them */
 .role-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-family: var(--head); font-size: 11px; font-weight: 700; letter-spacing: .04em; background: rgba(200, 238, 58, .14); color: var(--lime); }
 .role-chip .ic { width: 13px; height: 13px; }
-.clue.locked pre { display: none; }
-.clue-lock { display: flex; align-items: center; gap: 8px; margin: 8px 0; padding: 9px 10px; border-radius: 10px; background: rgba(0, 0, 0, .25); color: var(--muted); font-size: 12.5px; }
-.clue-lock .ic { flex: none; width: 15px; height: 15px; color: var(--amber); }
-.clue-mine { margin-left: 6px; color: var(--lime); }
 .clue-call { display: inline-flex; padding: 4px 9px; border-radius: 8px; font-size: 12px; background: rgba(255, 255, 255, .05); color: var(--muted); }
 .clue-call.tp { background: rgba(255, 77, 106, .15); color: #ffb3bf; }
 .clue-call.fp { background: rgba(200, 238, 58, .12); color: var(--lime); }

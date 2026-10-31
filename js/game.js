@@ -378,9 +378,9 @@ const respondBtn = cls => (mp && mp.role !== 'responder'
   ? `<button class="btn ${cls}" disabled>${icon('cards')} The Incident Responder decides</button>`
   : `<button class="btn primary ${cls}" data-act="respond">${icon('cards')} Respond or Remediate</button>`);
 const ROLE_HINT = {
-  analyst: 'Read your lines, ask your teammates in chat what theirs say, then classify every line True Positive or False Positive.',
-  responder: 'Read your lines and tell the team what they say. When the Analyst has classified the evidence, choose the response.',
-  engineer: 'Read your lines and tell the team what they say. Controls you install add context to the logs and stop attacks before they start.',
+  analyst: 'Classify every line True Positive or False Positive. Only the Incident Responder can act: ask them in the team chat what they plan to do.',
+  responder: 'Read every line. Only the Analyst classifies them, so ask in the team chat about anything unclear. Only you choose the response or remediation.',
+  engineer: 'Read every line and back the team up. Controls you install add context to the logs and stop attacks before they start.',
 };
 function renderAction() {
   const el = $('#action');
@@ -709,10 +709,6 @@ function startIncident(base, drill) {
   if (tripped) { if (!drill) S.stats.hpTrips = (S.stats.hpTrips || 0) + 1; world.setHoneypotAlarm(true); toast('Honeypot RTU-99 tripped — something is exploring the OT network', 'bad', 'target'); }
   const total = Math.round(decideTime() * (mp ? MP_TIME : 1));
   S.incident = { scn, drill, tags: new Set(), fps: new Set(), left: total, total, startT: S.T, filter: 'all', clueOrder: shuffle(scn.clues.map((_, i) => i)), key: `${Date.now()}` };
-  if (mp) {                          // deal the lines round the table so each role reads about a third
-    const seats = shuffle([...ROLE_IDS]);
-    S.incident.vis = Object.fromEntries(S.incident.clueOrder.map((ci, k) => [ci, seats[k % 3]]));
-  }
   world.setAttacked(scn.targets);
   refreshConduits();
   buildPins();
@@ -867,7 +863,10 @@ function resolve(resp) {
     tags: [...inc.tags], fps: [...inc.fps], fpOk, miss, m, badge, clues: scn.clues, day: dayOf(S.T), clock: clockOf(S.T), startT: inc.startT,
   };
   S.history.push(record);
-  if (mp?.host) mp.net.send({ t: 'record', rec: record });
+  if (mp?.host) {
+    teamNotice(resp ? `${mp.actor || 'The Incident Responder'} (Incident Responder) chose: ${resp.tag} · ${resp.title}` : 'Time ran out before the Incident Responder chose an action.');
+    mp.net.send({ t: 'record', rec: record });
+  }
 
   S.incident = null;
   world.setAttacked([]);
@@ -1111,7 +1110,7 @@ const PANELS = {
     return {
       danger: true,
       eyebrow: cluesEyebrow(), title: 'Detection',
-      html: `${mp && inc.vis ? `<p class="mp-note">You are the <b>${esc(ROLES[mp.role].name)}</b>. You can read ${Object.values(inc.vis).filter(r => r === mp.role).length} of ${inc.scn.clues.length} lines; your teammates can read the others. ${ROLE_HINT[mp.role]}</p>` : ''}<p>Classify every line: <b>True Positive</b> if it is part of the attack, <b>False Positive</b> if it is benign or routine. Right calls earn points, wrong calls cost them. Your calls and how you respond or remediate decide the grade.</p>
+      html: `${mp ? `<p class="mp-note">You are the <b>${esc(ROLES[mp.role].name)}</b>. ${ROLE_HINT[mp.role]}</p>` : ''}<p>Classify every line: <b>True Positive</b> if it is part of the attack, <b>False Positive</b> if it is benign or routine. Right calls earn points, wrong calls cost them. Your calls and how you respond or remediate decide the grade.</p>
         <div class="filters"><button class="${filter === 'all' ? 'on' : ''}" data-act="clues:all">All</button>${assets.map(id => `<button class="${filter === id ? 'on' : ''}" data-act="clues:${id}">${esc(ASSETS[id].short)}</button>`).join('')}</div>
         ${inc.clueOrder.map(i => inc.scn.clues[i]).map((c, k) => (filter === 'all' || c.asset === filter ? clueHTML(c, inc.clueOrder[k]) : '')).join('')}
         ${missing.length ? `<div class="box tiny muted">${icon('lock')} Some context is hidden. ${missing.map(id => esc(CTRL[id].short)).join(', ')} would add more detail to these logs.</div>` : ''}
@@ -1225,7 +1224,6 @@ function cluesEyebrow() {
 
 function clueHTML(c, i) {
   const inc = S.incident, tp = inc.tags.has(i), fp = inc.fps.has(i);
-  const owner = mp && inc.vis ? inc.vis[i] : null, readable = !owner || owner === mp.role;
   const chips = c.chips.filter(ch => !ch.need || S.owned.has(ch.need))
     .map(ch => `<span class="cchip ${ch.tone || ''}">${esc(ch.t)}</span>`).join('');
   const calls = !mp || mp.role === 'analyst'
@@ -1234,10 +1232,9 @@ function clueHTML(c, i) {
       <button class="btn-tag fp ${fp ? 'on' : ''}" data-act="fp:${i}">${icon(fp ? 'check' : 'shield')} False Positive</button>
     </div>`
     : `<span class="clue-call ${tp ? 'tp' : fp ? 'fp' : ''}">${tp ? 'Analyst: True Positive' : fp ? 'Analyst: False Positive' : 'Not classified yet'}</span>`;
-  return `<div class="clue ${tp ? 'tagged' : fp ? 'benign' : ''}${readable ? '' : ' locked'}" data-i="${i}">
-    <div class="clue-h"><span>${clueTime(c)} · ${esc(c.src)}</span><span>${esc(ASSETS[c.asset].short)}${owner && readable ? '<b class="clue-mine">· yours</b>' : ''}</span></div>
-    ${readable ? `<pre>${esc(clueText(c))}</pre>${chips ? `<div class="cchips">${chips}</div>` : ''}`
-    : `<div class="clue-lock">${icon('lock')}<span>Only the ${esc(ROLES[owner].name)} can read this line. Ask them in the team chat.</span></div>`}
+  return `<div class="clue ${tp ? 'tagged' : fp ? 'benign' : ''}" data-i="${i}">
+    <div class="clue-h"><span>${clueTime(c)} · ${esc(c.src)}</span><span>${esc(ASSETS[c.asset].short)}</span></div>
+    <pre>${esc(clueText(c))}</pre>${chips ? `<div class="cchips">${chips}</div>` : ''}
     ${calls}</div>`;
 }
 
@@ -1349,6 +1346,7 @@ function buy(id) {
   Snd.good();
   toast(`Installed ${esc(c.name)}`, 'good', 'shield');
   alertLog(`Installed control: ${c.name} (${money(c.cost)}).`, 'good');
+  if (mp?.host) teamNotice(`${mp.actor || 'The Security Engineer'} (OT Security Engineer) installed: ${c.name}`);
   if (id === 'ids' && S.incident) { S.incident.left += 60; S.incident.total += 60; }
   refreshConduits();
   world.setHoneypot(S.owned.has('honeypot'));
@@ -1415,6 +1413,7 @@ const ACTS = {
     world.setDamaged(id, false);
     toast(`${esc(ASSETS[id].name)} repaired`, 'good', 'check');
     alertLog(`${ASSETS[id].name} repaired for ${money(d.cost)}.`, 'good');
+    if (mp?.host) teamNotice(`${mp.actor || 'The Security Engineer'} (OT Security Engineer) repaired: ${ASSETS[id].name}`);
     renderPanel(); renderHUD();
   },
   skip: () => { if (!S.incident) { S.nextIncidentAt = S.T; triggerScheduled(false); } },
@@ -1449,6 +1448,7 @@ document.addEventListener('click', e => {
     mp.net.send({ t: 'act', act, arg });
     return;
   }
+  if (mp?.host) mp.actor = S.player;
   ACTS[act]?.(arg, el);
   if (mp?.host && REMOTE_ACTS.has(act)) sendState();
 });
@@ -1523,7 +1523,7 @@ function snapshot() {
     T: S.T, speed: S.speed, funds: S.funds, reliability: S.reliability, xp: S.xp, streak: S.streak, over: S.over,
     owned: [...S.owned], feeders: S.feeders, damaged: S.damaged, chapter: S.chapter, questIdx: S.questIdx,
     storming: S.storming, stats: S.stats, badges: [...S.badges],
-    incident: inc && { key: inc.key, scn: inc.scn, drill: inc.drill, tags: [...inc.tags], fps: [...inc.fps], left: inc.left, total: inc.total, startT: inc.startT, clueOrder: inc.clueOrder, vis: inc.vis },
+    incident: inc && { key: inc.key, scn: inc.scn, drill: inc.drill, tags: [...inc.tags], fps: [...inc.fps], left: inc.left, total: inc.total, startT: inc.startT, clueOrder: inc.clueOrder },
   };
 }
 function sendState() {
@@ -1589,9 +1589,16 @@ function applyState(s) {
   if (S.panel && S.panel.name !== 'clues') renderPanel();
 }
 
+// the host tells the whole team what a role did, in the chat log
+function teamNotice(text) {
+  mp.net.send({ t: 'action', text });
+  mp.chat.system(text);
+}
+
 function hostAct(msg) {
   const need = ROLE_ACTS[msg.act];
   if (need && need !== msg.from) return;                          // the room server names the sender's role
+  mp.actor = msg.name;                                            // named in the team's notices
   if (msg.act === 'speed') setSpeed(+msg.arg);
   else if (msg.act === 'qev') questEvent(msg.arg);
   else if (REMOTE_ACTS.has(msg.act)) ACTS[msg.act]?.(msg.arg);
@@ -1608,6 +1615,7 @@ function onNet(msg) {
     (msg.rec.grade === 'A' || msg.rec.grade === 'B') ? Snd.good() : Snd.bad();
   } else if (msg.t === 'history' && !mp.host) { if (msg.list.length > S.history.length) S.history = msg.list; }
   else if (msg.t === 'toast' && !mp.host) toast(msg.msg, msg.kind, msg.ic);
+  else if (msg.t === 'action' && !mp.host) mp.chat.system(msg.text);
   else if (msg.t === 'log' && !mp.host) alertLog(msg.text, msg.kind);
   else if (msg.t === 'walk') {
     const m = world.mates[msg.from];
