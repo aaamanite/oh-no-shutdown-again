@@ -73,8 +73,8 @@ const S = {
 let mp = null;
 const MP_TIME = 2.5;
 const HOME = { analyst: [-26, -3.5], responder: [-26, 0], engineer: [-26, 3.5] };   // where each role's persona starts                 // incidents last longer: the team reads and chats before deciding
-const ROLE_ACTS = { tp: 'analyst', fp: 'analyst', recommend: 'analyst', rec: 'analyst', respond: 'responder', play: 'responder', buy: 'engineer', repair: 'engineer' };
-const REMOTE_ACTS = new Set(['tp', 'fp', 'rec', 'play', 'buy', 'repair', 'skip', 'drill', 'sandbox']);
+const ROLE_ACTS = { tp: 'analyst', fp: 'analyst', respond: 'responder', play: 'responder', buy: 'engineer', repair: 'engineer' };
+const REMOTE_ACTS = new Set(['tp', 'fp', 'play', 'buy', 'repair', 'skip', 'drill', 'sandbox']);
 // as in a real plant, the SOC never operates equipment itself: actions that switch or restart plant go to the
 // control room as a switching order, and the shift operator carries them out
 const OPERATOR = 'Hafiz';
@@ -383,12 +383,11 @@ function renderBanner() {
 
 const respondBtn = cls => {
   if (mp && S.incident?.pending) return `<button class="btn ${cls}" disabled>${icon('clock')} Control room carrying out the switching order…</button>`;
-  if (mp?.role === 'analyst') return `<button class="btn ${cls}" data-act="recommend">${icon('cards')} ${S.incident?.rec ? 'Change recommendation' : 'Recommend an action'}</button>`;
   if (mp && mp.role !== 'responder') return `<button class="btn ${cls}" disabled>${icon('cards')} The Incident Responder decides</button>`;
   return `<button class="btn primary ${cls}" data-act="respond">${icon('cards')} Respond or Remediate</button>`;
 };
 const ROLE_HINT = {
-  analyst: 'Classify every line True Positive or False Positive, then recommend an action. Only the Incident Responder can act: ask them in the team chat what they plan to do.',
+  analyst: 'Classify every line True Positive or False Positive. Only the Incident Responder can act: ask them in the team chat what they plan to do.',
   responder: 'Read every line. Only the Analyst classifies them, so ask in the team chat about anything unclear. Only you choose the response; anything that switches plant is carried out by the control room.',
   engineer: 'Read every line and back the team up. Controls you install add context to the logs and stop attacks before they start.',
 };
@@ -859,6 +858,7 @@ function resolve(resp) {
     S.reliability = clamp(S.reliability - (full ? 8 : 4), 0, 100);
     alertLog(`EQUIPMENT DAMAGED: ${ASSETS[asset].name} · repair ${money(repair)}`, 'bad');
     toast(`${esc(ASSETS[asset].name)} damaged — repair ${money(repair)} from its panel`, 'bad', 'alert');
+    if (mp?.host) teamNotice(`Equipment damaged: ${ASSETS[asset].name}. Only the OT Security Engineer can repair it (${money(repair)}), from its panel on the map.`);
   }
   // streak: consecutive B-or-better real incidents add up to +50% XP
   if (!inc.drill) S.streak = grade === 'A' || grade === 'B' ? S.streak + 1 : 0;
@@ -971,7 +971,8 @@ const PANELS = {
       html: `
         ${clueCount ? `<button class="btn danger block" data-act="clues:${id}" style="margin-bottom:10px">${icon('search')} ${clueCount} detections logged here</button>` : ''}
         ${S.damaged[id] ? `<div class="box" style="box-shadow:inset 0 0 0 1px var(--red)"><b>Equipment damaged</b><p style="margin:4px 0 8px">A missed attack damaged this asset. Until it is repaired it drags revenue down and reliability cannot recover.</p>
-          <button class="btn danger block" data-act="repair:${id}" ${S.funds < S.damaged[id].cost ? 'disabled' : ''}>${icon('zap')} Repair for ${money(S.damaged[id].cost)}</button></div>` : ''}
+          ${mp && mp.role !== 'engineer' ? `<button class="btn block" disabled>${icon('zap')} Only the OT Security Engineer can repair this. Tell them in the team chat.</button>`
+            : `<button class="btn danger block" data-act="repair:${id}" ${S.funds < S.damaged[id].cost ? 'disabled' : ''}>${icon('zap')} Repair for ${money(S.damaged[id].cost)}</button>`}</div>` : ''}
         <p>${esc(a.desc)}</p>
         <div class="box"><div class="row between"><small>Status</small><span class="pill ${st.cls === 'ok' ? 'ok' : st.cls ? 'bad' : ''}">${esc(st.text)}</span></div>
         ${f ? `<div class="row between" style="margin-top:8px"><small>Load share</small><b>${Math.round(FEEDERS[f].share * 100)}% of revenue</b></div>` : ''}</div>
@@ -1319,22 +1320,9 @@ function openRespond() {
   openModal(`<small>${esc(inc.scn.short)} · ${inc.tags.size} True Positive · ${inc.fps.size} False Positive</small>
     <h3>Respond or Remediate</h3>
     <p>Pick the response that fits the evidence. Under-reacting lets the attack land; over-reacting causes the outage yourself.${S.owned.has('backups') ? ' Config backups will halve any outage.' : ''}</p>
-    <div class="rcards">${inc.order.map(r => `<button class="rcard${inc.rec === r.id ? ' rec' : ''}" data-act="play:${r.id}">
+    <div class="rcards">${inc.order.map(r => `<button class="rcard" data-act="play:${r.id}">
       <div class="r-top"><span class="r-tag ${r.tag}">${esc(r.tag)}</span><span class="r-cost">${r.cost ? money(r.cost) : 'Free'}</span></div>
-      <h4>${esc(r.title)}</h4><p>${esc(r.desc)}</p>${hint(r)}${inc.rec === r.id ? `<span class="rec-badge">${icon('search')} Analyst recommends</span>` : ''}${mp && switches(r) ? `<span class="rec-badge" style="background:rgba(255,194,61,.14);color:var(--amber)">${icon('zap')} Switching order to the control room</span>` : ''}</button>`).join('')}</div>
-    <div class="modal-foot"><button class="btn ghost" data-act="close-modal">Back to Detection</button></div>`);
-}
-
-function openRecommend() {
-  const inc = S.incident;
-  if (!inc) return;
-  if (!inc.order) inc.order = [...inc.scn.responses].sort(() => Math.random() - 0.5);
-  openModal(`<small>${esc(inc.scn.short)} · ${inc.tags.size} True Positive · ${inc.fps.size} False Positive</small>
-    <h3>Recommend an action</h3>
-    <p>Tell the Incident Responder what you would do, based on your classification. They see your pick marked on their options, and they make the final call.</p>
-    <div class="rcards">${inc.order.map(r => `<button class="rcard${inc.rec === r.id ? ' rec' : ''}" data-act="rec:${r.id}">
-      <div class="r-top"><span class="r-tag ${r.tag}">${esc(r.tag)}</span><span class="r-cost">${r.cost ? money(r.cost) : 'Free'}</span></div>
-      <h4>${esc(r.title)}</h4><p>${esc(r.desc)}</p>${inc.rec === r.id ? `<span class="rec-badge">${icon('check')} Your recommendation</span>` : ''}</button>`).join('')}</div>
+      <h4>${esc(r.title)}</h4><p>${esc(r.desc)}</p>${hint(r)}${mp && switches(r) ? `<span class="rec-badge" style="background:rgba(255,194,61,.14);color:var(--amber)">${icon('zap')} Switching order to the control room</span>` : ''}</button>`).join('')}</div>
     <div class="modal-foot"><button class="btn ghost" data-act="close-modal">Back to Detection</button></div>`);
 }
 
@@ -1437,16 +1425,6 @@ const ACTS = {
   tp: i => markClue(+i, 'tp'),
   fp: i => markClue(+i, 'fp'),
   respond: () => openRespond(),
-  recommend: () => openRecommend(),
-  rec: id => {
-    const inc = S.incident, r = inc?.scn.responses.find(x => x.id === id);
-    if (!r) return;
-    closeModal();
-    inc.rec = id;
-    if (mp?.host) teamNotice(`${mp.actor || 'The Analyst'} (SOC Analyst) recommends: ${r.tag} · ${r.title}`);
-    renderAction();
-    if (S.panel?.name === 'clues') renderPanel();
-  },
   play: id => {
     const inc = S.incident, r = inc?.scn.responses.find(x => x.id === id);
     if (!r || inc.pending) return;
@@ -1508,7 +1486,7 @@ document.addEventListener('click', e => {
   if (mp && ROLE_ACTS[act] && ROLE_ACTS[act] !== mp.role) { toast(`Only the ${esc(ROLES[ROLE_ACTS[act]].name)} can do that. Ask them in the team chat.`, 'warn', 'lock', true); return; }
   if (mirror() && REMOTE_ACTS.has(act)) {
     if (act === 'tp' || act === 'fp') ACTS[act](arg);            // show the call at once; the host confirms it
-    if (act === 'play' || act === 'rec' || act === 'sandbox') closeModal();
+    if (act === 'play' || act === 'sandbox') closeModal();
     mp.net.send({ t: 'act', act, arg });
     return;
   }
@@ -1587,7 +1565,7 @@ function snapshot() {
     T: S.T, speed: S.speed, funds: S.funds, reliability: S.reliability, xp: S.xp, streak: S.streak, over: S.over,
     owned: [...S.owned], feeders: S.feeders, damaged: S.damaged, chapter: S.chapter, questIdx: S.questIdx,
     storming: S.storming, stats: S.stats, badges: [...S.badges], pendingCtrl: [...S.pendingCtrl],
-    incident: inc && { key: inc.key, scn: inc.scn, drill: inc.drill, tags: [...inc.tags], fps: [...inc.fps], left: inc.left, total: inc.total, startT: inc.startT, clueOrder: inc.clueOrder, rec: inc.rec, pending: inc.pending },
+    incident: inc && { key: inc.key, scn: inc.scn, drill: inc.drill, tags: [...inc.tags], fps: [...inc.fps], left: inc.left, total: inc.total, startT: inc.startT, clueOrder: inc.clueOrder, pending: inc.pending },
   };
 }
 function sendState() {
@@ -1642,8 +1620,7 @@ function applyState(s) {
       S.incident.fps = new Set(inc.fps);
       S.incident.left = inc.left;
       S.incident.total = inc.total;
-      const flow = `${S.incident.rec}|${S.incident.pending}` !== `${inc.rec}|${inc.pending}`;
-      S.incident.rec = inc.rec;
+      const flow = S.incident.pending !== inc.pending;
       S.incident.pending = inc.pending;
       if (flow) { if (S.panel?.name === 'clues') renderPanel(); if (inc.pending) closeModal(); }
       if (was !== `${inc.tags}|${inc.fps}`) { refreshPins(); if (S.panel?.name === 'clues') renderPanel(); }
