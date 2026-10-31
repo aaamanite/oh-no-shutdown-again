@@ -346,6 +346,7 @@ function renderHUD() {
   const lvl = Math.floor(S.xp / 250) + 1;
   $('#op-name').textContent = S.player || 'Operator';
   $('#op-level').textContent = lvl;
+  $('#op-level').parentElement.title = `Level ${lvl}: ${S.xp % 250}/250 XP to level ${lvl + 1}. Earn XP by handling incidents and preventing attacks.`;
   $('#op-rank').textContent = S.streak > 1 ? `Streak ×${S.streak}` : '';
   $('#op-rank').hidden = S.streak < 2;
   $('#op-xp').style.width = `${((S.xp % 250) / 250) * 100}%`;
@@ -1585,6 +1586,7 @@ function applyState(s) {
   renderBanner();
   renderAction();
   renderHUD();
+  if (S.panel && S.panel.name !== 'clues') renderPanel();
 }
 
 function hostAct(msg) {
@@ -1616,9 +1618,12 @@ function onNet(msg) {
     for (const r of ROLE_IDS) setMate(r, msg.players.find(p => p.role === r)?.name);
     const me = world.persona.position;
     mp.net.send({ t: 'walk', x: me.x, z: me.z, snap: true });           // a newcomer sees where everyone stands
-    for (const r of ROLE_IDS) {
-      if (mp.seats.has(r) && !now.has(r)) mp.chat.system(`The ${ROLES[r].name} left the room.`);
-      if (!mp.seats.has(r) && now.has(r)) mp.chat.system(`${msg.players.find(p => p.role === r).name} joined as the ${ROLES[r].name}.`);
+    for (const r of ROLE_IDS) {                     // a quick reconnect is not announced as leaving and joining
+      if (mp.seats.has(r) && !now.has(r)) mp.gone[r] = setTimeout(() => { delete mp.gone[r]; if (!mp.seats.has(r)) mp.chat.system(`The ${ROLES[r].name} left the room.`); }, 8000);
+      if (!mp.seats.has(r) && now.has(r)) {
+        if (mp.gone[r]) { clearTimeout(mp.gone[r]); delete mp.gone[r]; }
+        else mp.chat.system(`${msg.players.find(p => p.role === r).name} joined as the ${ROLES[r].name}.`);
+      }
     }
     mp.seats = now;
     if (mp.host) { mp.net.send({ t: 'start' }); mp.net.send({ t: 'history', list: S.history }); sendState(); }   // a returning teammate catches up
@@ -1627,11 +1632,14 @@ function onNet(msg) {
     renderHUD();
     mp.chat.system('The host left, so the grid has stopped. Start a new room to play on.');
     toast('The host left the room. The grid has stopped.', 'bad', 'alert');
-  } else if (msg.t === 'closed') toast('Disconnected from the room.', 'bad', 'alert');
+  } else if (msg.t === 'link') {
+    if (msg.state === 'lost') toast('Connection to the room lost. Reconnecting…', 'warn', 'alert', true);
+    else { toast('Reconnected to the room.', 'good', 'check', true); if (mp.host) sendState(); }
+  } else if (msg.t === 'closed') toast('Disconnected from the room. Reload to join again.', 'bad', 'alert', true);
 }
 
 function startTeam(session) {
-  mp = { role: session.role, host: session.host, net: session.net, chat: session.chat, code: session.code, seats: new Set(session.players.map(p => p.role)) };
+  mp = { role: session.role, host: session.host, net: session.net, chat: session.chat, code: session.code, seats: new Set(session.players.map(p => p.role)), gone: {} };
   session.on(onNet);
   setPlayerName(session.name);
   Snd.init();
@@ -1654,23 +1662,39 @@ initLobby({ getName: () => nameInput.value.trim(), onStart: startTeam });
 
 // ---------- main loop ----------
 let last = performance.now(), hudTimer = 0, bannerSec = -1, stateTimer = 0;
+// the grid's clock: the incident timer, or game time and the economy
+function simulate(dt) {
+  if (!S.started || S.over || S.speed <= 0) return;
+  if (S.incident) {
+    S.incident.left -= dt;
+    if (S.incident.left <= 0) resolve(null);
+    else if (Math.ceil(S.incident.left) !== bannerSec) { bannerSec = Math.ceil(S.incident.left); renderBanner(); }
+  } else {
+    advance(dt * S.speed * GAME_MIN_PER_SEC);
+  }
+}
+// browsers stop animating background tabs, so a host who switches tabs would freeze the team's grid:
+// when the page hasn't drawn a frame for a second, the host keeps the clock running and the team updated
+let tickAt = performance.now(), frameAt = performance.now();
+setInterval(() => {
+  const now = performance.now(), dt = Math.min(2, (now - tickAt) / 1000);
+  tickAt = now;
+  if (!mp?.host || now - frameAt < 1000) return;
+  simulate(dt);
+  checkQuests();
+  sendState();
+}, 500);
+
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
+  frameAt = performance.now();
   if (mirror()) {
     if (S.started && !S.over && S.speed > 0 && S.incident) {
       S.incident.left = Math.max(0, S.incident.left - dt);
       if (Math.ceil(S.incident.left) !== bannerSec) { bannerSec = Math.ceil(S.incident.left); renderBanner(); }
     }
-  } else if (S.started && !S.over && S.speed > 0) {
-    if (S.incident) {
-      S.incident.left -= dt;
-      if (S.incident.left <= 0) resolve(null);
-      else if (Math.ceil(S.incident.left) !== bannerSec) { bannerSec = Math.ceil(S.incident.left); renderBanner(); }
-    } else {
-      advance(dt * S.speed * GAME_MIN_PER_SEC);
-    }
-  }
+  } else simulate(dt);
   hudTimer += dt;
   if (hudTimer > 0.25) {
     hudTimer = 0;

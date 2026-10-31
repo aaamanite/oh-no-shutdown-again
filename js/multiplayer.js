@@ -14,16 +14,43 @@ const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const newCode = () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 31)]).join('');
 
-// one room connection; handlers get every message from the room
-function connect(code, join, onMsg, onClose) {
-  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/room/${code}`);
+// one room connection. If it drops after joining (a server restart or deploy, flaky Wi-Fi, a phone going to sleep)
+// it reconnects by itself and takes the same seat back; messages sent meanwhile wait in a queue.
+function connect(code, join, onMsg, onClose, onLink) {
+  const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/room/${code}`;
+  let ws, ready = false, joined = false, stopped = false, tries = 0;
   const queue = [];
-  ws.addEventListener('open', () => { ws.send(JSON.stringify({ t: 'join', ...join })); queue.splice(0).forEach(m => ws.send(m)); });
-  ws.addEventListener('message', e => { try { onMsg(JSON.parse(e.data)); } catch (err) { console.error(err); } });
-  ws.addEventListener('close', e => onClose(e));
+  const open = () => {
+    ws = new WebSocket(url);
+    ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'join', ...join, rejoin: joined })));
+    ws.addEventListener('message', e => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      if (msg.t === 'joined') {
+        const again = joined;
+        ready = joined = true;
+        tries = 0;
+        queue.splice(0).forEach(m => ws.send(m));
+        if (again) onLink('back');
+      }
+      try { onMsg(msg); } catch (err) { console.error(err); }
+    });
+    ws.addEventListener('close', e => {
+      if (e.target !== ws) return;                                 // an old socket we already replaced
+      ready = false;
+      if (stopped || !joined || e.code === 4000) { onClose(e); return; }
+      if (tries === 0) onLink('lost');
+      setTimeout(open, Math.min(5000, 500 * 2 ** tries++));
+    });
+  };
+  open();
   return {
-    send(msg) { const s = JSON.stringify(msg); if (ws.readyState === 1) ws.send(s); else if (ws.readyState === 0) queue.push(s); },
-    close() { ws.close(); },
+    send(msg) {
+      const s = JSON.stringify(msg);
+      if (ready) ws.send(s);
+      else if (msg.t !== 'state') queue.push(s);                    // the host sends a fresh state when it is back
+    },
+    close() { stopped = true; ws.close(); },
   };
 }
 
@@ -89,6 +116,7 @@ export function initLobby({ getName, onStart, onSolo }) {
     const net = connect(code, { name, role, create }, msg => {
       if (msg.t === 'error') { session.failed = true; fail(msg.text); return; }
       if (msg.t === 'joined') {
+        if (session.joined) return;                                 // reconnected: same seat, nothing to redraw
         session.joined = true;
         session.chat = chat = mountChat(session);
         box.hidden = true;
@@ -108,6 +136,9 @@ export function initLobby({ getName, onStart, onSolo }) {
     }, e => {
       if (!session.joined) { session.failed = true; if (!$('#mp-error').textContent) fail('Could not reach the room server. Multiplayer needs the game’s main website.'); return; }
       handlers.forEach(h => h({ t: 'closed', code: e.code }));
+    }, state => {
+      chat?.system(state === 'lost' ? 'Connection lost. Reconnecting…' : 'Reconnected.');
+      handlers.forEach(h => h({ t: 'link', state }));
     });
     session = { code, role, host: create, name, net, players, started: false, joined: false, failed: false, on: h => handlers.add(h) };
   }

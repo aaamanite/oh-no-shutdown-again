@@ -44,12 +44,18 @@ export class Room extends DurableObject {
     if (msg.t === 'join') {
       const role = ROLES.includes(msg.role) ? msg.role : null;
       const name = String(msg.name || '').trim().slice(0, 24) || 'Player';
-      const others = this.players().filter(x => x.ws !== ws);
+      let others = this.players().filter(x => x.ws !== ws);
       const err = text => { ws.send(JSON.stringify({ t: 'error', text })); ws.close(4000, text); };
       if (!role) return err('Pick a role.');
-      if (msg.create && others.length) return err('That room code is already in use. Create a new room.');
-      if (!msg.create && !others.some(x => x.p.host)) return err('Room not found. Check the code with your host.');
-      if (others.some(x => x.p.role === role)) return err('That role is taken. Pick another one.');
+      if (msg.rejoin) {
+        // a player coming back after a dropped connection takes their seat back from the stale socket
+        for (const x of others.filter(o => o.p.role === role)) { x.ws.serializeAttachment(null); try { x.ws.close(4001, 'Replaced'); } catch { /* gone */ } }
+        others = others.filter(o => o.p.role !== role);
+      } else {
+        if (msg.create && others.length) return err('That room code is already in use. Create a new room.');
+        if (!msg.create && !others.some(x => x.p.host)) return err('Room not found. Check the code with your host.');
+        if (others.some(x => x.p.role === role)) return err('That role is taken. Pick another one.');
+      }
       ws.serializeAttachment({ role, name, host: !!msg.create });
       ws.send(JSON.stringify({ t: 'joined', role, host: !!msg.create }));
       this.roster();
