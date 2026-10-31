@@ -56,7 +56,7 @@ const S = {
   alerts: [], unread: 0,
   stats: { revenue: 0, fines: 0, spent: 0, response: 0, outageMin: 0, prevented: 0, customerMin: 0 },
   questIdx: 0, seen: new Set(), fresh: new Set(),
-  played: new Map(), threatsSeen: new Set(),       // alerts played this chapter (id -> times); chapter threats already met
+  alarmsSeen: new Set(), threatsSeen: new Set(),   // false alarms already played; chapter threats already met
   badges: new Map(),                 // detection badges earned: scenario id -> { day, clock }
   chapter: 0,                        // highest chapter reached (0-based); unlocks sites, feeders, controls, events
   eFrom: 0, eLost: false,            // Feeder E (the factory): when it came online, lost supply today?
@@ -421,7 +421,6 @@ function checkQuests() {
 function enterChapter(ch, card = true) {
   S.chapter = Math.max(S.chapter, ch);
   S.deck = [];                         // deal a fresh round: this chapter's threat and false alarms
-  S.played = new Map();                // and every alert may play twice again
   applyChapter(true);
   if (card && CHAPTER_INTRO[ch]) showChapterCard(ch);
 }
@@ -572,25 +571,20 @@ function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
   return arr;
 }
-// Alerts are dealt in random order, each at most twice per chapter. False alarms come from the chapter's own set;
-// older chapters' alarms only fill in once those are used up. Real attacks unlock one per chapter and stay in the
-// mix; a chapter's new threat comes early in its first round. When every alert has been played twice, a new cycle
-// starts.
-const MAX_PER_CHAPTER = 2;
+// False alarms never repeat while unplayed ones remain: the chapter's own come first, then any older ones not yet
+// seen. Real attacks unlock one per chapter and stay in the mix; a chapter's new threat comes early in its round.
 const BENIGN = [...SCENARIOS.filter(sc => sc.benign), ...FALSE_ALARMS];
-const timesLeft = sc => (S.played.get(sc.id) || 0) < MAX_PER_CHAPTER;
-function dealRound() {
-  const attacks = SCENARIOS.filter(sc => !sc.benign && live(sc) && timesLeft(sc));
-  const pool = BENIGN.filter(sc => live(sc) && timesLeft(sc)), own = pool.filter(sc => (sc.ch || 0) === S.chapter);
-  const alarms = shuffle(own.length ? own : pool).slice(0, S.chapter >= 2 ? 7 : 5);
-  return { attacks, ids: shuffle([...attacks, ...alarms].map(sc => sc.id)) };
+function dealAlarms(n) {
+  const unseen = () => BENIGN.filter(sc => live(sc) && !S.alarmsSeen.has(sc.id));
+  if (!unseen().length) S.alarmsSeen.clear();                    // every alarm has been played: start a new cycle
+  const pool = unseen(), own = pool.filter(sc => (sc.ch || 0) === S.chapter);
+  return [...shuffle(own), ...shuffle(pool.filter(sc => (sc.ch || 0) !== S.chapter))].slice(0, n).map(sc => sc.id);
 }
 function pickScenario(first) {
   if (!S.deck.length) {
-    let round = dealRound();
-    if (!round.ids.length) { S.played.clear(); round = dealRound(); }
-    S.deck = round.ids;
-    const fresh = round.attacks.find(sc => sc.ch && sc.ch === S.chapter && !S.threatsSeen.has(sc.id));
+    const attacks = SCENARIOS.filter(sc => !sc.benign && live(sc));
+    S.deck = shuffle([...attacks.map(sc => sc.id), ...dealAlarms(S.chapter >= 2 ? 7 : 5)]);
+    const fresh = attacks.find(sc => sc.ch && sc.ch === S.chapter && !S.threatsSeen.has(sc.id));
     if (fresh) { S.deck.splice(S.deck.indexOf(fresh.id), 1); S.deck.splice(1, 0, fresh.id); }
     if (S.deck[0] === S.recent[0]) S.deck.push(S.deck.shift()); // no back-to-back repeat across rounds
   }
@@ -600,7 +594,7 @@ function pickScenario(first) {
   // while "Triage a factory alert" is the mission, the next alert comes from Mutiara Motor Works
   if (QUESTS[S.questIdx]?.event === 'factoryAlarm') {
     const fac = shuffle(FALSE_ALARMS.filter(sc => live(sc) && sc.targets.includes('factory')))
-      .sort((a, b) => (S.played.get(a.id) || 0) - (S.played.get(b.id) || 0));
+      .sort((a, b) => S.alarmsSeen.has(a.id) - S.alarmsSeen.has(b.id));
     if (fac.length) { S.deck.unshift(fac[0].id); id = fac[0].id; }
   }
   S.deck.splice(S.deck.indexOf(id), 1);
@@ -612,8 +606,8 @@ function triggerScheduled(now) {
   const first = !S.history.some(h => !h.drill);
   const scn = pickScenario(first);
   S.recent = [scn.id, ...S.recent].slice(0, 2);
-  S.played.set(scn.id, (S.played.get(scn.id) || 0) + 1);
-  if (!scn.benign) S.threatsSeen.add(scn.id);
+  if (scn.benign) S.alarmsSeen.add(scn.id);
+  else S.threatsSeen.add(scn.id);
   if (isBlocked(scn)) {
     S.stats.prevented++;
     S.reliability = clamp(S.reliability + 2, 0, 100);
