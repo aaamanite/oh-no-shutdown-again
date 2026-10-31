@@ -118,11 +118,36 @@
       <h1><span>Oh no!</span> Shutdown again?</h1>
       <p class="lede">You are the new OT Security Lead at <b>PMU Bukit Mutiara</b>, the 132/33 kV substation at the heart of the <b>ONSA Power &amp; Co.</b> grid. A biogas power plant, an offshore wind farm and a solar farm feed it. It supplies 12,400 homes, Hospital Bukit Mutiara, Kolej Komuniti Bukit Mutiara, Mutiara Avenue Mall, ONSA's HQ and the R&amp;D Centre, where researchers are preparing the next big project: space-based solar power, beamed down wirelessly. Attackers have noticed — and nobody wants to hear “shutdown” again.</p>
 
+      <div class="modes">
+        <button class="mode on" data-mode="solo"><span data-icon="user"></span>Single player</button>
+        <button class="mode" data-mode="multi"><span data-icon="share"></span>Multiplayer · co-op SOC</button>
+      </div>
       <div class="launch">
         <label class="callsign" for="player-name"><small>Enter your name</small>
           <input id="player-name" maxlength="24" placeholder="Your name" autocomplete="off" spellcheck="false">
         </label>
         <button class="btn primary big" id="start" data-icon="playf">Start mission</button>
+      </div>
+
+      <!-- multiplayer: pick a role, then create a room or join one with its code -->
+      <div id="mp-setup" class="mp-box" hidden>
+        <small class="mp-step">1 · Pick your role</small>
+        <div id="mp-roles" class="mp-roles"></div>
+        <small class="mp-step">2 · Create a room, or join your team’s</small>
+        <div class="mp-actions">
+          <button class="btn primary" id="mp-create" data-icon="plus">Create a room</button>
+          <span class="mp-or">or</span>
+          <input id="mp-code" class="text-input" maxlength="6" placeholder="Room code" autocomplete="off" spellcheck="false">
+          <button class="btn" id="mp-join" data-icon="arrow">Join</button>
+        </div>
+        <p id="mp-error" class="mp-error" role="alert"></p>
+      </div>
+      <div id="mp-lobby" class="mp-box" hidden>
+        <small class="mp-step">Room code</small>
+        <div class="mp-room" id="mp-room"></div>
+        <div id="mp-slots" class="mp-slots"></div>
+        <p id="mp-wait" class="mp-wait"></p>
+        <div class="mp-actions"><button class="btn ghost" id="mp-leave">Leave room</button><button class="btn primary big" id="mp-start" data-icon="playf" hidden>Start mission</button></div>
       </div>
 
       <div class="features">
@@ -133,6 +158,13 @@
 
       <span class="hint">Drag to pan · right-drag to rotate 360° · scroll to zoom</span>
     </div>
+  </div>
+
+  <!-- team chat for multiplayer -->
+  <div id="chat" hidden>
+    <button id="chat-head"><span data-icon="share"></span>Team chat<span id="chat-unread" hidden></span></button>
+    <div id="chat-list"></div>
+    <div class="chat-form"><input id="chat-input" maxlength="400" placeholder="Message your team" autocomplete="off"><button id="chat-send" data-icon="arrow" aria-label="Send"></button></div>
   </div>
 
   <script type="module" src="js/game.js"></script>

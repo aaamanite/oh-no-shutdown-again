@@ -3,3 +3,9 @@
 .gitignore
 .assetsignore
 .claude
+server
+wrangler.jsonc
+.wrangler
+node_modules
+package.json
+package-lock.json

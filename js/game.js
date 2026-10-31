@@ -3,6 +3,7 @@ import { World } from './world.js';
 import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, CHAPTER_INTRO, UNLOCK, FEEDERS, PURDUE, SITE, PROCESS, INSTRUMENTS, FACTORY_SYSTEMS, FACTORY_PROTOCOLS, instrumentRisk, HONEYPOT } from './data.js';
 import { icon, hydrateIcons } from './icons.js';
 import { FALSE_ALARMS, NOISE, PLANT_EVENTS } from './events.js';
+import { initLobby, ROLES, ROLE_IDS } from './multiplayer.js';
 
 // ---------- helpers ----------
 const $ = (s, r = document) => r.querySelector(s);
@@ -65,6 +66,15 @@ const S = {
   panel: null, light: 'auto', sound: true, netVisible: true, spin: false,
   player: '',
 };
+
+// multiplayer co-op SOC: null in single player, else { role, host, net, chat }. The host's browser runs the grid;
+// teammates mirror its state and send their actions to it. Each role may only do its own job.
+let mp = null;
+const MP_TIME = 2.5;                 // incidents last longer: the team reads and chats before deciding
+const ROLE_ACTS = { tp: 'analyst', fp: 'analyst', respond: 'responder', play: 'responder', buy: 'engineer', repair: 'engineer' };
+const REMOTE_ACTS = new Set(['tp', 'fp', 'play', 'buy', 'repair', 'skip', 'drill', 'sandbox']);
+const mirror = () => mp && !mp.host;
+let quiet = false;                   // while a teammate applies the host's state, no local toasts or log lines
 
 // content unlocked by chapter: anything with ch (feeders, conduits, controls, false alarms, events) or listed in UNLOCK
 const live = x => !x.ch || S.chapter >= x.ch;
@@ -185,7 +195,7 @@ meEl.className = 'me';
 meEl.dataset.act = 'rename';
 meEl.title = 'Change your name';
 const NAME_KEY = 'onsa.playerName';
-function renderMe() { meEl.innerHTML = `<b>${esc(S.player || 'You')}</b><small>OT Security Lead · ${esc(SITE.utility)}</small>`; }
+function renderMe() { meEl.innerHTML = `<b>${esc(S.player || 'You')}</b><small>${mp ? `${esc(ROLES[mp.role].name)} · room ${esc(mp.code)}` : `OT Security Lead · ${esc(SITE.utility)}`}</small>`; }
 function setPlayerName(name) {
   S.player = name.trim().slice(0, 24);
   try { localStorage.setItem(NAME_KEY, S.player); } catch { /* storage unavailable */ }
@@ -345,14 +355,22 @@ function renderBanner() {
     <div class="decide"><small>Decide in</small><b>${pad(Math.floor(left / 60))}:${pad(left % 60)}</b></div>`;
 }
 
+const respondBtn = cls => (mp && mp.role !== 'responder'
+  ? `<button class="btn ${cls}" disabled>${icon('cards')} The Incident Responder decides</button>`
+  : `<button class="btn primary ${cls}" data-act="respond">${icon('cards')} Respond or Remediate</button>`);
+const ROLE_HINT = {
+  analyst: 'Read your lines, ask your teammates in chat what theirs say, then classify every line True Positive or False Positive.',
+  responder: 'Read your lines and tell the team what they say. When the Analyst has classified the evidence, choose the response.',
+  engineer: 'Read your lines and tell the team what they say. Controls you install add context to the logs and stop attacks before they start.',
+};
 function renderAction() {
   const el = $('#action');
   if (S.incident) {
     const inc = S.incident;
     el.innerHTML = `<div class="card inc-card">
-      <p>Tap the magnifier pins to read what each system logged. Mark each line True Positive or False Positive, then respond or remediate.</p>
+      <p>${mp ? `<span class="role-chip">${icon(ROLES[mp.role].icon)}${esc(ROLES[mp.role].short)}</span> ${ROLE_HINT[mp.role]}` : 'Tap the magnifier pins to read what each system logged. Mark each line True Positive or False Positive, then respond or remediate.'}</p>
       <div class="row"><button class="btn" data-act="clues">${icon('search')} Detection ${classified(inc)}/${inc.scn.clues.length}</button>
-      <button class="btn primary" data-act="respond">${icon('cards')} Respond or Remediate</button></div></div>`;
+      ${respondBtn('')}</div></div>`;
     return;
   }
   const q = QUESTS[S.questIdx];
@@ -374,7 +392,9 @@ function renderAction() {
 }
 
 // ---------- alerts & toasts ----------
-function toast(msg, kind = 'good', ic) {
+function toast(msg, kind = 'good', ic, local = false) {
+  if (quiet) return;
+  if (mp?.host && !local) mp.net.send({ t: 'toast', msg, kind, ic });
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
   el.innerHTML = `${icon(ic || (kind === 'good' ? 'check' : kind === 'bad' ? 'alert' : 'bell'))}<span>${msg}</span>`;
@@ -382,6 +402,8 @@ function toast(msg, kind = 'good', ic) {
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 320); }, 4200);
 }
 function alertLog(text, kind = 'info') {
+  if (quiet) return;
+  if (mp?.host) mp.net.send({ t: 'log', text, kind });
   S.alerts.unshift({ text, kind, day: dayOf(S.T), clock: clockOf(S.T) });
   if (S.alerts.length > 80) S.alerts.pop();
   if (S.panel?.name === 'alerts') renderPanel(); else S.unread++;
@@ -396,12 +418,18 @@ const QSTATE = {
 };
 const questDone = q => (q.event.startsWith('buy:') ? S.owned.has(q.event.slice(4))
   : QSTATE[q.event] ? QSTATE[q.event]() : (q.fresh ? S.fresh : S.seen).has(q.event));
+const questSent = {};
 function questEvent(ev) {
+  if (mirror()) {
+    if (Date.now() - (questSent[ev] || 0) > 3000) { questSent[ev] = Date.now(); mp.net.send({ t: 'act', act: 'qev', arg: ev }); }
+    return;
+  }
   S.seen.add(ev);
   S.fresh.add(ev);
   checkQuests();
 }
 function checkQuests() {
+  if (mirror()) return;
   let changed = false;
   while (QUESTS[S.questIdx] && questDone(QUESTS[S.questIdx])) {
     const q = QUESTS[S.questIdx];
@@ -443,9 +471,11 @@ function applyChapter(reveal) {
 }
 function showChapterCard(ch) {
   const c = CHAPTER_INTRO[ch];
-  if (!S.card) S.cardSpeed = S.speed;
-  S.card = true;
-  setSpeed(0);
+  if (!mp) {
+    if (!S.card) S.cardSpeed = S.speed;
+    S.card = true;
+    setSpeed(0);
+  }
   openModal(`<div class="chapter-card">
     <span class="cc-ic">${icon(c.icon)}</span>
     <small>Chapter ${pad(ch + 1)} unlocked</small>
@@ -658,8 +688,12 @@ function startIncident(base, drill) {
   const scn = withNoise(withHoneypot(base));
   const tripped = scn.clues.some(c => c.src.startsWith('Honeypot') && c.attack);
   if (tripped) { if (!drill) S.stats.hpTrips = (S.stats.hpTrips || 0) + 1; world.setHoneypotAlarm(true); toast('Honeypot RTU-99 tripped — something is exploring the OT network', 'bad', 'target'); }
-  const total = decideTime();
-  S.incident = { scn, drill, tags: new Set(), fps: new Set(), left: total, total, startT: S.T, filter: 'all', clueOrder: shuffle(scn.clues.map((_, i) => i)) };
+  const total = Math.round(decideTime() * (mp ? MP_TIME : 1));
+  S.incident = { scn, drill, tags: new Set(), fps: new Set(), left: total, total, startT: S.T, filter: 'all', clueOrder: shuffle(scn.clues.map((_, i) => i)), key: `${Date.now()}` };
+  if (mp) {                          // deal the lines round the table so each role reads about a third
+    const seats = shuffle([...ROLE_IDS]);
+    S.incident.vis = Object.fromEntries(S.incident.clueOrder.map((ci, k) => [ci, seats[k % 3]]));
+  }
   world.setAttacked(scn.targets);
   refreshConduits();
   buildPins();
@@ -814,6 +848,7 @@ function resolve(resp) {
     tags: [...inc.tags], fps: [...inc.fps], fpOk, miss, m, badge, clues: scn.clues, day: dayOf(S.T), clock: clockOf(S.T), startT: inc.startT,
   };
   S.history.push(record);
+  if (mp?.host) mp.net.send({ t: 'record', rec: record });
 
   S.incident = null;
   world.setAttacked([]);
@@ -987,7 +1022,7 @@ const PANELS = {
     return {
       eyebrow: 'Security Operations Center', title: 'SOC',
       html: `${inc ? `<div class="box" style="border:1.5px solid var(--red)"><small style="color:#ffa79e">Open incident</small><b style="display:block;margin:4px 0 8px">${esc(inc.scn.title)}</b>
-          <div class="row"><button class="btn sm" data-act="clues">${icon('search')} Detection</button><button class="btn sm primary" data-act="respond">${icon('cards')} Respond or Remediate</button></div></div>`
+          <div class="row"><button class="btn sm" data-act="clues">${icon('search')} Detection</button>${respondBtn('sm')}</div></div>`
         : `<div class="box"><small>Status</small><p style="margin:4px 0 8px">No open incidents. Monitoring ${OT_SOURCES()} log sources.${S.owned.has('honeypot') ? ` Honeypot RTU-99 armed · ${S.stats.hpTrips || 0} trips so far.` : ''}</p>
           <button class="btn sm" data-act="skip">${icon('clock')} Skip to next alert</button></div>`}
         <div class="sec"><small>Drills</small></div>
@@ -1057,11 +1092,11 @@ const PANELS = {
     return {
       danger: true,
       eyebrow: cluesEyebrow(), title: 'Detection',
-      html: `<p>Classify every line: <b>True Positive</b> if it is part of the attack, <b>False Positive</b> if it is benign or routine. Right calls earn points, wrong calls cost them. Your calls and how you respond or remediate decide the grade.</p>
+      html: `${mp && inc.vis ? `<p class="mp-note">You are the <b>${esc(ROLES[mp.role].name)}</b>. You can read ${Object.values(inc.vis).filter(r => r === mp.role).length} of ${inc.scn.clues.length} lines; your teammates can read the others. ${ROLE_HINT[mp.role]}</p>` : ''}<p>Classify every line: <b>True Positive</b> if it is part of the attack, <b>False Positive</b> if it is benign or routine. Right calls earn points, wrong calls cost them. Your calls and how you respond or remediate decide the grade.</p>
         <div class="filters"><button class="${filter === 'all' ? 'on' : ''}" data-act="clues:all">All</button>${assets.map(id => `<button class="${filter === id ? 'on' : ''}" data-act="clues:${id}">${esc(ASSETS[id].short)}</button>`).join('')}</div>
         ${inc.clueOrder.map(i => inc.scn.clues[i]).map((c, k) => (filter === 'all' || c.asset === filter ? clueHTML(c, inc.clueOrder[k]) : '')).join('')}
         ${missing.length ? `<div class="box tiny muted">${icon('lock')} Some context is hidden. ${missing.map(id => esc(CTRL[id].short)).join(', ')} would add more detail to these logs.</div>` : ''}
-        <div class="sticky-foot"><button class="btn primary block" data-act="respond">${icon('cards')} Respond or Remediate</button></div>`,
+        <div class="sticky-foot">${respondBtn('block')}</div>`,
     };
   },
 
@@ -1170,16 +1205,21 @@ function cluesEyebrow() {
 }
 
 function clueHTML(c, i) {
-  const tp = S.incident.tags.has(i), fp = S.incident.fps.has(i);
+  const inc = S.incident, tp = inc.tags.has(i), fp = inc.fps.has(i);
+  const owner = mp && inc.vis ? inc.vis[i] : null, readable = !owner || owner === mp.role;
   const chips = c.chips.filter(ch => !ch.need || S.owned.has(ch.need))
     .map(ch => `<span class="cchip ${ch.tone || ''}">${esc(ch.t)}</span>`).join('');
-  return `<div class="clue ${tp ? 'tagged' : fp ? 'benign' : ''}" data-i="${i}">
-    <div class="clue-h"><span>${clueTime(c)} · ${esc(c.src)}</span><span>${esc(ASSETS[c.asset].short)}</span></div>
-    <pre>${esc(clueText(c))}</pre>${chips ? `<div class="cchips">${chips}</div>` : ''}
-    <div class="row" style="gap:6px">
+  const calls = !mp || mp.role === 'analyst'
+    ? `<div class="row" style="gap:6px">
       <button class="btn-tag tp ${tp ? 'on' : ''}" data-act="tp:${i}">${icon(tp ? 'check' : 'alert')} True Positive</button>
       <button class="btn-tag fp ${fp ? 'on' : ''}" data-act="fp:${i}">${icon(fp ? 'check' : 'shield')} False Positive</button>
-    </div></div>`;
+    </div>`
+    : `<span class="clue-call ${tp ? 'tp' : fp ? 'fp' : ''}">${tp ? 'Analyst: True Positive' : fp ? 'Analyst: False Positive' : 'Not classified yet'}</span>`;
+  return `<div class="clue ${tp ? 'tagged' : fp ? 'benign' : ''}${readable ? '' : ' locked'}" data-i="${i}">
+    <div class="clue-h"><span>${clueTime(c)} · ${esc(c.src)}</span><span>${esc(ASSETS[c.asset].short)}${owner && readable ? '<b class="clue-mine">· yours</b>' : ''}</span></div>
+    ${readable ? `<pre>${esc(clueText(c))}</pre>${chips ? `<div class="cchips">${chips}</div>` : ''}`
+    : `<div class="clue-lock">${icon('lock')}<span>Only the ${esc(ROLES[owner].name)} can read this line. Ask them in the team chat.</span></div>`}
+    ${calls}</div>`;
 }
 
 function openPanel(name, arg) {
@@ -1383,13 +1423,22 @@ document.addEventListener('click', e => {
   const raw = el.dataset.act;
   const i = raw.indexOf(':');
   const act = i < 0 ? raw : raw.slice(0, i), arg = i < 0 ? undefined : raw.slice(i + 1);
+  if (mp && ROLE_ACTS[act] && ROLE_ACTS[act] !== mp.role) { toast(`Only the ${esc(ROLES[ROLE_ACTS[act]].name)} can do that. Ask them in the team chat.`, 'warn', 'lock', true); return; }
+  if (mirror() && REMOTE_ACTS.has(act)) {
+    if (act === 'tp' || act === 'fp') ACTS[act](arg);            // show the call at once; the host confirms it
+    if (act === 'play' || act === 'sandbox') closeModal();
+    mp.net.send({ t: 'act', act, arg });
+    return;
+  }
   ACTS[act]?.(arg, el);
+  if (mp?.host && REMOTE_ACTS.has(act)) sendState();
 });
 
 $('#sheet-close').addEventListener('click', closePanel);
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal' && !S.over) closeModal(); });
-document.querySelectorAll('#speeds button').forEach(b => b.addEventListener('click', () => setSpeed(+b.dataset.speed)));
-$('#rb-light').addEventListener('click', () => { S.light = LIGHT_MODES[(LIGHT_MODES.indexOf(S.light) + 1) % 3]; renderRail(); toast(`Lighting: ${S.light}`, 'warn', S.light === 'night' ? 'moon' : 'sun'); });
+const wantSpeed = v => (mirror() ? mp.net.send({ t: 'act', act: 'speed', arg: v }) : setSpeed(v));
+document.querySelectorAll('#speeds button').forEach(b => b.addEventListener('click', () => wantSpeed(+b.dataset.speed)));
+$('#rb-light').addEventListener('click', () => { S.light = LIGHT_MODES[(LIGHT_MODES.indexOf(S.light) + 1) % 3]; renderRail(); toast(`Lighting: ${S.light}`, 'warn', S.light === 'night' ? 'moon' : 'sun', true); });
 $('#rb-sound').addEventListener('click', () => { S.sound = !S.sound; renderRail(); });
 $('#rb-layers').addEventListener('click', () => setNetVisible(!S.netVisible));
 $('#rb-rotl').addEventListener('click', () => { world.rotate(-45); questEvent('camera'); });
@@ -1408,7 +1457,7 @@ const renderQuality = () => {
 $('#rb-quality').addEventListener('click', () => {
   world.setQuality(world.quality === 'high' ? 'low' : 'high');
   renderQuality();
-  toast(`Graphics: ${world.quality === 'high' ? 'high quality' : 'low (faster)'}`, 'good', 'layers');
+  toast(`Graphics: ${world.quality === 'high' ? 'high quality' : 'low (faster)'}`, 'good', 'layers', true);
 });
 renderQuality();
 $('#rb-help').addEventListener('click', openHelp);
@@ -1423,10 +1472,10 @@ window.addEventListener('keydown', e => {
   if (e.target.closest('input, textarea')) return;
   if (e.key === 'Escape') { if (!$('#modal').hidden && !S.over) closeModal(); else closePanel(); }
   else if (!S.started) return;
-  else if (e.key === ' ') { e.preventDefault(); setSpeed(S.speed ? 0 : 1); }
-  else if (e.key === '1') setSpeed(1);
-  else if (e.key === '2') setSpeed(2);
-  else if (e.key === '3') setSpeed(4);
+  else if (e.key === ' ') { e.preventDefault(); wantSpeed(S.speed ? 0 : 1); }
+  else if (e.key === '1') wantSpeed(1);
+  else if (e.key === '2') wantSpeed(2);
+  else if (e.key === '3') wantSpeed(4);
   else if (e.key === 'q' || e.key === 'Q') { world.rotate(-45); questEvent('camera'); }
   else if (e.key === 'e' || e.key === 'E') { world.rotate(45); questEvent('camera'); }
 });
@@ -1448,12 +1497,143 @@ $('#start').addEventListener('click', () => {
   renderHUD();
 });
 
+// ---------- multiplayer: host state, teammates mirror it ----------
+function snapshot() {
+  const inc = S.incident;
+  return {
+    T: S.T, speed: S.speed, funds: S.funds, reliability: S.reliability, xp: S.xp, streak: S.streak, over: S.over,
+    owned: [...S.owned], feeders: S.feeders, damaged: S.damaged, chapter: S.chapter, questIdx: S.questIdx,
+    storming: S.storming, stats: S.stats, badges: [...S.badges],
+    incident: inc && { key: inc.key, scn: inc.scn, drill: inc.drill, tags: [...inc.tags], fps: [...inc.fps], left: inc.left, total: inc.total, startT: inc.startT, clueOrder: inc.clueOrder, vis: inc.vis },
+  };
+}
+function sendState() {
+  stateTimer = 0;
+  mp.net.send({ t: 'state', s: snapshot() });
+}
+
+function applyState(s) {
+  quiet = true;
+  try {
+    for (const k of ['T', 'speed', 'funds', 'reliability', 'xp', 'streak', 'stats']) S[k] = s[k];
+    const hadHoneypot = S.owned.has('honeypot');
+    S.owned = new Set(s.owned);
+    if (S.owned.has('honeypot') !== hadHoneypot) world.setHoneypot(S.owned.has('honeypot'));
+    S.badges = new Map(s.badges);
+    for (const f of Object.keys(s.feeders)) if (S.feeders[f]?.on !== s.feeders[f].on) world.setFeeder(f, s.feeders[f].on);
+    S.feeders = s.feeders;
+    for (const id of new Set([...Object.keys(S.damaged), ...Object.keys(s.damaged)])) if (!!S.damaged[id] !== !!s.damaged[id]) world.setDamaged(id, !!s.damaged[id]);
+    S.damaged = s.damaged;
+    if (s.storming !== S.storming) { S.storming = s.storming; world.setStorm(s.storming); }
+    if (s.chapter > S.chapter) {
+      const ch = s.chapter;
+      S.chapter = ch;
+      applyChapter(true);
+      quiet = false;
+      if (CHAPTER_INTRO[ch]) showChapterCard(ch);
+      quiet = true;
+    }
+    const doneAll = s.questIdx >= QUESTS.length && S.questIdx < QUESTS.length;
+    S.questIdx = s.questIdx;
+
+    const inc = s.incident;
+    if (!inc && S.incident) {
+      S.incident = null;
+      world.setAttacked([]);
+      world.setHoneypotAlarm(false);
+      refreshConduits();
+      buildPins();
+      if (S.panel?.name === 'clues') closePanel();
+    } else if (inc && S.incident?.key !== inc.key) {
+      S.incident = { ...inc, tags: new Set(inc.tags), fps: new Set(inc.fps), filter: 'all' };
+      if (inc.scn.clues.some(c => c.src.startsWith('Honeypot') && c.attack)) world.setHoneypotAlarm(true);
+      world.setAttacked(inc.scn.targets);
+      refreshConduits();
+      buildPins();
+      Snd.alarm();
+      openPanel('clues', 'all');
+    } else if (inc) {
+      const was = `${[...S.incident.tags]}|${[...S.incident.fps]}`;
+      S.incident.tags = new Set(inc.tags);
+      S.incident.fps = new Set(inc.fps);
+      S.incident.left = inc.left;
+      S.incident.total = inc.total;
+      if (was !== `${inc.tags}|${inc.fps}`) { refreshPins(); if (S.panel?.name === 'clues') renderPanel(); }
+    }
+    if (s.over && !S.over) { quiet = false; gameOver(); }
+    if (doneAll) { quiet = false; finale(); }
+  } finally { quiet = false; }
+  refreshLabels();
+  renderBanner();
+  renderAction();
+  renderHUD();
+}
+
+function hostAct(msg) {
+  const need = ROLE_ACTS[msg.act];
+  if (need && need !== msg.from) return;                          // the room server names the sender's role
+  if (msg.act === 'speed') setSpeed(+msg.arg);
+  else if (msg.act === 'qev') questEvent(msg.arg);
+  else if (REMOTE_ACTS.has(msg.act)) ACTS[msg.act]?.(msg.arg);
+  sendState();
+}
+
+function onNet(msg) {
+  if (msg.t === 'act' && mp.host) hostAct(msg);
+  else if (msg.t === 'state' && !mp.host) applyState(msg.s);
+  else if (msg.t === 'record' && !mp.host) {
+    S.history.push(msg.rec);
+    closeModal();
+    openPanel('debrief', S.history.length - 1);
+    (msg.rec.grade === 'A' || msg.rec.grade === 'B') ? Snd.good() : Snd.bad();
+  } else if (msg.t === 'history' && !mp.host) { if (msg.list.length > S.history.length) S.history = msg.list; }
+  else if (msg.t === 'toast' && !mp.host) toast(msg.msg, msg.kind, msg.ic);
+  else if (msg.t === 'log' && !mp.host) alertLog(msg.text, msg.kind);
+  else if (msg.t === 'roster') {
+    const now = new Set(msg.players.map(p => p.role));
+    for (const r of ROLE_IDS) {
+      if (mp.seats.has(r) && !now.has(r)) mp.chat.system(`The ${ROLES[r].name} left the room.`);
+      if (!mp.seats.has(r) && now.has(r)) mp.chat.system(`${msg.players.find(p => p.role === r).name} joined as the ${ROLES[r].name}.`);
+    }
+    mp.seats = now;
+    if (mp.host) { mp.net.send({ t: 'start' }); mp.net.send({ t: 'history', list: S.history }); sendState(); }   // a returning teammate catches up
+  } else if (msg.t === 'host-left') {
+    S.speed = 0;
+    renderHUD();
+    mp.chat.system('The host left, so the grid has stopped. Start a new room to play on.');
+    toast('The host left the room. The grid has stopped.', 'bad', 'alert');
+  } else if (msg.t === 'closed') toast('Disconnected from the room.', 'bad', 'alert');
+}
+
+function startTeam(session) {
+  mp = { role: session.role, host: session.host, net: session.net, chat: session.chat, code: session.code, seats: new Set(session.players.map(p => p.role)) };
+  session.on(onNet);
+  setPlayerName(session.name);
+  Snd.init();
+  $('#intro').remove();
+  S.started = true;
+  renderMe();
+  if (mp.host) {
+    alertLog(`${SITE.utility}: team shift started at ${SITE.station}.`);
+    toast(`Team shift started. Room ${esc(mp.code)}.`, 'good', 'zap');
+    sendState();
+  } else toast(`You joined as the ${esc(ROLES[mp.role].name)}.`, 'good', 'zap');
+  renderAction();
+  renderHUD();
+}
+initLobby({ getName: () => nameInput.value.trim(), onStart: startTeam });
+
 // ---------- main loop ----------
-let last = performance.now(), hudTimer = 0, bannerSec = -1;
+let last = performance.now(), hudTimer = 0, bannerSec = -1, stateTimer = 0;
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  if (S.started && !S.over && S.speed > 0) {
+  if (mirror()) {
+    if (S.started && !S.over && S.speed > 0 && S.incident) {
+      S.incident.left = Math.max(0, S.incident.left - dt);
+      if (Math.ceil(S.incident.left) !== bannerSec) { bannerSec = Math.ceil(S.incident.left); renderBanner(); }
+    }
+  } else if (S.started && !S.over && S.speed > 0) {
     if (S.incident) {
       S.incident.left -= dt;
       if (S.incident.left <= 0) resolve(null);
@@ -1469,6 +1649,7 @@ function frame(now) {
     if (S.panel && ['site', 'report', 'asset', 'researcher'].includes(S.panel.name)) renderPanel();
     if (S.started && !S.over) checkQuests();
   }
+  if (mp?.host && S.started && (stateTimer += dt) > 0.5) sendState();
   world.update(dt, daylight(), lightHour());
   positionOverlays();
   requestAnimationFrame(frame);

@@ -481,3 +481,69 @@ kbd { font-family: var(--mono); font-size: 11px; background: rgba(255, 255, 255,
   .launch { flex-direction: column; align-items: stretch; }
   #intro { padding: 16px; }
 }
+
+/* ---------- multiplayer: mode switch, role picker, lobby, team chat, shared logs ---------- */
+.modes { display: flex; gap: 6px; padding: 5px; margin-bottom: 14px; border-radius: 14px; background: rgba(0, 0, 0, .3); box-shadow: inset 0 0 0 1px var(--line); }
+.mode { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 10px; font-family: var(--head); font-weight: 600; font-size: 14px; color: var(--muted); }
+.mode .ic { width: 16px; height: 16px; }
+.mode.on { background: var(--lime); color: var(--lime-ink); }
+.mp-box { width: min(760px, 100%); margin-bottom: 22px; padding: 16px; border-radius: 18px; background: rgba(255, 255, 255, .04); box-shadow: inset 0 0 0 1px var(--line); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); text-align: left; }
+.mp-step { display: block; margin: 0 2px 8px; color: var(--lime); font-family: var(--head); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.mp-roles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+.role-card { text-align: left; padding: 12px; border-radius: 14px; background: rgba(255, 255, 255, .04); box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow .15s, background .15s; }
+.role-card b { display: block; font-family: var(--head); font-size: 15px; margin: 8px 0 3px; }
+.role-card p { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.role-card:hover { background: rgba(200, 238, 58, .07); }
+.role-card.on { background: rgba(200, 238, 58, .13); box-shadow: inset 0 0 0 1.5px var(--lime), 0 0 18px rgba(200, 238, 58, .2); }
+.rc-ic { flex: none; width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: rgba(200, 238, 58, .14); color: var(--lime); }
+.rc-ic .ic { width: 17px; height: 17px; }
+.mp-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.mp-or { color: var(--muted); font-size: 13px; }
+#mp-code { width: 140px; font-size: 16px; letter-spacing: .2em; text-transform: uppercase; }
+.mp-error { min-height: 1em; margin: 10px 2px 0; color: #ff9aa9; font-size: 13px; }
+.mp-room { font-family: var(--head); font-size: 44px; font-weight: 700; letter-spacing: .25em; color: var(--lime); text-shadow: 0 0 20px rgba(200, 238, 58, .45); margin-bottom: 12px; }
+.mp-slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.slot { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 14px; background: rgba(255, 255, 255, .03); box-shadow: inset 0 0 0 1px var(--line); }
+.slot small { display: block; color: var(--muted); font-size: 11px; }
+.slot b { font-family: var(--head); font-size: 14px; color: var(--muted); }
+.slot.filled b { color: var(--text); }
+.slot.you { box-shadow: inset 0 0 0 1.5px var(--lime); }
+.mp-wait { margin: 0 2px 12px; color: var(--muted); font-size: 13px; }
+#chat.inline { position: static; width: 100%; margin-top: 14px; box-shadow: inset 0 0 0 1px var(--line); }
+#chat.inline #chat-list { height: 160px; }
+.launch[hidden] { display: none; }
+@media (max-width: 760px) { .mp-roles, .mp-slots { grid-template-columns: 1fr; } }
+
+#chat { position: fixed; right: 16px; bottom: 96px; z-index: 45; width: min(320px, calc(100vw - 32px)); display: flex; flex-direction: column; border-radius: 16px; background: var(--glass-hi); box-shadow: var(--shadow), inset 0 0 0 1px var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); overflow: hidden; }
+#chat[hidden] { display: none; }
+#chat-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-family: var(--head); font-weight: 700; font-size: 13px; text-align: left; border-bottom: 1px solid var(--line); }
+#chat-head .ic { width: 16px; height: 16px; color: var(--lime); }
+#chat-unread { margin-left: auto; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--red); color: #fff; font-size: 11px; text-align: center; }
+#chat-list { height: 220px; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+#chat.min #chat-list, #chat.min .chat-form { display: none; }
+#chat.min #chat-head { border-bottom: 0; }
+.chat-msg { max-width: 88%; padding: 6px 10px; border-radius: 12px; background: rgba(255, 255, 255, .06); font-size: 13px; line-height: 1.4; word-break: break-word; }
+.chat-msg small { display: block; font-size: 10.5px; font-weight: 600; margin-bottom: 1px; }
+.chat-msg.analyst small { color: var(--cyan); }
+.chat-msg.responder small { color: var(--amber); }
+.chat-msg.engineer small { color: var(--lime); }
+.chat-msg.mine { align-self: flex-end; background: rgba(200, 238, 58, .14); }
+.chat-msg.sys { align-self: center; max-width: 100%; background: none; color: var(--muted); font-size: 12px; text-align: center; }
+.chat-form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--line); }
+#chat-input { flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--text); background: rgba(0, 0, 0, .3); border: 0; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--line); padding: 8px 10px; outline: none; }
+#chat-input:focus { box-shadow: inset 0 0 0 1px var(--lime); }
+#chat-send { width: 36px; border-radius: 10px; background: var(--lime); color: var(--lime-ink); display: grid; place-items: center; }
+#chat-send .ic { width: 16px; height: 16px; }
+@media (max-width: 640px) { #chat { bottom: 92px; } #chat-list { height: 150px; } }
+
+/* role badge on the HUD and shared-log lines */
+.role-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-family: var(--head); font-size: 11px; font-weight: 700; letter-spacing: .04em; background: rgba(200, 238, 58, .14); color: var(--lime); }
+.role-chip .ic { width: 13px; height: 13px; }
+.clue.locked pre { display: none; }
+.clue-lock { display: flex; align-items: center; gap: 8px; margin: 8px 0; padding: 9px 10px; border-radius: 10px; background: rgba(0, 0, 0, .25); color: var(--muted); font-size: 12.5px; }
+.clue-lock .ic { flex: none; width: 15px; height: 15px; color: var(--amber); }
+.clue-mine { margin-left: 6px; color: var(--lime); }
+.clue-call { display: inline-flex; padding: 4px 9px; border-radius: 8px; font-size: 12px; background: rgba(255, 255, 255, .05); color: var(--muted); }
+.clue-call.tp { background: rgba(255, 77, 106, .15); color: #ffb3bf; }
+.clue-call.fp { background: rgba(200, 238, 58, .12); color: var(--lime); }
+.mp-note { margin: 0 0 10px; padding: 9px 11px; border-radius: 12px; background: rgba(57, 230, 255, .08); box-shadow: inset 0 0 0 1px rgba(57, 230, 255, .3); font-size: 12.5px; line-height: 1.45; color: #cdf6ff; }

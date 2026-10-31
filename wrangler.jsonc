@@ -1,0 +1,10 @@
+// The game is served as static assets from the repo root. Requests that match no file (only /room/<CODE>
+// WebSockets for multiplayer) go to server/worker.js, which hands each room to a Durable Object.
+{
+  "name": "oh-no-shutdown-again",
+  "main": "server/worker.js",
+  "compatibility_date": "2025-06-01",
+  "assets": { "directory": ".", "binding": "ASSETS" },
+  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "Room" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]
+}
