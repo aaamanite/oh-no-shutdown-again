@@ -70,7 +70,8 @@ const S = {
 // multiplayer co-op SOC: null in single player, else { role, host, net, chat }. The host's browser runs the grid;
 // teammates mirror its state and send their actions to it. Each role may only do its own job.
 let mp = null;
-const MP_TIME = 2.5;                 // incidents last longer: the team reads and chats before deciding
+const MP_TIME = 2.5;
+const HOME = { analyst: [-26, -3.5], responder: [-26, 0], engineer: [-26, 3.5] };   // where each role's persona starts                 // incidents last longer: the team reads and chats before deciding
 const ROLE_ACTS = { tp: 'analyst', fp: 'analyst', respond: 'responder', play: 'responder', buy: 'engineer', repair: 'engineer' };
 const REMOTE_ACTS = new Set(['tp', 'fp', 'play', 'buy', 'repair', 'skip', 'drill', 'sandbox']);
 const mirror = () => mp && !mp.host;
@@ -205,6 +206,18 @@ try { S.player = localStorage.getItem(NAME_KEY) || ''; } catch { S.player = ''; 
 renderMe();
 labelsEl.appendChild(meEl);
 
+// multiplayer: a name tag over each teammate's persona
+const mateEls = {};
+function setMate(role, name) {
+  if (role === mp.role) return;
+  if (!name) { world.removeMate(role); if (mateEls[role]) mateEls[role].hidden = true; return; }
+  const [x, z] = HOME[role];
+  world.addMate(role, x, z);
+  const el = mateEls[role] || (mateEls[role] = labelsEl.appendChild(Object.assign(document.createElement('div'), { className: 'me mate' })));
+  el.hidden = false;
+  el.innerHTML = `<b>${esc(name)}</b><small>${esc(ROLES[role].name)}</small>`;
+}
+
 const npcEl = document.createElement('button');
 npcEl.className = 'me npc';
 npcEl.dataset.act = 'researcher';
@@ -269,6 +282,11 @@ function positionOverlays() {
   const me = world.project(world.personaAnchor());
   meEl.style.display = me.vis ? '' : 'none';
   meEl.style.transform = `translate(${me.x}px, ${me.y}px) translate(-50%, -100%)`;
+  for (const [role, el] of Object.entries(mateEls)) {
+    const a = !el.hidden && world.mateAnchor(role), mp2 = a && world.project(a);
+    el.style.display = mp2 && mp2.vis ? '' : 'none';
+    if (mp2) el.style.transform = `translate(${mp2.x}px, ${mp2.y}px) translate(-50%, -100%)`;
+  }
   const near = world.controls.target.distanceTo(world.centers.biogas) < 45 && world.camera.position.distanceTo(world.centers.biogas) < 140;
   const rStatus = world.researcherStatus || 'Researcher · SBSP · ONSA R&D';   // what she is doing right now
   if (npcEl.dataset.status !== rStatus) { npcEl.dataset.status = rStatus; npcEl.querySelector('small').textContent = rStatus; }
@@ -1589,8 +1607,15 @@ function onNet(msg) {
   } else if (msg.t === 'history' && !mp.host) { if (msg.list.length > S.history.length) S.history = msg.list; }
   else if (msg.t === 'toast' && !mp.host) toast(msg.msg, msg.kind, msg.ic);
   else if (msg.t === 'log' && !mp.host) alertLog(msg.text, msg.kind);
-  else if (msg.t === 'roster') {
+  else if (msg.t === 'walk') {
+    const m = world.mates[msg.from];
+    if (m && msg.snap) m.p.position.set(msg.x, 0, msg.z);
+    else world.mateWalkTo(msg.from, msg.x, msg.z);
+  } else if (msg.t === 'roster') {
     const now = new Set(msg.players.map(p => p.role));
+    for (const r of ROLE_IDS) setMate(r, msg.players.find(p => p.role === r)?.name);
+    const me = world.persona.position;
+    mp.net.send({ t: 'walk', x: me.x, z: me.z, snap: true });           // a newcomer sees where everyone stands
     for (const r of ROLE_IDS) {
       if (mp.seats.has(r) && !now.has(r)) mp.chat.system(`The ${ROLES[r].name} left the room.`);
       if (!mp.seats.has(r) && now.has(r)) mp.chat.system(`${msg.players.find(p => p.role === r).name} joined as the ${ROLES[r].name}.`);
@@ -1612,6 +1637,10 @@ function startTeam(session) {
   Snd.init();
   $('#intro').remove();
   S.started = true;
+  const [hx, hz] = HOME[mp.role];
+  world.persona.position.set(hx, 0, hz);
+  for (const p of session.players) setMate(p.role, p.name);
+  world.onWalk = (x, z) => mp.net.send({ t: 'walk', x, z });
   renderMe();
   if (mp.host) {
     alertLog(`${SITE.utility}: team shift started at ${SITE.station}.`);

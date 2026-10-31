@@ -37,6 +37,7 @@ export function initLobby({ getName, onStart, onSolo }) {
     document.querySelectorAll('.mode').forEach(x => x.classList.toggle('on', x === b));
     solo.hidden = multi;
     box.hidden = !multi;
+    $('#intro-who').textContent = multi ? 'OT SOC members' : 'OT Security Lead';
     if (!multi) onSolo?.();
   }));
 

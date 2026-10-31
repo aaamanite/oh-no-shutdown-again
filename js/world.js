@@ -633,9 +633,13 @@ export class World {
     const end = path[path.length - 1];
     this.marker.position.set(end.x, 0.2, end.z);
     this.marker.visible = true;
+    this.onWalk?.(end.x, end.z);
   }
   loadCharacters() {
+    this.mates = {};
     loadWorkers().then(gltf => {
+      this.workerGltf = gltf;
+      for (const m of Object.values(this.mates)) this.rigMate(m);
       this.personaRig = makeWorker(gltf, this.persona);
       this.body.visible = false;
       this.researcherRig = makeWorker(gltf, this.researcher, { woman: true, tablet: true });
@@ -992,6 +996,56 @@ export class World {
     });
     this.body.position.y = moving ? Math.abs(Math.sin(this.walkPhase)) * 0.18 : 0;
     if (this.marker.visible) this.marker.scale.setScalar(1 + 0.15 * Math.sin(this._t * 6));
+  }
+
+  // ---------- teammates (multiplayer): the same field worker, one for each other player ----------
+  addMate(id, x, z) {
+    if (this.mates[id]) { this.mates[id].p.visible = true; return; }
+    const { p, body } = this.worker();
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.9, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false }));
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.2;
+    p.add(shadow);
+    p.position.set(x, 0, z);
+    p.rotation.y = Math.PI / 2;
+    this.scene.add(p);
+    const m = this.mates[id] = { p, body, rig: null, walk: null };
+    if (this.workerGltf) this.rigMate(m);
+  }
+  rigMate(m) {
+    if (m.rig) return;
+    m.rig = makeWorker(this.workerGltf, m.p);
+    m.body.visible = false;
+  }
+  removeMate(id) { if (this.mates[id]) { this.mates[id].p.visible = false; this.mates[id].walk = null; } }
+  mateWalkTo(id, x, z) {
+    const m = this.mates[id];
+    if (!m) return;
+    const path = this.findPath(m.p.position.x, m.p.position.z, x, z);
+    if (!path.length) return;
+    let len = 0;
+    for (let i = 0; i < path.length; i++) len += (i ? path[i - 1] : m.p.position).distanceTo(path[i]);
+    m.walk = { path, i: 0, run: len > 22 };
+  }
+  mateAnchor(id) { const m = this.mates[id]; return m && m.p.visible ? m.p.position.clone().setY(5.8) : null; }
+  updateMates(dt) {
+    for (const m of Object.values(this.mates)) {
+      let moving = false;
+      if (m.walk) {
+        const d = m.walk.path[m.walk.i].clone().sub(m.p.position);
+        d.y = 0;
+        const dist = d.length();
+        if (dist < 0.05) { if (++m.walk.i >= m.walk.path.length) m.walk = null; }
+        else {
+          moving = true;
+          m.p.position.addScaledVector(d.normalize(), Math.min(dist, (m.walk.run ? 8 : 3.2) * dt));
+          let diff = Math.atan2(d.x, d.z) - m.p.rotation.y;
+          diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+          m.p.rotation.y += diff * Math.min(1, dt * 12);
+        }
+      }
+      if (m.rig) { m.rig.play(moving ? (m.walk?.run ? 'run' : 'walk') : 'idle'); m.rig.mixer.update(dt); }
+    }
   }
 
   group(id) {
@@ -3487,6 +3541,7 @@ export class World {
       }
     }
     this.updatePersona(dt);
+    this.updateMates(dt);
     this.water.uniforms.uTime.value += dt;
     this.water.uniforms.uStorm.value = this.storm;
     if (this.honeypot.visible) this.hpLight.material.color.setHex(this.hpAlarm ? (Math.sin(this._t * 12) > 0 ? 0xff3b30 : 0x5a1410) : (Math.sin(this._t * 2) > 0.6 ? 0xf2b33d : 0x6b5216));
