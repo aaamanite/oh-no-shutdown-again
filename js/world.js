@@ -2329,12 +2329,12 @@ export class World {
     });
     for (let i = 0; i < attach.length - 1; i++) {
       for (let k = 0; k < 4; k++) {
-        const a = attach[i][k], b = attach[i + 1][k];
+        const a = attach[i][k], b = attach[i + 1][k], sag = 0.07 * Math.hypot(b.x - a.x, b.z - a.z);
         const pts = [];
         for (let st = 0; st <= 24; st++) {
           const t = st / 24;
           const pt = a.clone().lerp(b, t);
-          pt.y -= 1.4 * 4 * t * (1 - t);
+          pt.y -= sag * 4 * t * (1 - t);
           pts.push(pt);
         }
         this.wireGeos.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.032, 5, false));
@@ -2365,13 +2365,14 @@ export class World {
 
   buildLines() {
     const routes = [
-      { pts: [[24, -5], [40, -9], [56, -13], [72, -17]], h: 13, tag: '33 kV Feeder A · Homes' },
-      { pts: [[24, 5], [40, 9], [56, 13], [72, 17]], h: 13, tag: '33 kV Feeder B · Hospital' },
-      { pts: [[16, 17], [30, 32], [46, 46], [62, 57]], h: 13, tag: '33 kV Feeder C · College' },
-      { pts: [[6, 17], [7, 34], [7, 51]], h: 13, tag: '33 kV Feeder D · Mutiara Avenue Mall' },
-      { pts: [[-6, 17], [-18, 34], [-36, 48], [-60, 58], [-84, 71], [-100, 74]], h: 15, tag: '132 kV Line 3 · Solar farm PV inverters' },
-      { pts: [[0, -16], [0, -28], [8, -40], [20, -49], [32, -51.5]], h: 15, tag: '132 kV Line 1 · Biogas genset G-501' },
-      { pts: [[22, -17], [34, -28], [44, -40], [54, -51], [56, -65]], h: 15, tag: '132 kV Line 2 · Wind turbines WTG-1–4 + Wind farm genset G-502' },
+      // towers about 30 m apart (long spans), so the map stays readable
+      { pts: [[24, -5], [48, -11], [72, -17]], h: 13, tag: '33 kV Feeder A · Homes' },
+      { pts: [[24, 5], [48, 11], [72, 17]], h: 13, tag: '33 kV Feeder B · Hospital' },
+      { pts: [[16, 17], [38, 39], [62, 57]], h: 13, tag: '33 kV Feeder C · College' },
+      { pts: [[6, 17], [7, 51]], h: 13, tag: '33 kV Feeder D · Mutiara Avenue Mall' },
+      { pts: [[-6, 17], [-36, 48], [-84, 71], [-100, 74]], h: 15, tag: '132 kV Line 3 · Solar farm PV inverters' },
+      { pts: [[0, -16], [8, -40], [32, -51.5]], h: 15, tag: '132 kV Line 1 · Biogas genset G-501' },
+      { pts: [[22, -17], [44, -40], [56, -65]], h: 15, tag: '132 kV Line 2 · Wind turbines WTG-1–4 + Wind farm genset G-502' },
     ];
     this.lineTags = [];
     this.lineSegs = [];
@@ -2958,12 +2959,12 @@ export class World {
   buildLine4() {
     const g = (this.line4 = new THREE.Group());
     this.scene.add(g);
-    const pts = [[-208, 33], [-192, 24], [-176, 16], [-158, 10], [-140, 8], [-122, 8], [-104, 8], [-86, 8], [-70, 8], [-56, 8], [-41, 8], [-26, 9]];
+    const pts = [[-208, 33], [-176, 16], [-158, 10], [-122, 8], [-86, 8], [-56, 8], [-26, 9]];
     const attach = this.route({ pts, h: 15, tag: '132 kV Line 4 · Sungai Mutiara hydro · tap to Mutiara Motor Works', ch: 2 });
     this.span(this.hydroGantry, attach[0], 0.8);
     // tap: one tower south of the road, then down to the factory's intake gantry
     const tap = this.tower(-165, -5.6, Math.atan2(-165 + 158, -5.6 - 10), 15);
-    this.span(attach[3], tap);
+    this.span(attach[2], tap);                        // from the tower at (-158, 10)
     this.span(tap, this.intakeGantry, 0.6);
     this.lineSegs.push([-158, 10, -165, -5.6]);
     this.finishLines(g);

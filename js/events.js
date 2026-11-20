@@ -720,7 +720,9 @@ export function buildFalseAlarm(t) {
   };
 }
 
-export const FALSE_ALARMS = FA.map(buildFalseAlarm);
+// weather-caused alarms are left out of play: players found them repetitive
+const WEATHER = new Set(['fa-lightning', 'fa-solar-cloud', 'fa-wind-cutout', 'fa-dnp3-retry', 'fa-line4-storm', 'fa-reservoir-alarm', 'fa-dish-stow', 'fa-rain-fade-ttc']);
+export const FALSE_ALARMS = FA.filter(t => !WEATHER.has(t.id)).map(buildFalseAlarm);
 
 // ---------- everyday background lines ----------
 // One or more are mixed into every incident, so the same case never reads the same way twice.
@@ -742,7 +744,6 @@ export const NOISE = [
   { asset: 'rnd', src: 'Ground station', text: 'dish tracking satellite · elevation 42°', why: 'The dish follows the satellite automatically.' },
   { asset: 'ctrl', src: 'Badge system', text: 'cleaner badge IN · control house lobby', why: 'Cleaning staff on their usual round.' },
   { asset: 'dmz', src: 'Backup server', text: 'retention cleanup · 14 old snapshots removed', why: 'Routine backup housekeeping.' },
-  { asset: 'scc', src: 'Weather feed', text: 'forecast updated · light winds', why: 'Routine weather update.' },
   { asset: 'townB', src: 'Feeder B meter', text: 'hospital load 2.1 MW · normal', why: 'Normal customer load.' },
   { asset: 'townA', src: 'Feeder A meter', text: 'residential load following evening curve', why: 'Normal daily load pattern.' },
   { asset: 'hydro', ch: 2, src: 'Dam SCADA', text: 'reservoir 212.4 m · seepage weirs normal', why: 'Routine dam monitoring.' },

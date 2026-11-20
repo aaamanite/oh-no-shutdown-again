@@ -2302,7 +2302,7 @@ export const QUESTS = [
   { ch: 2, event: 'factoryAlarm', fresh: true, icon: 'radar', reward: 40000, action: 'incident', title: 'Triage a factory alert', desc: 'An alert from Mutiara Motor Works is on its way. Read the robot, DCS and warehouse logs and score B or better.' },
   { ch: 3, event: 'stormDay', icon: 'cloud', reward: 50000, action: 'speed', title: 'Ride out a stormy day', desc: 'Finish a day that had a storm with grid reliability at 70 or above.' },
   { ch: 3, event: 'buy:spares', icon: 'zap', reward: 20000, action: 'panel:shop', title: 'Put critical spares on contract', desc: 'Storms break things. Buy critical spares in Upgrades to halve repair bills.' },
-  { ch: 3, event: 'benign', fresh: true, icon: 'check', reward: 30000, action: 'panel:soc', title: 'Tell the weather from an attack', desc: 'Close a false alarm without escalating. In a storm, most alarms are the weather.' },
+  { ch: 3, event: 'benign', fresh: true, icon: 'check', reward: 30000, action: 'panel:soc', title: 'Spot the false alarm', desc: 'Close a false alarm without escalating.' },
   { ch: 3, event: 'streak3', icon: 'trophy', reward: 50000, action: 'panel:soc', title: 'Three good calls in a row', desc: 'Score B or better on three real incidents in a row.' },
   { ch: 4, event: 'researcher', fresh: true, icon: 'satellite', reward: 20000, action: 'researcher', title: 'Visit Prof. Dr. Hanafiya', desc: 'Find her at the R&D Centre and see the full-power beam.' },
   { ch: 4, event: 'buy:soc247', icon: 'radar', reward: 30000, action: 'panel:shop', title: 'Staff the SOC around the clock', desc: 'The beam runs 24/7. Buy the 24/7 managed OT SOC in Upgrades.' },

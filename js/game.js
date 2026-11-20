@@ -601,7 +601,7 @@ function advance(gm) {
     S.storming = S.chapter === 3 ? !S.storming : false;
     S.weatherAt = S.T + (S.storming ? rand(150, 260) : rand(110, 200));
     world.setStorm(S.storming);
-    if (S.storming) { S.stormy = true; toast('A monsoon storm is rolling in off the sea', 'warn', 'cloud'); alertLog('Weather: monsoon storm over Bukit Mutiara.'); }
+    if (S.storming) S.stormy = true;
   }
 
   if (dayOf(S.T) > prevDay) {
