@@ -2385,9 +2385,10 @@ export class World {
       { pts: [[24, 5], [48, 11], [72, 17]], cable: true, tag: '33 kV Feeder B · Hospital' },
       { pts: [[16, 17], [38, 39], [62, 57]], cable: true, tag: '33 kV Feeder C · College' },
       { pts: [[6, 17], [7, 51]], cable: true, tag: '33 kV Feeder D · Mutiara Avenue Mall' },
-      { pts: [[-6, 17], [-36, 48], [-84, 71], [-100, 74]], h: 15, tag: '132 kV Line 3 · Solar farm PV inverters' },
-      { pts: [[0, -16], [8, -40], [32, -51.5]], h: 15, tag: '132 kV Line 1 · Biogas genset G-501' },
-      { pts: [[22, -17], [44, -40], [56, -65]], h: 15, tag: '132 kV Line 2 · Wind turbines WTG-1–4 + Wind farm genset G-502' },
+      // the short 132 kV links from the plants are buried too; only Line 4 crosses the hills on towers
+      { pts: [[-6, 17], [-36, 48], [-84, 71], [-100, 74]], cable: true, tag: '132 kV Line 3 · Solar farm PV inverters' },
+      { pts: [[0, -16], [8, -40], [32, -51.5]], cable: true, tag: '132 kV Line 1 · Biogas genset G-501' },
+      { pts: [[22, -17], [44, -40], [56, -65]], cable: true, tag: '132 kV Line 2 · Wind turbines WTG-1–4 + Wind farm genset G-502' },
     ];
     this.lineTags = [];
     this.lineSegs = [];
@@ -2442,7 +2443,7 @@ export class World {
   // the wires so far as one mesh, and every tower as one instanced lattice + insulators + concrete footings per height
   finishLines(parent) {
     this.wireMat = this.wireMat || new THREE.MeshStandardMaterial({ color: 0x8d9296, metalness: 0.75, roughness: 0.42 });
-    parent.add(new THREE.Mesh(mergeGeometries(this.wireGeos), this.wireMat));
+    if (this.wireGeos.length) parent.add(new THREE.Mesh(mergeGeometries(this.wireGeos), this.wireMat));
     this.wireGeos = [];
     const footing = roundedBox(0.9, 0.5, 0.9), feet = [];
     for (const [h, list] of Object.entries(this._towerAt)) {

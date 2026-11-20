@@ -765,7 +765,7 @@ export const NOISE = [
 // ---------- random plant events ----------
 // Applied by game.js between incidents. effect fields: funds, rel, demand {mult, hours}, outage {feeders, hours}, audit.
 export const PLANT_EVENTS = [
-  { id: 'storm', storm: true, icon: 'zap', title: 'Thunderstorm over Bukit Mutiara', text: 'Lightning trips Feeder A for 30 minutes before it auto-recloses.', kind: 'bad', outage: { feeders: ['A'], hours: 0.5 }, rel: -3 },
+  { id: 'storm', storm: true, icon: 'zap', title: 'Thunderstorm over Bukit Mutiara', text: 'A lightning surge trips Feeder A at the switchyard for 30 minutes before it auto-recloses.', kind: 'bad', outage: { feeders: ['A'], hours: 0.5 }, rel: -3 },
   { id: 'heatwave', icon: 'sun', title: 'Heatwave', text: 'Air-conditioning load is up 20% for the next 6 hours: more revenue, more stress on the transformers.', kind: 'warn', demand: { mult: 1.2, hours: 6 }, rel: -2 },
   { id: 'audit', icon: 'shield', title: 'Regulator spot audit', text: 'The energy regulator checks your security controls.', kind: 'warn', audit: true },
   { id: 'budgetcut', icon: 'coins', title: 'Head office budget cut', text: 'Finance claws back $60K from the security budget.', kind: 'bad', funds: -60000 },
