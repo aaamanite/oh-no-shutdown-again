@@ -21,7 +21,7 @@ A 3D, browser-based OT/ICS security training game. You are the OT Security Lead 
 
 ## How it plays
 
-- **Six chapters.** First shift and hardening the station, then *Line 4: water and wheels* (the hydro station and car factory), *Monsoon season* (storms, rain, lightning, spillway in flood), *First power from space* (the SBSP beam at full power) and *Grid of the Year* — finish it for a certificate, then keep running the grid. Each chapter opens with a title card; later chapters show as locked teasers in Missions. Every player starts at chapter 1.
+- **Six chapters, three real attacks each.** First shift and hardening the station, then *Line 4: water and wheels* (the hydro station and car factory), *Monsoon season* (storms, rain, lightning, spillway in flood), *First power from space* (the SBSP beam at full power) and *Grid of the Year* — finish it for a certificate, then keep running the grid. Every chapter has **three true-positive attack scenarios** drawn from real ICS incidents, plus false alarms. Each chapter opens with a title card; later chapters show as locked teasers in Missions. Every player starts at chapter 1.
 - **Run the site.** Energized feeders earn revenue. Outages cost revenue, grid reliability and regulator fines. Controls have capex and daily opex.
 - **Deception.** The OT honeypot (decoy RTU-99) sits in the switchyard. Nobody legitimate touches it, so a real attack trips it: you get a high-confidence detection and 30 s more to decide. On a false alarm it stays quiet.
 - **Invest in controls.** Asset inventory, OT network monitoring, IT/OT firewall, MFA + jump host, station-bus port security, removable-media control, attack-surface review, config backups, IR playbook. Some prevent a scenario outright; visibility controls add context to the logs you read; the playbook annotates response options.
@@ -30,14 +30,29 @@ A 3D, browser-based OT/ICS security training game. You are the OT Security Lead 
 
 ## Scenarios
 
-| Scenario | Inspired by | Prevented by |
-| --- | --- | --- |
-| Breakers opening from a vendor session | Ukraine grid attack, 2015 | MFA + jump host |
-| Transformer tripped with no fault (rogue GOOSE) | Industroyer / Industroyer2 | Station bus port security |
-| Protection settings changed via USB | Stuxnet-style removable media | Removable media control |
-| Ransomware spreading from corporate IT | Colonial Pipeline, 2021 | IT/OT firewall |
-| Commands from an unknown IEC 104 master | Internet-exposed OT with default creds | Attack-surface review |
-| Firmware write on a transformer relay | Authorised maintenance (false positive) | — |
+Every chapter has **three true-positive attacks** plus false alarms (authorised work, weather and process faults). All attacks are fictionalised versions of real incidents; each detection in the game carries its MITRE ATT&CK for ICS technique.
+
+| Ch | Attack scenario | Inspired by | Prevented by |
+| --- | --- | --- | --- |
+| 1 | Breakers opening from a vendor session | Ukraine grid attack, 2015 | MFA + jump host |
+| 1 | Tap changer moved from a phished login | Oldsmar, 2021; Havex/Energetic Bear, 2014 | MFA + jump host |
+| 1 | Contractor laptop writing to the biogas PLC | Maroochy Water Breach, 2000 | Port security |
+| 2 | Commands from an unknown IEC 104 master | Unitronics PLC attacks, 2023 | Attack-surface review |
+| 2 | Protection relay left in test mode | TRITON/TRISIS, 2017 | MFA + jump host |
+| 2 | Digester pressure hidden while the flare is shut | German steel mill, 2014 | IT/OT firewall |
+| 3 | Ransomware spreading from corporate IT | Colonial Pipeline, 2021 | IT/OT firewall |
+| 3 | Press line runs with the light curtain muted | PIPEDREAM/INCONTROLLER, 2022 | MFA + jump host |
+| 3 | Dam gate opened from a cellular modem | Bowman Avenue Dam, 2013 | Data diode |
+| 4 | Transformer tripped with no fault (rogue GOOSE) | Industroyer / Industroyer2, 2016/2022 | Port security |
+| 4 | Gas readings driven negative in the storm | FrostyGoop, 2024 | IT/OT firewall |
+| 4 | Wind farm goes blind in the storm | Viasat KA-SAT / AcidRain, 2022 | MFA + jump host |
+| 5 | Protection settings changed via USB | Stuxnet, 2010 | USB control |
+| 5 | A signed vendor update with a backdoor | Havex/Energetic Bear, 2014; SolarWinds, 2020 | MFA + jump host |
+| 5 | Rectenna inverters told to reverse power | CosmicEnergy, 2023 | IT/OT firewall |
+| 6 | A dormant admin account on award day | Volt Typhoon, 2023–24 | 24/7 managed OT SOC |
+| 6 | Historian and HMI drives wiped | Shamoon, 2012 | — (config backups halve the outage) |
+| 6 | A supplier’s ransomware stops the car plant | Toyota/Kojima Industries, 2022 | IT/OT firewall |
+| — | Firmware write on a transformer relay | Authorised maintenance (false positive) | — |
 
 ## Controls
 

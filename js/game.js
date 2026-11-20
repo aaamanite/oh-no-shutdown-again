@@ -35,8 +35,8 @@ const FEEDER_OF = Object.fromEntries(Object.entries(FEEDERS).map(([f, F]) => [F.
 const ALL_SCENARIOS = [...SCENARIOS, ...FALSE_ALARMS];
 const scnById = id => ALL_SCENARIOS.find(sc => sc.id === id);
 // repair bill when a missed attack damages equipment (by asset); others use DAMAGE_DEFAULT
-const REPAIR = { yard: 150000, biogas: 180000, wind: 200000, solar: 120000, ctrl: 90000, scc: 80000, dmz: 60000, corp: 50000, hydro: 220000, factory: 160000 };
-const DAMAGE_ORDER = ['yard', 'biogas', 'wind', 'solar', 'ctrl', 'scc', 'dmz', 'corp'];
+const REPAIR = { yard: 150000, biogas: 180000, wind: 200000, solar: 120000, ctrl: 90000, scc: 80000, dmz: 60000, corp: 50000, hydro: 220000, factory: 160000, rnd: 120000 };
+const DAMAGE_ORDER = ['yard', 'biogas', 'wind', 'solar', 'hydro', 'factory', 'ctrl', 'scc', 'rnd', 'dmz', 'corp'];
 const DAMAGE_DEFAULT = 60000;
 
 // ---------- state ----------
@@ -765,6 +765,19 @@ const BADGES = {
   'ransomware': { icon: 'shield', name: 'Boundary Guardian' },
   'goose-trip': { icon: 'zap', name: 'Station Bus Sentinel' },
   'usb-relay': { icon: 'search', name: 'Settings Detective' },
+  'phish-tap': { icon: 'sliders', name: 'Setpoint Sentinel' },
+  'insider-biogas': { icon: 'user', name: 'Insider Watcher' },
+  'triton-safety': { icon: 'target', name: 'Safety Sentinel' },
+  'steel-mill': { icon: 'flame', name: 'Process Integrity' },
+  'pipedream-factory': { icon: 'car', name: 'Factory Floor Guardian' },
+  'bowman-dam': { icon: 'droplet', name: 'Dam Gate Watcher' },
+  'frostygoop': { icon: 'chart', name: 'Process Data Detective' },
+  'viasat-wind': { icon: 'wind', name: 'Wind Watch' },
+  'havex-supply': { icon: 'upgrade', name: 'Supply Chain Sentinel' },
+  'cosmic-rectenna': { icon: 'satellite', name: 'Space Grid Sentinel' },
+  'volt-typhoon': { icon: 'radar', name: 'Living-off-the-Land Hunter' },
+  'shamoon': { icon: 'server', name: 'Recovery Guardian' },
+  'toyota-supplier': { icon: 'share', name: 'Supply Chain Guardian' },
 };
 function badgeHTML(id, big = false) {
   const b = BADGES[id], got = S.badges.get(id), scn = scnById(id);
