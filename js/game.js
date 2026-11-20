@@ -4,6 +4,7 @@ import { ASSETS, CONDUITS, CONTROLS, SCENARIOS, QUESTS, CHAPTERS, CHAPTER_INTRO,
 import { icon, hydrateIcons } from './icons.js';
 import { FALSE_ALARMS, NOISE, PLANT_EVENTS } from './events.js';
 import { initLobby, ROLES, ROLE_IDS } from './multiplayer.js';
+import { LAB, LAB_KINDS, LAB_ROLE } from './lab.js';
 
 // ---------- helpers ----------
 const $ = (s, r = document) => r.querySelector(s);
@@ -74,7 +75,7 @@ let mp = null;
 const MP_TIME = 2.5;
 const HOME = { analyst: [-26, -3.5], responder: [-26, 0], engineer: [-26, 3.5] };   // where each role's persona starts                 // incidents last longer: the team reads and chats before deciding
 const ROLE_ACTS = { tp: 'analyst', fp: 'analyst', respond: 'responder', play: 'responder', buy: 'engineer', repair: 'engineer' };
-const REMOTE_ACTS = new Set(['tp', 'fp', 'play', 'buy', 'repair', 'skip', 'drill', 'sandbox']);
+const REMOTE_ACTS = new Set(['tp', 'fp', 'lab', 'play', 'buy', 'repair', 'skip', 'drill', 'sandbox']);
 // as in a real plant, the SOC never operates equipment itself: actions that switch or restart plant go to the
 // control room as a switching order, and the shift operator carries them out
 const OPERATOR = 'Hafiz';
@@ -883,7 +884,7 @@ function resolve(resp) {
     scnId: scn.id, title: scn.title, drill: inc.drill, grade, score, q,
     respId: resp?.id || null, hit, n, fp, used: Math.round(inc.total - inc.left),
     feeders, hours, fine, cost, rel: Math.round(rel), note, damage, xp, streak: S.streak,
-    tags: [...inc.tags], fps: [...inc.fps], fpOk, miss, m, badge, clues: scn.clues, day: dayOf(S.T), clock: clockOf(S.T), startT: inc.startT,
+    tags: [...inc.tags], fps: [...inc.fps], fpOk, miss, m, badge, lab: LAB[scn.id] ? [Object.values(inc.lab || {}).filter(x => x.ok).length, LAB[scn.id].length] : null, clues: scn.clues, day: dayOf(S.T), clock: clockOf(S.T), startT: inc.startT,
   };
   S.history.push(record);
   if (mp?.host && !inc.pending) teamNotice(resp ? `${mp.actor || 'The Incident Responder'} (Incident Responder) chose: ${resp.tag} · ${resp.title}` : 'Time ran out before the Incident Responder chose an action.');
@@ -1140,6 +1141,7 @@ const PANELS = {
       eyebrow: cluesEyebrow(), title: 'Detection',
       html: `${mp ? `<p class="mp-note">You are the <b>${esc(ROLES[mp.role].name)}</b>. ${ROLE_HINT[mp.role]}</p>` : ''}<p>Classify every line: <b>True Positive</b> if it is part of the attack, <b>False Positive</b> if it is benign or routine. Right calls earn points, wrong calls cost them. Your calls and how you respond or remediate decide the grade.</p>
         <div class="filters"><button class="${filter === 'all' ? 'on' : ''}" data-act="clues:all">All</button>${assets.map(id => `<button class="${filter === id ? 'on' : ''}" data-act="clues:${id}">${esc(ASSETS[id].short)}</button>`).join('')}</div>
+        ${labHTML(inc)}
         ${inc.clueOrder.map(i => inc.scn.clues[i]).map((c, k) => (filter === 'all' || c.asset === filter ? clueHTML(c, inc.clueOrder[k]) : '')).join('')}
         ${missing.length ? `<div class="box tiny muted">${icon('lock')} Some context is hidden. ${missing.map(id => esc(CTRL[id].short)).join(', ')} would add more detail to these logs.</div>` : ''}
         <div class="sticky-foot">${respondBtn('block')}</div>`,
@@ -1158,6 +1160,7 @@ const PANELS = {
         <div class="kv">
           <span>Attack lines → True Positive</span><span class="${r.n && r.hit < r.n ? 'bad' : 'good'}">${scn.benign ? '— (no attack)' : `${r.hit}/${r.n}`}</span>
           <span>Benign lines → False Positive</span><span class="${(r.fpOk ?? 0) < (r.m ?? 0) ? 'bad' : 'good'}">${r.fpOk ?? 0}/${r.m ?? 0}</span>
+          ${r.lab ? `<span>Lab work solved</span><span class="${r.lab[0] < r.lab[1] ? 'bad' : 'good'}">${r.lab[0]}/${r.lab[1]}</span>` : ''}
           <span>Wrong calls</span><span class="${r.fp + (r.miss || 0) ? 'bad' : 'good'}">${r.fp + (r.miss || 0)}</span>
           <span>Response</span><span>${resp ? esc(resp.tag) : '<span class="bad">Timed out</span>'}</span>
           <span>Decision time</span><span>${r.used}s</span>
@@ -1248,6 +1251,34 @@ function historyHTML() {
 function cluesEyebrow() {
   const inc = S.incident;
   return inc ? `${classified(inc)} of ${inc.scn.clues.length} classified · ${inc.scn.short}` : '';
+}
+
+// lab work: forensics, malware analysis and reverse engineering of this incident's evidence. One try each:
+// a right answer adds the finding for everyone and earns XP, a wrong one costs 30 s and still shows the finding.
+function labHTML(inc) {
+  const tasks = LAB[inc.scn.id];
+  if (!tasks) return '';
+  inc.lab = inc.lab || {};
+  return `<div class="sec"><small>Lab work · ${Object.keys(inc.lab).length}/${tasks.length} done</small></div>${tasks.map(t => {
+    const K = LAB_KINDS[t.k], role = LAB_ROLE[t.k], done = inc.lab[t.k], mine = !mp || mp.role === role;
+    const who = mp ? ` · ${esc(ROLES[role].name)}` : '';
+    const head = `<div class="lab-h"><span class="lab-ic">${icon(K.icon)}</span><div class="grow"><small>${K.name}${who}</small><b>${esc(t.t)}</b></div>${done ? `<span class="pill ${done.ok ? 'ok' : 'bad'}">${done.ok ? 'Solved' : 'Missed'}</span>` : ''}</div>`;
+    if (done) return `<div class="lab done">${head}<p class="lab-f"><b>Finding:</b> ${esc(t.f)}</p></div>`;
+    if (!mine) return `<div class="lab wait">${head}<p class="tiny muted">The ${esc(ROLES[role].name)} is working on this. Their finding will appear here.</p></div>`;
+    return `<div class="lab">${head}<pre>${t.a.map(esc).join('\n')}</pre><p class="lab-q">${esc(t.q)}</p>
+      <div class="lab-o">${t.o.map((o, i) => `<button class="btn sm" data-act="lab:${t.k}${i}">${esc(o)}</button>`).join('')}</div></div>`;
+  }).join('')}`;
+}
+function solveLab(arg) {
+  const inc = S.incident, k = String(arg)[0], pick = +String(arg).slice(1), t = LAB[inc?.scn.id]?.find(x => x.k === k);
+  if (!t || (inc.lab = inc.lab || {})[k]) return;
+  const ok = pick === t.c;
+  inc.lab[k] = { ok };
+  if (ok) { S.xp += 20; Snd.good(); } else { inc.left = Math.max(5, inc.left - 30); Snd.bad(); }
+  toast(`${LAB_KINDS[k].name}: ${ok ? 'solved · +20 XP' : 'missed · −30 s'}`, ok ? 'good' : 'bad', LAB_KINDS[k].icon);
+  if (mp?.host) teamNotice(`${mp.actor || ROLES[LAB_ROLE[k]].name} (${ROLES[LAB_ROLE[k]].name}) ${ok ? 'solved' : 'missed'} the ${LAB_KINDS[k].name.toLowerCase()} task. Finding: ${t.f}`);
+  if (S.panel?.name === 'clues') renderPanel();
+  renderBanner();
 }
 
 function clueHTML(c, i) {
@@ -1438,6 +1469,7 @@ const ACTS = {
   tp: i => markClue(+i, 'tp'),
   fp: i => markClue(+i, 'fp'),
   respond: () => openRespond(),
+  lab: arg => solveLab(arg),
   play: id => {
     const inc = S.incident, r = inc?.scn.responses.find(x => x.id === id);
     if (!r || inc.pending) return;
@@ -1496,7 +1528,8 @@ document.addEventListener('click', e => {
   const raw = el.dataset.act;
   const i = raw.indexOf(':');
   const act = i < 0 ? raw : raw.slice(0, i), arg = i < 0 ? undefined : raw.slice(i + 1);
-  if (mp && ROLE_ACTS[act] && ROLE_ACTS[act] !== mp.role) { toast(`Only the ${esc(ROLES[ROLE_ACTS[act]].name)} can do that. Ask them in the team chat.`, 'warn', 'lock', true); return; }
+  const need = act === 'lab' ? LAB_ROLE[arg[0]] : ROLE_ACTS[act];
+  if (mp && need && need !== mp.role) { toast(`Only the ${esc(ROLES[need].name)} can do that. Ask them in the team chat.`, 'warn', 'lock', true); return; }
   if (mirror() && REMOTE_ACTS.has(act)) {
     if (act === 'tp' || act === 'fp') ACTS[act](arg);            // show the call at once; the host confirms it
     if (act === 'play' || act === 'sandbox') closeModal();
@@ -1578,7 +1611,7 @@ function snapshot() {
     T: S.T, speed: S.speed, funds: S.funds, reliability: S.reliability, xp: S.xp, streak: S.streak, over: S.over,
     owned: [...S.owned], feeders: S.feeders, damaged: S.damaged, chapter: S.chapter, questIdx: S.questIdx,
     storming: S.storming, stats: S.stats, badges: [...S.badges], pendingCtrl: [...S.pendingCtrl],
-    incident: inc && { key: inc.key, scn: inc.scn, drill: inc.drill, tags: [...inc.tags], fps: [...inc.fps], left: inc.left, total: inc.total, startT: inc.startT, clueOrder: inc.clueOrder, pending: inc.pending },
+    incident: inc && { key: inc.key, scn: inc.scn, drill: inc.drill, tags: [...inc.tags], fps: [...inc.fps], left: inc.left, total: inc.total, startT: inc.startT, clueOrder: inc.clueOrder, pending: inc.pending, lab: inc.lab || {} },
   };
 }
 function sendState() {
@@ -1633,8 +1666,9 @@ function applyState(s) {
       S.incident.fps = new Set(inc.fps);
       S.incident.left = inc.left;
       S.incident.total = inc.total;
-      const flow = S.incident.pending !== inc.pending;
+      const flow = S.incident.pending !== inc.pending || JSON.stringify(S.incident.lab || {}) !== JSON.stringify(inc.lab || {});
       S.incident.pending = inc.pending;
+      S.incident.lab = inc.lab || {};
       if (flow) { if (S.panel?.name === 'clues') renderPanel(); if (inc.pending) closeModal(); }
       if (was !== `${inc.tags}|${inc.fps}`) { refreshPins(); if (S.panel?.name === 'clues') renderPanel(); }
     }
@@ -1655,7 +1689,7 @@ function teamNotice(text) {
 }
 
 function hostAct(msg) {
-  const need = ROLE_ACTS[msg.act];
+  const need = msg.act === 'lab' ? LAB_ROLE[String(msg.arg)[0]] : ROLE_ACTS[msg.act];
   if (need && need !== msg.from) return;                          // the room server names the sender's role
   mp.actor = msg.name;                                            // named in the team's notices
   if (msg.act === 'speed') setSpeed(+msg.arg);
