@@ -2356,6 +2356,7 @@ export class World {
     }
   }
   route(r) {
+    if (r.cable) return this.cableRoute(r);
     const attach = this.chain(r.pts, r.h);
     const [mx, mz] = r.pts[Math.floor(r.pts.length / 2)];
     this.lineTags.push({ text: r.tag, pos: new THREE.Vector3(mx, r.h + 3, mz), ch: r.ch });
@@ -2363,13 +2364,27 @@ export class World {
     return attach;
   }
 
+  // underground cable: short yellow marker posts along the route every 10 m, never on a road
+  cableRoute(r) {
+    const [mx, mz] = r.pts[Math.floor(r.pts.length / 2)];
+    this.lineTags.push({ text: r.tag, pos: new THREE.Vector3(mx, 3, mz), ch: r.ch });
+    this.cablePosts = this.cablePosts || [];
+    for (let i = 0; i < r.pts.length - 1; i++) {
+      const [ax, az] = r.pts[i], [bx, bz] = r.pts[i + 1], len = Math.hypot(bx - ax, bz - az);
+      this.lineSegs.push([ax, az, bx, bz]);
+      for (let d = 4; d < len; d += 10) this.cablePosts.push([ax + ((bx - ax) * d) / len, az + ((bz - az) * d) / len]);
+    }
+    return null;
+  }
+
   buildLines() {
     const routes = [
       // towers about 30 m apart (long spans), so the map stays readable
-      { pts: [[24, -5], [48, -11], [72, -17]], h: 13, tag: '33 kV Feeder A · Homes' },
-      { pts: [[24, 5], [48, 11], [72, 17]], h: 13, tag: '33 kV Feeder B · Hospital' },
-      { pts: [[16, 17], [38, 39], [62, 57]], h: 13, tag: '33 kV Feeder C · College' },
-      { pts: [[6, 17], [7, 51]], h: 13, tag: '33 kV Feeder D · Mutiara Avenue Mall' },
+      // the 33 kV feeders run underground, as town feeders usually do: no towers, just cable-route markers
+      { pts: [[24, -5], [48, -11], [72, -17]], cable: true, tag: '33 kV Feeder A · Homes' },
+      { pts: [[24, 5], [48, 11], [72, 17]], cable: true, tag: '33 kV Feeder B · Hospital' },
+      { pts: [[16, 17], [38, 39], [62, 57]], cable: true, tag: '33 kV Feeder C · College' },
+      { pts: [[6, 17], [7, 51]], cable: true, tag: '33 kV Feeder D · Mutiara Avenue Mall' },
       { pts: [[-6, 17], [-36, 48], [-84, 71], [-100, 74]], h: 15, tag: '132 kV Line 3 · Solar farm PV inverters' },
       { pts: [[0, -16], [8, -40], [32, -51.5]], h: 15, tag: '132 kV Line 1 · Biogas genset G-501' },
       { pts: [[22, -17], [44, -40], [56, -65]], h: 15, tag: '132 kV Line 2 · Wind turbines WTG-1–4 + Wind farm genset G-502' },
@@ -2387,7 +2402,12 @@ export class World {
       ['C', 'townC', [65.5, 53.5, 74.5, 60.5], 'xmin', 'zmax'],
       ['D', 'townD', [2.5, 54.3, 11.5, 61.3], 'zmin', 'zmax'],
     ];
-    dist.forEach(([f, area, rect, gantrySide, gateSide], i) => this.distSub(this.areas[area], rect, gantrySide, gateSide, ends[i].at(-1), routes[i].pts.at(-1)));
+    dist.forEach(([f, area, rect, gantrySide, gateSide], i) => this.distSub(this.areas[area], rect, gantrySide, gateSide, ends[i]?.at(-1), routes[i].pts.at(-1)));
+    const posts = (this.cablePosts || []).filter(([x, z]) => !this.roadSegs.some(q => nearestOnSeg(x, z, q)[2] < 4.5));
+    const pm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.12, 0.9, 8).translate(0, 0.45, 0), mat(0xf2c230), posts.length);
+    posts.forEach(([x, z], i) => pm.setMatrixAt(i, new THREE.Matrix4().makeTranslation(x, 0, z)));
+    pm.castShadow = true;
+    this.scene.add(pm);
     this.finishLines(this.scene);
   }
 
@@ -2403,15 +2423,17 @@ export class World {
     this.hvFence(g, x0, z0, x1, z1, gate);
     const alongX = gantrySide[0] === 'z', gx = gantrySide === 'xmin' ? x0 + 0.8 : cx, gz = gantrySide === 'zmin' ? z0 + 0.8 : cz;
     const ends = alongX ? [[gx - 2.4, gz], [gx + 2.4, gz]] : [[gx, gz - 2.4], [gx, gz + 2.4]];
-    for (const [px, pz] of ends) this.lattice(g, px, pz, 7, 0.3, 0.24).position.y = 0.15;
-    this.girder(g, new THREE.Vector3(ends[0][0], 7, ends[0][1]), new THREE.Vector3(ends[1][0], 7, ends[1][1]), 0.24);
-    const ty = alongX ? gx : gz;
-    const pts = towerAttach.map((a, k) => {
-      const t = THREE.MathUtils.clamp((alongX ? a.x : a.z) - ty, -2, 2);
-      return new THREE.Vector3(alongX ? gx + t : gx, k < 2 ? 6.6 : 5.9, alongX ? gz : gz + t);
-    });
-    this.span(towerAttach, pts, 0.5);
     this.lineSegs.push([tx, tz, gx, gz]);
+    if (towerAttach) {
+      for (const [px, pz] of ends) this.lattice(g, px, pz, 7, 0.3, 0.24).position.y = 0.15;
+      this.girder(g, new THREE.Vector3(ends[0][0], 7, ends[0][1]), new THREE.Vector3(ends[1][0], 7, ends[1][1]), 0.24);
+      const ty = alongX ? gx : gz;
+      const pts = towerAttach.map((a, k) => {
+        const t = THREE.MathUtils.clamp((alongX ? a.x : a.z) - ty, -2, 2);
+        return new THREE.Vector3(alongX ? gx + t : gx, k < 2 ? 6.6 : 5.9, alongX ? gz : gz + t);
+      });
+      this.span(towerAttach, pts, 0.5);
+    } else box(g, 1.2, 1.4, 0.8, 0x6f7a80, gx, 0.15, gz);              // cable termination box where the feeder comes up
     const inX = gantrySide === 'xmin' ? 1 : 0, inZ = gantrySide === 'zmin' ? 1 : 0;
     this.padTransformer(g, cx + inX * 0.8, cz + inZ * 0.8);
     this.cabinet(g, cx + inX * 3 - inZ * 2.6, 0.15, cz + inZ * 2.4 - inX * 2.2, 1.4, 1.5, 0.8, 0x9aa3a8, inX ? Math.PI / 2 : 0);
